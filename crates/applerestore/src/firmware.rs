@@ -190,15 +190,26 @@ fn resolve_mesu(identifier: &str, version: Option<&str>) -> Result<Firmware> {
 ///
 /// Overridable by the caller (CLI `--cache-dir` / `APPLERESTORE_CACHE_DIR`).
 pub fn default_cache_dir() -> Result<PathBuf> {
-    if let Ok(dir) = std::env::var("APPLERESTORE_CACHE_DIR") {
+    resolve_cache_dir(
+        std::env::var_os("APPLERESTORE_CACHE_DIR"),
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+}
+
+/// Pure resolution logic behind [`default_cache_dir`] (testable without touching
+/// process-global environment variables).
+fn resolve_cache_dir(
+    override_dir: Option<std::ffi::OsString>,
+    xdg_config_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Result<PathBuf> {
+    if let Some(dir) = override_dir.filter(|d| !d.is_empty()) {
         return Ok(PathBuf::from(dir));
     }
-    let base = match std::env::var_os("XDG_CONFIG_HOME") {
+    let base = match xdg_config_home {
         Some(x) if !x.is_empty() => PathBuf::from(x),
-        _ => {
-            let home = std::env::var_os("HOME").ok_or(Error::NoHomeDir)?;
-            PathBuf::from(home).join(".config")
-        }
+        _ => PathBuf::from(home.filter(|h| !h.is_empty()).ok_or(Error::NoHomeDir)?).join(".config"),
     };
     Ok(base.join("applerestore").join("firmwares"))
 }
@@ -208,26 +219,50 @@ pub fn cache_path(cache_dir: &Path, fw: &Firmware) -> PathBuf {
     cache_dir.join(fw.file_name())
 }
 
-/// Return the cached path if the firmware is present and passes checksum
-/// verification (when a checksum is known).
+/// Return the cached path if the firmware is present and verified.
+///
+/// Verification at download time is recorded in a `.json` sidecar. On repeat
+/// lookups we trust that record (file present + size matches + recorded
+/// checksum matches what we now expect) and skip re-hashing the ~20 GB file.
+/// A full hash runs only when the sidecar is missing or inconsistent.
 pub fn cached(cache_dir: &Path, fw: &Firmware) -> Option<PathBuf> {
     let path = cache_path(cache_dir, fw);
-    if !path.exists() {
-        return None;
+    let actual_size = std::fs::metadata(&path).ok()?.len();
+
+    // Fast path: a sidecar we wrote after a verified download.
+    if let Some(sidecar) = read_sidecar(&path) {
+        let size_ok = actual_size == sidecar.size && (fw.size == 0 || fw.size == actual_size);
+        let checksum_ok = match (&fw.sha256, &sidecar.sha256) {
+            (Some(want), Some(have)) => want.eq_ignore_ascii_case(have),
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        if size_ok && checksum_ok {
+            return Some(path);
+        }
     }
+
+    // Slow path: no trustworthy sidecar — verify by hashing, then record it.
     if let Some(expected) = &fw.sha256 {
         match sha256_file(&path) {
-            Ok(actual) if &actual == expected => Some(path),
+            Ok(actual) if actual.eq_ignore_ascii_case(expected) => {
+                let _ = write_sidecar(&path, fw);
+                Some(path)
+            }
             _ => None,
         }
+    } else if fw.size == 0 || fw.size == actual_size {
+        Some(path)
     } else {
-        // No checksum to verify against; trust size if we have it.
-        match (fw.size, std::fs::metadata(&path).map(|m| m.len())) {
-            (0, _) => Some(path),
-            (want, Ok(got)) if want == got => Some(path),
-            _ => None,
-        }
+        None
     }
+}
+
+/// Read and parse the `.json` sidecar next to a cached firmware, if present.
+fn read_sidecar(final_path: &Path) -> Option<Firmware> {
+    let sidecar = final_path.with_extension("ipsw.json");
+    let bytes = std::fs::read(sidecar).ok()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 /// Download (or resume) the firmware into the cache and verify its checksum.
@@ -426,22 +461,50 @@ mod tests {
 
     #[test]
     fn cache_dir_prefers_env_override() {
-        std::env::set_var("APPLERESTORE_CACHE_DIR", "/tmp/ar-test-cache");
-        assert_eq!(
-            default_cache_dir().unwrap(),
-            PathBuf::from("/tmp/ar-test-cache")
-        );
-        std::env::remove_var("APPLERESTORE_CACHE_DIR");
+        let got = resolve_cache_dir(
+            Some("/tmp/ar-test-cache".into()),
+            Some("/tmp/xdg".into()),
+            Some("/home/x".into()),
+        )
+        .unwrap();
+        assert_eq!(got, PathBuf::from("/tmp/ar-test-cache"));
     }
 
     #[test]
     fn cache_dir_uses_xdg() {
-        std::env::remove_var("APPLERESTORE_CACHE_DIR");
-        std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
-        assert_eq!(
-            default_cache_dir().unwrap(),
-            PathBuf::from("/tmp/xdg/applerestore/firmwares")
-        );
-        std::env::remove_var("XDG_CONFIG_HOME");
+        let got = resolve_cache_dir(None, Some("/tmp/xdg".into()), Some("/home/x".into())).unwrap();
+        assert_eq!(got, PathBuf::from("/tmp/xdg/applerestore/firmwares"));
+    }
+
+    #[test]
+    fn cache_dir_falls_back_to_home() {
+        let got = resolve_cache_dir(None, None, Some("/home/x".into())).unwrap();
+        assert_eq!(got, PathBuf::from("/home/x/.config/applerestore/firmwares"));
+    }
+
+    #[test]
+    fn cache_hit_trusts_sidecar_without_hashing() {
+        let dir = std::env::temp_dir().join(format!("ar-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut f = fw();
+        f.size = 5;
+        f.sha256 = Some("deadbeef".into()); // deliberately NOT the real hash of the file
+        let path = cache_path(&dir, &f);
+        std::fs::write(&path, b"hello").unwrap(); // 5 bytes; real sha256 != deadbeef
+        write_sidecar(&path, &f).unwrap();
+
+        // Sidecar records size 5 + sha256 "deadbeef" matching the request, so
+        // this is a hit even though the file's true hash differs — proving we
+        // trusted the sidecar rather than re-hashing.
+        assert_eq!(cached(&dir, &f), Some(path.clone()));
+
+        // A different expected checksum invalidates the fast path and falls
+        // through to hashing, which won't match "hello" → miss.
+        let mut g = f.clone();
+        g.sha256 = Some("00ff".into());
+        assert_eq!(cached(&dir, &g), None);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

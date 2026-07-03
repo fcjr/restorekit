@@ -25,24 +25,22 @@ pub fn run(opts: Opts) -> Result<()> {
 
 /// One-shot: trigger DFU (if the host can), wait for it, then restore.
 pub fn run_oneshot(opts: Opts) -> Result<()> {
+    let json = opts.json;
     if dfu::host_can_trigger_dfu() && dfu::list()?.is_empty() {
-        println!("Triggering DFU mode on the target...");
+        say(json, "Triggering DFU mode on the target...");
         #[cfg(target_os = "macos")]
-        dfu::vdm::enter_dfu(&mut |e| {
-            if let Event::DfuTriggerStage { stage } = e {
-                println!("  {stage}");
-            }
-        })?;
-    } else if dfu::list()?.is_empty() {
+        dfu::vdm::enter_dfu(&mut |e| emit_stage(json, e))?;
+    } else if dfu::list()?.is_empty() && !json {
         eprintln!("{}\n", dfu::manual_dfu_instructions());
     }
 
-    println!("Waiting for a Mac in DFU mode...");
+    say(json, "Waiting for a Mac in DFU mode...");
     let device = dfu::wait_for_dfu(Duration::from_secs(120))?;
     restore_device(&device, opts)
 }
 
 fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
+    let json = opts.json;
     let cache = match &opts.cache_dir {
         Some(d) => d.clone(),
         None => firmware::default_cache_dir()?,
@@ -60,12 +58,22 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
                 cpid: device.cpid,
                 bdid: device.bdid,
             })?;
-        println!("Resolving firmware for {identifier}...");
+        say(json, &format!("Resolving firmware for {identifier}..."));
         let fw = firmware::resolve(&identifier, opts.os_version.as_deref())?;
-        println!("  macOS {} (build {})", fw.version, fw.build);
+        if json {
+            emit(Event::FirmwareResolved {
+                identifier: fw.identifier.clone(),
+                version: fw.version.clone(),
+                build: fw.build.clone(),
+                size: fw.size,
+                url: fw.url.clone(),
+            });
+        } else {
+            println!("  macOS {} (build {})", fw.version, fw.build);
+        }
 
         let bar = ProgressBar::hidden();
-        let path = firmware::download(&cache, &fw, &mut |e| download_render(&bar, e))?;
+        let path = firmware::download(&cache, &fw, &mut |e| download_render(&bar, e, json))?;
         bar.finish_and_clear();
         path
     };
@@ -76,27 +84,57 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
         Mode::Erase
     };
 
-    if !confirm(device, mode, opts.yes)? {
-        println!("Aborted.");
+    if !confirm(device, mode, opts.yes, json)? {
+        say(json, "Aborted.");
         return Ok(());
     }
 
-    println!("Starting restore. Do not disconnect the target.");
+    say(json, "Starting restore. Do not disconnect the target.");
     let bar = ProgressBar::new(100);
     bar.set_style(
         ProgressStyle::with_template("{msg:24} {bar:32.green/black} {percent:>3}%").unwrap(),
     );
     restore::restore(&ipsw_path, device.ecid, Some(&cache), mode, &mut |event| {
-        restore_render(&bar, event, opts.json)
+        restore_render(&bar, event, json)
     })?;
     bar.finish_and_clear();
-    println!("Restore complete. The target should boot to Setup Assistant.");
+    say(
+        json,
+        "Restore complete. The target should boot to Setup Assistant.",
+    );
     Ok(())
 }
 
-fn confirm(device: &DfuDevice, mode: Mode, yes: bool) -> Result<bool> {
+/// Print a human status line, suppressed in `--json` mode.
+fn say(json: bool, msg: &str) {
+    if !json {
+        println!("{msg}");
+    }
+}
+
+/// Emit an event as a JSON line.
+fn emit(event: Event) {
+    println!("{}", serde_json::to_string(&event).unwrap());
+}
+
+fn emit_stage(json: bool, event: Event) {
+    if json {
+        emit(event);
+    } else if let Event::DfuTriggerStage { stage } = event {
+        println!("  {stage}");
+    }
+}
+
+fn confirm(device: &DfuDevice, mode: Mode, yes: bool, json: bool) -> Result<bool> {
     if mode == Mode::Revive || yes {
         return Ok(true);
+    }
+    // Can't prompt interactively in machine-readable mode.
+    if json {
+        return Err(Error::RestoreFailed {
+            status: -1,
+            log_tail: "refusing to erase without --yes in --json mode".into(),
+        });
     }
     println!();
     println!(
@@ -111,7 +149,11 @@ fn confirm(device: &DfuDevice, mode: Mode, yes: bool) -> Result<bool> {
     Ok(input.trim() == "ERASE")
 }
 
-fn download_render(bar: &ProgressBar, event: Event) {
+fn download_render(bar: &ProgressBar, event: Event, json: bool) {
+    if json {
+        emit(event);
+        return;
+    }
     match event {
         Event::CacheHit { path } => println!("Using cached firmware: {path}"),
         Event::DownloadResumed { received } => {

@@ -36,7 +36,17 @@ pub fn run(
     let fw = firmware::resolve(&identifier, os_version.as_deref())?;
 
     if json {
-        println!("{}", serde_json::to_string(&fw).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string(&Event::FirmwareResolved {
+                identifier: fw.identifier.clone(),
+                version: fw.version.clone(),
+                build: fw.build.clone(),
+                size: fw.size,
+                url: fw.url.clone(),
+            })
+            .unwrap()
+        );
     } else {
         println!(
             "  macOS {} (build {}), {:.1} GB",

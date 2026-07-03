@@ -93,7 +93,7 @@ fn main() {
     let result = match cli.command {
         Command::Status => commands::status::run(cli.json),
         Command::Dfu => commands::dfu::enter(cli.json),
-        Command::Reboot => commands::dfu::reboot(),
+        Command::Reboot => commands::dfu::reboot(cli.json),
         Command::Download {
             identifier,
             os_version,
@@ -106,7 +106,14 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("error: {e}");
+        if cli.json {
+            println!(
+                "{}",
+                serde_json::json!({ "event": "error", "message": e.to_string() })
+            );
+        } else {
+            eprintln!("error: {e}");
+        }
         std::process::exit(1);
     }
 }
