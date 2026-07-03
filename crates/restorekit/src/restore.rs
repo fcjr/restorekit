@@ -31,20 +31,23 @@ fn step_name(step: i32) -> &'static str {
     }
 }
 
-/// Bridges the C progress callback to the Rust closure. libidevicerestore is not
-/// re-entrant, so restores are serialized and the active callback lives here.
-struct ActiveProgress<'a> {
-    callback: &'a mut dyn FnMut(Event),
-}
-
 static RESTORE_LOCK: Mutex<()> = Mutex::new(());
 
+/// idevicerestore's restore path is stack-hungry (big local buffers, deep call
+/// chains). That fits comfortably in the 8 MB main-thread stack on macOS/Linux
+/// but overflows Windows' ~1 MB default, so we always run it on a thread with a
+/// generous stack — and the same on every platform for consistency.
+const RESTORE_STACK: usize = 64 * 1024 * 1024;
+
+/// Bridges the C progress callback to a channel back to the caller's thread.
+/// libidevicerestore runs on the restore worker thread; the caller's `progress`
+/// closure (which may not be `Send`) stays on the calling thread.
 unsafe extern "C" fn progress_trampoline(step: i32, step_progress: f64, userdata: *mut c_void) {
     if userdata.is_null() {
         return;
     }
-    let active = &mut *(userdata as *mut ActiveProgress);
-    (active.callback)(Event::RestoreStep {
+    let tx = &*(userdata as *const std::sync::mpsc::Sender<Event>);
+    let _ = tx.send(Event::RestoreStep {
         step: step.max(0) as u32,
         name: step_name(step).to_string(),
         progress: step_progress as f32,
@@ -79,64 +82,89 @@ pub fn restore(
         sys::LL_WARNING
     });
 
-    let ipsw_c = CString::new(ipsw.as_os_str().to_string_lossy().as_bytes())
-        .map_err(|_| Error::Download("ipsw path contains a NUL byte".into()))?;
-    let cache_c = cache_dir
-        .map(|d| CString::new(d.as_os_str().to_string_lossy().as_bytes()))
-        .transpose()
-        .map_err(|_| Error::Download("cache path contains a NUL byte".into()))?;
+    // Owned copies to hand to the worker thread.
+    let ipsw = ipsw.to_path_buf();
+    let cache_dir = cache_dir.map(Path::to_path_buf);
+    let (tx, rx) = std::sync::mpsc::channel::<Event>();
 
-    let mut active = ActiveProgress { callback: progress };
+    let worker = std::thread::Builder::new()
+        .name("restore".into())
+        .stack_size(RESTORE_STACK)
+        .spawn(move || -> Result<()> {
+            let ipsw_c = CString::new(ipsw.as_os_str().to_string_lossy().as_bytes())
+                .map_err(|_| Error::Download("ipsw path contains a NUL byte".into()))?;
+            let cache_c = cache_dir
+                .map(|d| CString::new(d.as_os_str().to_string_lossy().as_bytes()))
+                .transpose()
+                .map_err(|_| Error::Download("cache path contains a NUL byte".into()))?;
 
-    unsafe {
-        let client = sys::idevicerestore_client_new();
-        if client.is_null() {
-            return Err(Error::RestoreFailed {
-                status: -1,
-                log_tail: "idevicerestore_client_new returned null".into(),
-            });
-        }
-        // Ensure the client is always freed, even on early return.
-        #[allow(clippy::redundant_closure_call)]
-        let result = (|| {
-            sys::idevicerestore_set_ecid(client, ecid);
-            let flags = match mode {
-                Mode::Erase => sys::FLAG_ERASE,
-                Mode::Revive => 0,
-            };
-            sys::idevicerestore_set_flags(client, flags);
-            sys::idevicerestore_set_ipsw(client, ipsw_c.as_ptr());
-            if let Some(cache) = &cache_c {
-                sys::idevicerestore_set_cache_path(client, cache.as_ptr());
+            unsafe {
+                let client = sys::idevicerestore_client_new();
+                if client.is_null() {
+                    return Err(Error::RestoreFailed {
+                        status: -1,
+                        log_tail: "idevicerestore_client_new returned null".into(),
+                    });
+                }
+                // Ensure the client is always freed, even on early return.
+                #[allow(clippy::redundant_closure_call)]
+                let result = (|| {
+                    sys::idevicerestore_set_ecid(client, ecid);
+                    let flags = match mode {
+                        Mode::Erase => sys::FLAG_ERASE,
+                        Mode::Revive => 0,
+                    };
+                    sys::idevicerestore_set_flags(client, flags);
+                    sys::idevicerestore_set_ipsw(client, ipsw_c.as_ptr());
+                    if let Some(cache) = &cache_c {
+                        sys::idevicerestore_set_cache_path(client, cache.as_ptr());
+                    }
+                    sys::idevicerestore_set_progress_callback(
+                        client,
+                        Some(progress_trampoline),
+                        &tx as *const std::sync::mpsc::Sender<Event> as *mut c_void,
+                    );
+
+                    let rc = sys::idevicerestore_start(client);
+                    if rc == 0 {
+                        Ok(())
+                    } else {
+                        let tail = sys::error_tail(20);
+                        let log_tail = if tail.is_empty() {
+                            format!("idevicerestore_start returned {rc}")
+                        } else {
+                            tail
+                        };
+                        Err(Error::RestoreFailed {
+                            status: rc,
+                            log_tail,
+                        })
+                    }
+                })();
+
+                sys::idevicerestore_client_free(client);
+                result
             }
-            sys::idevicerestore_set_progress_callback(
-                client,
-                Some(progress_trampoline),
-                &mut active as *mut ActiveProgress as *mut c_void,
-            );
+        })
+        .map_err(|e| Error::RestoreFailed {
+            status: -1,
+            log_tail: format!("failed to spawn restore thread: {e}"),
+        })?;
 
-            let rc = sys::idevicerestore_start(client);
-            if rc == 0 {
-                Ok(())
-            } else {
-                let tail = sys::error_tail(20);
-                let log_tail = if tail.is_empty() {
-                    format!("idevicerestore_start returned {rc}")
-                } else {
-                    tail
-                };
-                Err(Error::RestoreFailed {
-                    status: rc,
-                    log_tail,
-                })
-            }
-        })();
+    // Pump progress events on the calling thread until the worker drops its
+    // sender (i.e. the restore has finished).
+    for event in rx {
+        progress(event);
+    }
 
-        sys::idevicerestore_client_free(client);
-        result
-    }?;
+    worker.join().unwrap_or_else(|_| {
+        Err(Error::RestoreFailed {
+            status: -1,
+            log_tail: "restore thread panicked".into(),
+        })
+    })?;
 
-    (active.callback)(Event::Done);
+    progress(Event::Done);
     Ok(())
 }
 
