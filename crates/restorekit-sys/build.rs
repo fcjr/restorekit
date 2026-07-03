@@ -38,6 +38,7 @@ fn main() {
         openssl_include,
         zlib_include,
         curl_include,
+        windows: env::var_os("CARGO_CFG_WINDOWS").is_some(),
     };
 
     // libzip (needs zlib) — from source via CMake.
@@ -66,17 +67,30 @@ struct Deps {
     openssl_include: Option<String>,
     zlib_include: Option<String>,
     curl_include: Option<String>,
+    /// Building for a Windows target (autotools run under MSYS2/MinGW, which
+    /// wants POSIX-style paths).
+    windows: bool,
 }
 
 impl Deps {
+    /// A path in the form the C toolchain expects: MSYS2 POSIX on Windows,
+    /// native otherwise.
+    fn path(&self, p: &Path) -> String {
+        if self.windows {
+            to_msys(p)
+        } else {
+            p.display().to_string()
+        }
+    }
+
     /// pkg-config search path pointing at our staging prefix.
     fn pkg_config_path(&self) -> String {
-        self.prefix.join("lib/pkgconfig").display().to_string()
+        self.path(&self.prefix.join("lib/pkgconfig"))
     }
 
     /// Extra include dirs (staging + vendored -sys crates) as `-I` flags.
     fn cflags(&self) -> String {
-        let mut flags = format!("-I{}", self.prefix.join("include").display());
+        let mut flags = format!("-I{}", self.path(&self.prefix.join("include")));
         for inc in [
             &self.openssl_include,
             &self.zlib_include,
@@ -85,13 +99,24 @@ impl Deps {
         .into_iter()
         .flatten()
         {
-            flags.push_str(&format!(" -I{inc}"));
+            flags.push_str(&format!(" -I{}", self.path(Path::new(inc))));
         }
         flags
     }
 
     fn ldflags(&self) -> String {
-        format!("-L{}", self.prefix.join("lib").display())
+        format!("-L{}", self.path(&self.prefix.join("lib")))
+    }
+}
+
+/// Translate `C:\a\b` → `/c/a/b` for MSYS2 tools.
+fn to_msys(p: &Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "/");
+    let b = s.as_bytes();
+    if b.len() >= 2 && b[1] == b':' {
+        format!("/{}{}", (b[0] as char).to_ascii_lowercase(), &s[2..])
+    } else {
+        s
     }
 }
 
@@ -126,20 +151,22 @@ fn build_autotools(src: &Path, name: &str, deps: &Deps) {
     }
     println!("cargo:warning=building {name} from source");
 
-    // autogen.sh regenerates configure from a git checkout.
+    // autogen.sh regenerates configure from a git checkout. On Windows the
+    // scripts run through MSYS2's `sh` (Rust's Command can't exec a shell script
+    // directly); elsewhere they're executable.
     if src.join("autogen.sh").exists() && !src.join("configure").exists() {
         run(
-            Command::new("./autogen.sh")
+            shell(deps.windows, "./autogen.sh")
                 .current_dir(src)
                 .env("NOCONFIGURE", "1"),
             &format!("{name} autogen"),
         );
     }
 
-    let mut configure = Command::new("./configure");
+    let mut configure = shell(deps.windows, "./configure");
     configure
         .current_dir(src)
-        .arg(format!("--prefix={}", deps.prefix.display()))
+        .arg(format!("--prefix={}", deps.path(&deps.prefix)))
         .arg("--enable-static")
         .arg("--disable-shared")
         .arg("--without-cython")
@@ -282,13 +309,36 @@ fn emit_link_directives(prefix: &Path) {
     // openssl/zlib/curl come from the vendored -sys crates' own link directives.
 
     // System libraries and frameworks.
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+    let target_os = env::var("CARGO_CFG_TARGET_OS");
+    if target_os.as_deref() == Ok("macos") {
         for fw in ["CoreFoundation", "IOKit", "Security"] {
             println!("cargo:rustc-link-lib=framework={fw}");
+        }
+    } else if target_os.as_deref() == Ok("windows") {
+        // libusb (static, from MSYS2) plus the Win32 libraries it, libcurl, and
+        // OpenSSL pull in.
+        println!("cargo:rustc-link-lib=static=usb-1.0");
+        for lib in [
+            "setupapi", "ole32", "ws2_32", "crypt32", "secur32", "bcrypt", "iphlpapi", "userenv",
+            "advapi32",
+        ] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else {
         println!("cargo:rustc-link-lib=dylib=usb-1.0");
         println!("cargo:rustc-link-lib=dylib=pthread");
+    }
+}
+
+/// A Command that runs `script` — directly on Unix, or via MSYS2's `sh` on
+/// Windows (where Rust's `Command` can't exec a shell script itself).
+fn shell(windows: bool, script: &str) -> Command {
+    if windows {
+        let mut c = Command::new("sh");
+        c.arg(script);
+        c
+    } else {
+        Command::new(script)
     }
 }
 
