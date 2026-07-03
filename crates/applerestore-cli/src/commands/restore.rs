@@ -28,17 +28,7 @@ pub fn run(opts: Opts) -> Result<()> {
 
 /// One-shot: trigger DFU (if the host can), wait for it, then restore.
 pub fn run_oneshot(opts: Opts) -> Result<()> {
-    let json = opts.json;
-    if dfu::host_can_trigger_dfu() && dfu::list()?.is_empty() {
-        say(json, "Triggering DFU mode on the target...");
-        #[cfg(target_os = "macos")]
-        dfu::vdm::enter_dfu(&mut |e| emit_stage(json, e))?;
-    } else if dfu::list()?.is_empty() && !json {
-        eprintln!("{}\n", dfu::manual_dfu_instructions());
-    }
-
-    say(json, "Waiting for a Mac in DFU mode...");
-    let device = dfu::wait_for_dfu(Duration::from_secs(120))?;
+    let device = super::dfu::ensure_present(opts.json, Duration::from_secs(120))?;
     restore_device(&device, opts)
 }
 
@@ -124,14 +114,6 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
 fn say(json: bool, msg: &str) {
     if !json {
         println!("{msg}");
-    }
-}
-
-fn emit_stage(json: bool, event: Event) {
-    if json {
-        render::emit_json(&event);
-    } else if let Event::DfuTriggerStage { stage } = event {
-        println!("  {stage}");
     }
 }
 
