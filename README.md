@@ -48,6 +48,9 @@ That's the whole flow: it triggers DFU, waits for the device, downloads the
 correct firmware (cached for next time), asks you to confirm the erase, and
 restores. The target reboots into Setup Assistant.
 
+On Linux, you can avoid `sudo` by installing a [udev
+rule](#linux-usb-permissions) first.
+
 ## Commands
 
 | Command | What it does |
@@ -102,11 +105,29 @@ Use a data-capable USB-C (or Thunderbolt) cable and the target's **DFU port**:
 
 Triggering DFU electronically needs an Apple Silicon Mac host and `sudo`;
 everywhere else, put the target into DFU by hand and `restorekit` takes it from
-there. On Linux the restore phase talks to the device through `usbmuxd` — make
-sure it's installed and running. On Windows the target in DFU/recovery needs a
-libusb-compatible driver: bind **WinUSB** to it with [Zadig](https://zadig.akeo.ie/)
-(or install the [UsbDk](https://github.com/daynix/UsbDk) filter) so `restorekit`
-can talk to it.
+there. On Linux, `restorekit` embeds its own usbmuxd server — no external daemon
+needed — but requires USB device access (see [Linux USB
+permissions](#linux-usb-permissions) below). On Windows the target in DFU/recovery
+needs a libusb-compatible driver: bind **WinUSB** to it with
+[Zadig](https://zadig.akeo.ie/) (or install the
+[UsbDk](https://github.com/daynix/UsbDk) filter) so `restorekit` can talk to it.
+
+## Linux USB permissions
+
+On Linux, `restorekit` needs write access to Apple USB devices. You can either
+run with `sudo`, or install a udev rule so it works without root:
+
+```sh
+sudo cp udev/51-restorekit.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+After installing the rule, **unplug and re-plug** the device (or re-enter DFU)
+so the new permissions apply. This is a one-time setup — the rule persists
+across reboots.
+
+The `.deb` package installs this rule automatically. For the `.AppImage` or a
+`cargo install` build, copy it manually as shown above.
 
 ## Desktop app
 
