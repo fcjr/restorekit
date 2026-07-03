@@ -148,6 +148,15 @@ pub fn helper_status() -> String {
     }
 }
 
+/// Bring the app window to the foreground (used after the helper is approved,
+/// so the app surfaces itself over System Settings).
+#[tauri::command]
+pub fn focus_app(window: tauri::WebviewWindow) -> Result<(), String> {
+    let _ = window.unminimize();
+    let _ = window.show();
+    window.set_focus().map_err(|e| e.to_string())
+}
+
 /// Register the helper and open System Settings so the user can approve it.
 #[tauri::command]
 pub fn approve_helper() -> Result<(), String> {

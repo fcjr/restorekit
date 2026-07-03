@@ -66,6 +66,7 @@ export const api = {
   rebootTarget: () => call<void>("reboot_target"),
   helperStatus: () => call<string>("helper_status"),
   approveHelper: () => call<void>("approve_helper"),
+  focusApp: () => call<void>("focus_app"),
   resolveFirmware: (identifier: string, osVersion?: string) =>
     call<Firmware>("resolve_firmware", { identifier, osVersion: osVersion || null }),
   downloadFirmware: (firmware: Firmware) => call<string>("download_firmware", { firmware }),

@@ -2,12 +2,14 @@
   let {
     note = "",
     checking = false,
+    approved = false,
     onOpenSettings,
     onRetry,
     onClose,
   }: {
     note?: string;
     checking?: boolean;
+    approved?: boolean;
     onOpenSettings: () => void;
     onRetry: () => void;
     onClose: () => void;
@@ -29,39 +31,47 @@
     onclick={(e) => e.stopPropagation()}
     onkeydown={(e) => e.stopPropagation()}
   >
-    <span class="eyebrow">One-time setup</span>
-    <h2>Approve the helper</h2>
-    <p>
-      Triggering DFU runs a small background helper with elevated privileges.
-      Approve it once and every trigger after that is instant — no password.
-    </p>
+    {#if approved}
+      <div class="success">
+        <div class="check">✓</div>
+        <h2>Helper approved</h2>
+        <p>You're all set — triggering runs without a password now.</p>
+      </div>
+    {:else}
+      <span class="eyebrow">One-time setup</span>
+      <h2>Approve the helper</h2>
+      <p>
+        Triggering DFU runs a small background helper with elevated privileges.
+        Approve it once and every trigger after that is instant — no password.
+      </p>
 
-    <ol class="steps">
-      <li>
-        <span class="n mono">1</span>
-        <span class="txt">Click <b>Open System Settings</b> below.</span>
-      </li>
-      <li>
-        <span class="n mono">2</span>
-        <span class="txt">Turn <b>RestoreKit</b> on under <b>Allow in the Background</b>.</span>
-      </li>
-      <li>
-        <span class="n mono">3</span>
-        <span class="txt">Come back here and choose <b>Try again</b>.</span>
-      </li>
-    </ol>
+      <ol class="steps">
+        <li>
+          <span class="n mono">1</span>
+          <span class="txt">Click <b>Open System Settings</b> below.</span>
+        </li>
+        <li>
+          <span class="n mono">2</span>
+          <span class="txt">Turn <b>RestoreKit</b> on under <b>Allow in the Background</b>.</span>
+        </li>
+        <li>
+          <span class="n mono">3</span>
+          <span class="txt">That's it — this screen updates on its own.</span>
+        </li>
+      </ol>
 
-    {#if note}
-      <p class="note">{note}</p>
+      {#if note}
+        <p class="note">{note}</p>
+      {/if}
+
+      <div class="actions">
+        <button class="btn ghost" onclick={onClose}>Close</button>
+        <button class="btn" onclick={onOpenSettings}>Open System Settings</button>
+        <button class="btn primary" onclick={onRetry} disabled={checking}>
+          {checking ? "Checking…" : "Try again"}
+        </button>
+      </div>
     {/if}
-
-    <div class="actions">
-      <button class="btn ghost" onclick={onClose}>Close</button>
-      <button class="btn" onclick={onOpenSettings}>Open System Settings</button>
-      <button class="btn primary" onclick={onRetry} disabled={checking}>
-        {checking ? "Checking…" : "Try again"}
-      </button>
-    </div>
   </div>
 </div>
 
@@ -140,5 +150,27 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+  }
+  .success {
+    text-align: center;
+    padding: 14px 0 6px;
+  }
+  .check {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--alive-soft);
+    color: var(--alive);
+    font-size: 26px;
+    font-weight: 700;
+  }
+  .success h2 {
+    margin: 0 0 6px;
+  }
+  .success p {
+    margin: 0;
   }
 </style>

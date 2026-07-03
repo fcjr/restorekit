@@ -14,6 +14,7 @@ pub fn run() {
             commands::reboot_target,
             commands::helper_status,
             commands::approve_helper,
+            commands::focus_app,
             commands::resolve_firmware,
             commands::download_firmware,
             commands::restore,

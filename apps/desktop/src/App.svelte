@@ -45,6 +45,7 @@
   let approvalChecking = $state(false);
   let pendingTrigger = $state<"dfu" | "reboot" | null>(null);
   let helperState = $state(""); // "" until known; then enabled | requiresApproval | …
+  let approved = $state(false); // brief success state inside the approval screen
   let dl = $state({ received: 0, total: 0, cached: false, verifying: false });
   let rs = $state({ name: "starting", percent: 0 });
 
@@ -167,7 +168,49 @@
   function setupHelper() {
     pendingTrigger = null;
     approvalNote = "";
+    approved = false;
     needsApproval = true;
+  }
+
+  // While the approval screen is open, watch for the helper flipping to enabled
+  // (the user toggled it in System Settings) and celebrate without them having
+  // to click Try again.
+  $effect(() => {
+    if (!needsApproval || approved) return;
+    const iv = setInterval(async () => {
+      let s = "";
+      try {
+        s = await api.helperStatus();
+      } catch {
+        return;
+      }
+      helperState = s;
+      if (s === "enabled") {
+        clearInterval(iv);
+        onApproved();
+      }
+    }, 1200);
+    return () => clearInterval(iv);
+  });
+
+  async function onApproved() {
+    if (approved) return;
+    approved = true;
+    approvalNote = "";
+    try {
+      await api.focusApp(); // surface over System Settings
+    } catch {
+      /* focus is best-effort */
+    }
+    const which = pendingTrigger;
+    pendingTrigger = null;
+    // Let the success state read for a beat, then continue any queued trigger.
+    setTimeout(async () => {
+      needsApproval = false;
+      approved = false;
+      if (which === "dfu") await enterDfu();
+      else if (which === "reboot") await rebootTarget();
+    }, 1500);
   }
 
   async function openHelperSettings() {
@@ -474,6 +517,7 @@
 
   {#if needsApproval}
     <ApproveHelper
+      {approved}
       note={approvalNote}
       checking={approvalChecking}
       onOpenSettings={openHelperSettings}
