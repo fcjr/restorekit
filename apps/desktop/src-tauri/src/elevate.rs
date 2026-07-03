@@ -52,17 +52,23 @@ fn register() -> Result<(), String> {
 /// enabled yet, registers it and returns [`APPROVAL_REQUIRED`] so the UI can
 /// walk the user through the one-time approval.
 pub fn run_helper(command: &str) -> Result<(), String> {
-    match status() {
-        "enabled" => {}
-        "notRegistered" => {
-            register()?;
-            return Err(APPROVAL_REQUIRED.into());
+    if status() == "unavailable" {
+        return Err("The helper needs macOS 13 or later.".into());
+    }
+    // A freshly-bundled daemon reports notRegistered/notFound until registered,
+    // and the *first* register() commonly returns an "Operation not permitted"
+    // error precisely as it moves the daemon into requiresApproval — that's the
+    // signal to guide the user, not a fatal error. So register best-effort and
+    // let the resulting status decide.
+    if status() != "enabled" {
+        let reg = register();
+        match status() {
+            "enabled" => {}
+            "requiresApproval" => return Err(APPROVAL_REQUIRED.into()),
+            // It didn't even reach requiresApproval — surface the real reason if
+            // register() reported one, otherwise still route to the approval UI.
+            _ => return reg.and(Err(APPROVAL_REQUIRED.into())),
         }
-        "requiresApproval" => return Err(APPROVAL_REQUIRED.into()),
-        "notFound" => {
-            return Err("The helper is missing from the app bundle (reinstall RestoreKit).".into())
-        }
-        _ => return Err("The helper needs macOS 13 or later.".into()),
     }
 
     let c = CString::new(command).map_err(|_| "bad command".to_string())?;

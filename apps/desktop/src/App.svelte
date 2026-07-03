@@ -44,6 +44,7 @@
   let approvalNote = $state("");
   let approvalChecking = $state(false);
   let pendingTrigger = $state<"dfu" | "reboot" | null>(null);
+  let helperState = $state(""); // "" until known; then enabled | requiresApproval | …
   let dl = $state({ received: 0, total: 0, cached: false, verifying: false });
   let rs = $state({ name: "starting", percent: 0 });
 
@@ -80,13 +81,30 @@
     }
   }
 
+  // Only DFU-capable hosts use the privileged helper; elsewhere the trigger
+  // isn't offered, so its approval state is irrelevant.
+  async function refreshHelper() {
+    if (!canTrigger) return;
+    try {
+      helperState = await api.helperStatus();
+    } catch {
+      /* leave the last known state */
+    }
+  }
+
   onMount(() => {
-    api.hostCanTrigger().then((v) => (canTrigger = v));
+    api.hostCanTrigger().then((v) => {
+      canTrigger = v;
+      refreshHelper();
+    });
     api.manualInstructions().then((v) => (manual = v));
     api.cacheInfo().then((v) => (cache = v)).catch(() => {});
     refresh();
     const poll = setInterval(() => {
-      if (phase === "idle") refresh();
+      if (phase === "idle") {
+        refresh();
+        refreshHelper();
+      }
     }, 2000);
     const unlisten = onProgress(handleProgress);
     return () => {
@@ -144,6 +162,14 @@
     needsApproval = true;
   }
 
+  // Open the approval screen proactively (from the setup banner), with no
+  // trigger queued behind it.
+  function setupHelper() {
+    pendingTrigger = null;
+    approvalNote = "";
+    needsApproval = true;
+  }
+
   async function openHelperSettings() {
     approvalNote = "";
     try {
@@ -158,6 +184,7 @@
     approvalNote = "";
     try {
       const status = await api.helperStatus();
+      helperState = status;
       if (status !== "enabled") {
         approvalNote = "Not enabled yet — turn RestoreKit on under Login Items, then try again.";
         return;
@@ -255,6 +282,17 @@
     <Logo />
     <div class="host mono">{canTrigger ? "DFU-capable host" : "detect-only host"}</div>
   </header>
+
+  {#if canTrigger && helperState && helperState !== "enabled"}
+    <div class="setup-banner">
+      <span class="dot"></span>
+      <div class="msg">
+        <b>One-time setup:</b> approve the DFU helper so triggering works without a
+        password.
+      </div>
+      <button class="btn primary sm" onclick={setupHelper}>Set up helper</button>
+    </div>
+  {/if}
 
   <div class="body">
     <aside class="sidebar">
@@ -468,6 +506,33 @@
     color: var(--faint);
     text-transform: uppercase;
     letter-spacing: 0.08em;
+  }
+  .setup-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 20px;
+    background: var(--signal-soft);
+    border-bottom: 1px solid var(--signal-line);
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .setup-banner .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--signal);
+  }
+  .setup-banner .msg {
+    flex: 1;
+  }
+  .setup-banner b {
+    font-weight: 600;
+  }
+  .btn.sm {
+    padding: 6px 12px;
+    font-size: 12.5px;
   }
   .body {
     flex: 1;
