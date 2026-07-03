@@ -21,17 +21,27 @@ pub fn download(cache_dir: &Path, fw: &Firmware, progress: ProgressFn) -> Result
 
     let partial = final_path.with_extension("ipsw.partial");
 
-    // These files are ~20 GB; a single dropped connection shouldn't fail the
-    // whole download. Retry a bounded number of times, resuming from the
-    // partial file each time. Only network/transfer errors trigger a retry.
-    const MAX_ATTEMPTS: u32 = 8;
-    let mut attempt = 0;
+    // These files are ~15 GB; a single dropped connection shouldn't fail the
+    // whole download. Resume from the partial file on any transient error. As
+    // long as an attempt makes progress we keep going; only consecutive stalls
+    // (no bytes gained) count toward the give-up limit.
+    const MAX_STALLS: u32 = 8;
+    let mut stalls = 0;
+    let mut last_size = std::fs::metadata(&partial).map(|m| m.len()).unwrap_or(0);
     loop {
-        attempt += 1;
         match download_stream(&partial, fw, progress) {
             Ok(()) => break,
-            Err(e) if attempt < MAX_ATTEMPTS && is_transient(&e) => {
+            Err(e) if is_transient(&e) => {
                 let received = std::fs::metadata(&partial).map(|m| m.len()).unwrap_or(0);
+                if received > last_size {
+                    stalls = 0; // made progress — keep resuming
+                    last_size = received;
+                } else {
+                    stalls += 1;
+                    if stalls >= MAX_STALLS {
+                        return Err(e);
+                    }
+                }
                 progress(Event::DownloadResumed { received });
                 continue;
             }
@@ -99,6 +109,16 @@ fn download_stream(partial: &Path, fw: &Firmware, progress: ProgressFn) -> Resul
         });
     }
     file.flush()?;
+
+    // A clean EOF before the whole file arrived means the server/CDN closed the
+    // connection early (common on multi-GB files). Report it as transient so the
+    // caller resumes from the partial rather than verifying a truncated file.
+    if fw.size > 0 && downloaded < fw.size {
+        return Err(Error::Download(format!(
+            "connection closed early: got {downloaded} of {} bytes",
+            fw.size
+        )));
+    }
     Ok(())
 }
 
