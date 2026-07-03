@@ -7,7 +7,7 @@ single tag push; everything below happens automatically in GitHub Actions.
 
 | Channel | What ships | Who it's for |
 | --- | --- | --- |
-| **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt macOS + Linux binaries, as a cask | End users: `brew install fcjr/fcjr/applerestore` |
+| **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a cask | End users: `brew install fcjr/fcjr/applerestore-cli` (the `applerestore` cask token is reserved for the desktop app) |
 | **GitHub Releases** | `tar.gz` archives per platform + checksums | Direct downloads, scripts |
 | **crates.io** | Source crates (`applerestore-sys`, `applerestore`, `applerestore-cli`) | `cargo install applerestore-cli`, and Rust consumers of the library |
 

@@ -39,7 +39,10 @@ changelog:
       - "^chore:"
 
 homebrew_casks:
-  - name: applerestore
+  # The CLI ships as `applerestore-cli`; the plain `applerestore` cask token is
+  # reserved for the desktop app. The installed binary is still `applerestore`.
+  - name: applerestore-cli
+    binary: applerestore
     repository:
       owner: fcjr
       name: homebrew-fcjr

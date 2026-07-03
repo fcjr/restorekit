@@ -30,7 +30,7 @@ idevicerestore`, no loose libraries.
 ## Quickstart
 
 ```sh
-brew install fcjr/fcjr/applerestore
+brew install fcjr/fcjr/applerestore-cli
 ```
 
 Cable the target Mac to your host's [DFU port](#dfu-port), then:
