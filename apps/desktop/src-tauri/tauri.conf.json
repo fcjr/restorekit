@@ -26,6 +26,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["app", "dmg", "deb", "appimage", "nsis"],
     "icon": [
       "icons/32x32.png",
@@ -48,6 +49,14 @@
       "files": {
         "Library/LaunchDaemons/com.leftshift.restorekit.helper.plist": "launchd/com.leftshift.restorekit.helper.plist"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIwMjU4NEIzOEU5RDgyNjcKUldSbmdwMk9zNFFsc0dmK2Vna2Z4Qm1KdDN6Rmd0bU92MGd4RC9LK2JpQVZrRlpBTk9FNERva3EK",
+      "endpoints": [
+        "https://github.com/fcjr/restorekit/releases/latest/download/latest.json"
+      ]
     }
   }
 }

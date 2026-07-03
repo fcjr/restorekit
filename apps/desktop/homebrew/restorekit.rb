@@ -12,6 +12,8 @@ cask "restorekit" do
   depends_on macos: ">= :ventura"
   depends_on arch: :arm64
 
+  auto_updates true
+
   app "RestoreKit.app"
 
   zap trash: "~/.config/restorekit"

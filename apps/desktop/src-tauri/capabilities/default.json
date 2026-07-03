@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Core capabilities for the RestoreKit window",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-ask",
+    "updater:default",
+    "process:allow-restart"
+  ]
 }

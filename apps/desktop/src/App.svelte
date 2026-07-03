@@ -12,6 +12,7 @@
     type ProgressEvent,
     type CacheInfo,
   } from "./lib/api";
+  import { checkForUpdates } from "./lib/updater";
   import DeviceCard from "./components/DeviceCard.svelte";
   import DeviceRow from "./components/DeviceRow.svelte";
   import Progress from "./components/Progress.svelte";
@@ -100,6 +101,7 @@
     });
     api.manualInstructions().then((v) => (manual = v));
     api.cacheInfo().then((v) => (cache = v)).catch(() => {});
+    checkForUpdates();
     refresh();
     const poll = setInterval(() => {
       if (phase === "idle") {
