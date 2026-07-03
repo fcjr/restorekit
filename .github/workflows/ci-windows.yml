@@ -3,12 +3,11 @@ name: ci-windows
 # Spike: build the CLI (and its idevicerestore C stack) on Windows via MSYS2 /
 # MinGW + the x86_64-pc-windows-gnu toolchain. Isolates the hard part — getting
 # the autotools stack to compile on Windows — from the Tauri app build.
+#
+# Manual-only for now: the Windows port is a work in progress (the autotools
+# stack doesn't yet regenerate cleanly under MSYS2). Trigger it from the Actions
+# tab while iterating; it won't gate normal pushes.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "crates/**"
-      - ".github/workflows/ci-windows.yml"
   workflow_dispatch:
 
 jobs:

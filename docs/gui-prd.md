@@ -126,10 +126,12 @@ instrument output, not a generic dashboard.
 ## Risks
 
 1. **Restore may need root** — see the privilege-model open item.
-2. **osascript elevation + TCC** — breaks the attribution chain; acceptable for a
-   one-shot trigger, but a hardened `SMAppService` helper is the follow-up.
-3. **Unsigned app** — Gatekeeper friction, mitigated by the cask quarantine hook;
-   notarization is the real fix.
+2. **Privileged helper** — the DFU trigger runs in a signed `SMAppService` root
+   daemon reached over XPC (macOS 13+), approved once in System Settings. The
+   daemon verifies the caller's code signature so only the app can drive it; the
+   peer check leans on the private `xpc_connection_get_audit_token` (guarded by
+   SecCode validation), a small surface a macOS update could shift.
+3. **Signing** — signed + notarized with Developer ID; Gatekeeper accepts it.
 4. **Private AppleHPM API** — a macOS update could change it; the trigger then
    fails gracefully and the app falls back to manual DFU instructions.
 

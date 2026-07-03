@@ -12,8 +12,8 @@ publish = false
 name = "helper"
 path = "src/main.rs"
 
+[build-dependencies]
+cc = "1"
+
 [dependencies]
 restorekit = { path = "../restorekit" }
-
-[target.'cfg(target_os = "macos")'.build-dependencies]
-cc = "1"
