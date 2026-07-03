@@ -8,20 +8,31 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+#ifndef _WIN32
 #define _DEFAULT_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+/* usbmuxd reaches restore mode over usbmux; libusbmuxd on Windows defaults to
+ * this loopback address, so listening here needs no client-side config. */
+#define RK_MUX_PORT 27015
+#else
+#include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#endif
 
 #include "utils.h"   /* struct fdlist — must come before client.h */
 #include "client.h"
@@ -58,6 +69,42 @@ static char socket_path_buf[256];
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
+#ifdef _WIN32
+static int create_loopback_socket(void)
+{
+    SOCKET fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == INVALID_SOCKET) {
+        usbmuxd_log(LL_FATAL, "socket() failed: %d", WSAGetLastError());
+        return -1;
+    }
+
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(RK_MUX_PORT);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        usbmuxd_log(LL_FATAL, "bind(127.0.0.1:%d) failed: %d", RK_MUX_PORT, WSAGetLastError());
+        closesocket(fd);
+        return -1;
+    }
+
+    u_long nonblock = 1;
+    ioctlsocket(fd, FIONBIO, &nonblock);
+
+    if (listen(fd, 64) != 0) {
+        usbmuxd_log(LL_FATAL, "listen() failed: %d", WSAGetLastError());
+        closesocket(fd);
+        return -1;
+    }
+
+    return (int)fd;
+}
+#else
 static int create_unix_socket(const char *path)
 {
     struct sockaddr_un addr;
@@ -101,6 +148,7 @@ static int create_unix_socket(const char *path)
 
     return fd;
 }
+#endif
 
 /* ── public API called from Rust ─────────────────────────────────── */
 
@@ -112,6 +160,14 @@ int restorekit_usbmuxd_start(const char *sock_path)
 
     should_exit    = 0;
     should_discover = 0;
+
+#ifdef _WIN32
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        usbmuxd_log(LL_FATAL, "WSAStartup failed: %d", WSAGetLastError());
+        return -1;
+    }
+#endif
 
     /* Quiet usbmuxd's own logging — it goes to stderr which is fine. */
     log_level = LL_WARNING;
@@ -128,7 +184,11 @@ int restorekit_usbmuxd_start(const char *sock_path)
     }
     usbmuxd_log(LL_NOTICE, "restorekit: USB init found %d device(s)", res);
 
+#ifdef _WIN32
+    listenfd = create_loopback_socket();
+#else
     listenfd = create_unix_socket(socket_path_buf);
+#endif
     if (listenfd < 0)
         return -1;
 
@@ -141,8 +201,10 @@ void restorekit_usbmuxd_run(void)
     struct fdlist pollfds;
     fdlist_create(&pollfds);
 
+#ifndef _WIN32
     sigset_t empty_sigset;
     sigemptyset(&empty_sigset);
+#endif
 
     while (!should_exit) {
         int to  = usb_get_timeout();
@@ -155,11 +217,15 @@ void restorekit_usbmuxd_run(void)
         usb_get_fds(&pollfds);
         client_get_fds(&pollfds);
 
+#ifdef _WIN32
+        int cnt = WSAPoll((WSAPOLLFD *)pollfds.fds, pollfds.count, to);
+#else
         struct timespec tspec;
         tspec.tv_sec  = to / 1000;
         tspec.tv_nsec = (to % 1000) * 1000000;
 
         int cnt = ppoll(pollfds.fds, pollfds.count, &tspec, &empty_sigset);
+#endif
 
         if (cnt == -1) {
             if (errno == EINTR) {
@@ -230,11 +296,19 @@ void restorekit_usbmuxd_cleanup(void)
     client_shutdown();
 
     if (listenfd >= 0) {
+#ifdef _WIN32
+        closesocket((SOCKET)listenfd);
+#else
         close(listenfd);
+#endif
         listenfd = -1;
     }
+#ifndef _WIN32
     if (socket_path_buf[0]) {
         unlink(socket_path_buf);
         socket_path_buf[0] = '\0';
     }
+#endif
+    /* Leave Winsock initialized (no WSACleanup): other users (libcurl) hold
+     * their own refs, and the process exits shortly anyway. */
 }

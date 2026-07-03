@@ -148,9 +148,9 @@ pub fn init_progress() {
     unsafe { register_progress(0, std::ptr::null()) };
 }
 
-// ── Embedded usbmuxd server (Linux only) ─────────────────────────────────────
+// ── Embedded usbmuxd server (Linux + Windows) ────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 extern "C" {
     fn restorekit_usbmuxd_start(socket_path: *const c_char) -> c_int;
     fn restorekit_usbmuxd_run();
@@ -160,7 +160,7 @@ extern "C" {
 
 /// Initialize the embedded usbmuxd server, binding a Unix socket at `path`.
 /// Returns `Ok(())` on success.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub fn usbmuxd_start(path: &std::ffi::CStr) -> std::result::Result<(), c_int> {
     let rc = unsafe { restorekit_usbmuxd_start(path.as_ptr()) };
     if rc == 0 {
@@ -171,19 +171,19 @@ pub fn usbmuxd_start(path: &std::ffi::CStr) -> std::result::Result<(), c_int> {
 }
 
 /// Run the usbmuxd event loop (blocks until [`usbmuxd_stop`] is called).
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub fn usbmuxd_run() {
     unsafe { restorekit_usbmuxd_run() }
 }
 
 /// Signal the event loop to exit.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub fn usbmuxd_stop() {
     unsafe { restorekit_usbmuxd_stop() }
 }
 
 /// Tear down USB devices, close the listen socket, and unlink the socket file.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub fn usbmuxd_cleanup() {
     unsafe { restorekit_usbmuxd_cleanup() }
 }

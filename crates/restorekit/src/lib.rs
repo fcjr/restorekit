@@ -62,7 +62,7 @@ pub mod error;
 pub mod firmware;
 pub mod progress;
 pub mod restore;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod usbmuxd;
 
 pub use dfu::{host_can_trigger_dfu, manual_dfu_instructions, DfuDevice};

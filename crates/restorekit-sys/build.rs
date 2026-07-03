@@ -59,9 +59,11 @@ fn main() {
     // idevicerestore: compile its sources directly (no library upstream).
     compile_idevicerestore(&vendor.join("idevicerestore"), &deps);
 
-    // usbmuxd server (Linux only): embed the daemon event loop so the binary
-    // is self-contained — no external usbmuxd process needed.
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+    // usbmuxd server (Linux + Windows): embed the daemon event loop so the
+    // binary is self-contained — no external usbmuxd process needed. It's what
+    // idevicerestore talks to for the restore-mode phase.
+    let target_os = env::var("CARGO_CFG_TARGET_OS");
+    if matches!(target_os.as_deref(), Ok("linux") | Ok("windows")) {
         compile_usbmuxd(&vendor.join("usbmuxd"), &deps);
     }
 
@@ -390,9 +392,6 @@ fn compile_usbmuxd(src: &Path, deps: &Deps) {
         // idevicerestore's identically-named global. Rename it at the
         // preprocessor level to avoid a linker duplicate-symbol error.
         .define("log_level", "usbmuxd_log_level")
-        .define("HAVE_PPOLL", None)
-        .define("HAVE_CLOCK_GETTIME", None)
-        .define("HAVE_LOCALTIME_R", None)
         .define("PACKAGE_NAME", "\"usbmuxd\"")
         .define("PACKAGE_VERSION", "\"restorekit-embedded\"")
         .define("PACKAGE_URL", "\"https://libimobiledevice.org\"")
@@ -401,6 +400,31 @@ fn compile_usbmuxd(src: &Path, deps: &Deps) {
             "\"https://github.com/libimobiledevice/usbmuxd/issues\"",
         );
     // Do NOT define HAVE_LIBIMOBILEDEVICE — avoids pulling in preflight/lockdown.
+
+    if deps.windows {
+        // POSIX→Winsock compat shim headers first, plus the family's static
+        // macros and 64-bit file offsets (see cflags()).
+        build.include(
+            PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc/win_shim"),
+        );
+        for def in WINDOWS_STATIC_DEFINES {
+            build.define(def, None);
+        }
+        build
+            .define("_FILE_OFFSET_BITS", "64")
+            .define("WIN32_LEAN_AND_MEAN", None)
+            // Our win_shim provides a localtime_r that bridges Winsock's 32-bit
+            // tv_sec; take that path rather than the plain-localtime one.
+            .define("HAVE_LOCALTIME_R", None)
+            // mingw-w64 has clock_gettime; use it instead of utils.c's macOS
+            // mach_absolute_time fallback.
+            .define("HAVE_CLOCK_GETTIME", None);
+    } else {
+        build
+            .define("HAVE_PPOLL", None)
+            .define("HAVE_CLOCK_GETTIME", None)
+            .define("HAVE_LOCALTIME_R", None);
+    }
 
     // libusb-1.0 headers (usbmuxd includes <libusb.h> directly).
     if let Ok(output) = std::process::Command::new("pkg-config")
