@@ -156,8 +156,15 @@ fn build_autotools(src: &Path, name: &str, deps: &Deps) {
             .arg(format!("-j{jobs}")),
         &format!("{name} make"),
     );
+    // libirecovery installs a udev rule to a system dir by default, which fails
+    // for a non-root user (e.g. CI). Redirect it into our staging prefix.
+    let udevdir = deps.prefix.join("udev");
+    std::fs::create_dir_all(&udevdir).ok();
     run(
-        Command::new("make").current_dir(src).arg("install"),
+        Command::new("make")
+            .current_dir(src)
+            .arg("install")
+            .arg(format!("udevrulesdir={}", udevdir.display())),
         &format!("{name} make install"),
     );
     std::fs::write(&marker, "").unwrap();
