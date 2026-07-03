@@ -1,6 +1,6 @@
 [package]
-name = "restorekit-dfu-helper"
-description = "Privileged helper that triggers DFU mode (run as root by the restorekit app)"
+name = "helper"
+description = "Privileged root helper daemon for the RestoreKit app (triggers DFU over XPC)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,8 +9,11 @@ authors.workspace = true
 publish = false
 
 [[bin]]
-name = "restorekit-dfu-helper"
+name = "helper"
 path = "src/main.rs"
 
 [dependencies]
 restorekit = { path = "../restorekit" }
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+cc = "1"

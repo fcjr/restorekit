@@ -2695,6 +2695,7 @@ dependencies = [
 name = "restorekit-desktop"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "libc",
  "nusb",
  "restorekit",

@@ -54,12 +54,18 @@ function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(cmd, args);
 }
 
+/// Error string the backend returns when the privileged helper needs the
+/// one-time approval; the UI matches it to show the approval screen.
+export const APPROVAL_REQUIRED = "helper-approval-required";
+
 export const api = {
   hostCanTrigger: () => call<boolean>("host_can_trigger"),
   manualInstructions: () => call<string>("manual_instructions"),
   listDevices: () => call<Device[]>("list_devices"),
   triggerDfu: () => call<void>("trigger_dfu"),
   rebootTarget: () => call<void>("reboot_target"),
+  helperStatus: () => call<string>("helper_status"),
+  approveHelper: () => call<void>("approve_helper"),
   resolveFirmware: (identifier: string, osVersion?: string) =>
     call<Firmware>("resolve_firmware", { identifier, osVersion: osVersion || null }),
   downloadFirmware: (firmware: Firmware) => call<string>("download_firmware", { firmware }),
@@ -79,6 +85,7 @@ function browserMock(cmd: string): Promise<unknown> {
     host_can_trigger: true,
     manual_instructions: "1. Connect the target's DFU port.\n2. Disconnect power.\n3. Hold power, reconnect, keep holding ~10s.",
     list_devices: devices,
+    helper_status: "enabled",
     cache_info: { path: "~/.config/restorekit/firmwares", bytes: 19_769_902_281, count: 1 },
   };
   return Promise.resolve(map[cmd] ?? null);

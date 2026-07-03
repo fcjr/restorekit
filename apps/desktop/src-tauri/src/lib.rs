@@ -12,6 +12,8 @@ pub fn run() {
             commands::list_devices,
             commands::trigger_dfu,
             commands::reboot_target,
+            commands::helper_status,
+            commands::approve_helper,
             commands::resolve_firmware,
             commands::download_firmware,
             commands::restore,

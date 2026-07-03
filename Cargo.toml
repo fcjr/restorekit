@@ -4,7 +4,7 @@ members = [
     "crates/restorekit",
     "crates/restorekit-sys",
     "crates/restorekit-cli",
-    "crates/restorekit-dfu-helper",
+    "crates/helper",
 ]
 # The Tauri app pulls in webkit/GTK deps that don't build on the Linux CI
 # runners, so it's a standalone crate outside the workspace build.

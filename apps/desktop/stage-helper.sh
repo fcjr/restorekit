@@ -6,9 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 triple="$(rustc -Vv | awk '/^host:/ {print $2}')"
-cargo build --release -p restorekit-dfu-helper --manifest-path ../../Cargo.toml
+cargo build --release -p helper --manifest-path ../../Cargo.toml
 
 mkdir -p src-tauri/binaries
-cp "../../target/release/restorekit-dfu-helper" \
-  "src-tauri/binaries/restorekit-dfu-helper-${triple}"
-echo "staged restorekit-dfu-helper-${triple}"
+cp "../../target/release/helper" \
+  "src-tauri/binaries/helper-${triple}"
+echo "staged helper-${triple}"

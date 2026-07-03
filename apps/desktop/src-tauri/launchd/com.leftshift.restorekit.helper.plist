@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.leftshift.restorekit.helper</string>
+	<!-- Path to the daemon executable, relative to the app bundle. -->
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/helper</string>
+	<!-- launchd holds the receive right for this Mach service and starts the
+	     daemon on demand when the app connects. -->
+	<key>MachServices</key>
+	<dict>
+		<key>com.leftshift.restorekit.helper</key>
+		<true/>
+	</dict>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.leftshift.restorekit.app</string>
+	</array>
+</dict>
+</plist>

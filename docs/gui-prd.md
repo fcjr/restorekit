@@ -47,9 +47,11 @@ must not run as root, so:
 - The app runs unprivileged. Detection, firmware resolution, download, and the
   restore itself all run in-process at the user's privilege level (USB/IOKit
   access and idevicerestore's restore phase don't need root on macOS).
-- The **DFU trigger** is the one privileged action. It runs through a tiny
-  bundled helper (`restorekit-dfu-helper`) invoked via the macOS admin prompt
-  (`osascript … "with administrator privileges"`). The helper is the only code
+- The **DFU trigger** is the one privileged action. It runs in a root helper
+  daemon (`helper`) registered once via `SMAppService` and reached over XPC; the
+  daemon verifies the caller's code signature (bundle id + Team ID + hardened
+  runtime) so only the signed app can command it. After a one-time approval in
+  System Settings it runs silently — no password. The helper is the only code
   that ever runs as root — small and auditable, reusing the same VDM port.
 
 > Open item: verify the restore truly runs unprivileged on current macOS. If it
@@ -117,7 +119,7 @@ instrument output, not a generic dashboard.
 ## Requirements & dependencies
 
 - macOS 12+ on Apple Silicon (host).
-- Bundles `restorekit-dfu-helper` as a Tauri `externalBin`.
+- Bundles `helper` as a Tauri `externalBin` + a `SMAppService` LaunchDaemon plist.
 - Links the `restorekit` library, which statically links the idevicerestore C
   stack — the app is self-contained (no external tools).
 

@@ -134,6 +134,33 @@ pub async fn reboot_target() -> Result<(), String> {
 const NO_TRIGGER: &str = "Entering DFU electronically needs an Apple Silicon Mac host. \
     Put the target into DFU by hand and it will show up here.";
 
+/// Registration state of the privileged helper daemon:
+/// "enabled" | "requiresApproval" | "notRegistered" | "notFound" | "unavailable".
+#[tauri::command]
+pub fn helper_status() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        crate::elevate::status().to_string()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "unavailable".to_string()
+    }
+}
+
+/// Register the helper and open System Settings so the user can approve it.
+#[tauri::command]
+pub fn approve_helper() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::elevate::approve()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("the privileged helper is only used on macOS".into())
+    }
+}
+
 #[tauri::command]
 pub async fn resolve_firmware(
     identifier: String,

@@ -34,10 +34,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/restorekit-dfu-helper"],
+    "externalBin": ["binaries/helper"],
     "macOS": {
-      "minimumSystemVersion": "12.0",
-      "entitlements": "entitlements.plist"
+      "minimumSystemVersion": "13.0",
+      "entitlements": "entitlements.plist",
+      "files": {
+        "Library/LaunchDaemons/com.leftshift.restorekit.helper.plist": "launchd/com.leftshift.restorekit.helper.plist"
+      }
     }
   }
 }

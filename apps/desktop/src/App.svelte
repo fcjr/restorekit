@@ -6,6 +6,7 @@
     pickIpsw,
     gib,
     MODES,
+    APPROVAL_REQUIRED,
     type Device,
     type Firmware,
     type ProgressEvent,
@@ -16,6 +17,7 @@
   import Progress from "./components/Progress.svelte";
   import ConfirmErase from "./components/ConfirmErase.svelte";
   import Confirm from "./components/Confirm.svelte";
+  import ApproveHelper from "./components/ApproveHelper.svelte";
   import Logo from "./components/Logo.svelte";
 
   type Phase = "idle" | "resolving" | "downloading" | "restoring" | "done" | "error";
@@ -38,6 +40,10 @@
   let confirming = $state(false);
   let confirmingClear = $state(false);
   let doneKind = $state<"restore" | "download">("restore");
+  let needsApproval = $state(false);
+  let approvalNote = $state("");
+  let approvalChecking = $state(false);
+  let pendingTrigger = $state<"dfu" | "reboot" | null>(null);
   let dl = $state({ received: 0, total: 0, cached: false, verifying: false });
   let rs = $state({ name: "starting", percent: 0 });
 
@@ -104,14 +110,15 @@
 
   async function enterDfu() {
     error = "";
-    busy = "Waiting for authorization…";
+    busy = "Triggering DFU…";
     try {
       await api.triggerDfu();
       await refresh();
       const dfuDev = devices.find((d) => d.mode === "dfu");
       if (dfuDev) selectedSerial = dfuDev.serial;
     } catch (e) {
-      error = String(e);
+      if (String(e).includes(APPROVAL_REQUIRED)) requestApproval("dfu");
+      else error = String(e);
     } finally {
       busy = "";
     }
@@ -119,14 +126,49 @@
 
   async function rebootTarget() {
     error = "";
-    busy = "Waiting for authorization…";
+    busy = "Rebooting…";
     try {
       await api.rebootTarget();
       await refresh();
     } catch (e) {
-      error = String(e);
+      if (String(e).includes(APPROVAL_REQUIRED)) requestApproval("reboot");
+      else error = String(e);
     } finally {
       busy = "";
+    }
+  }
+
+  function requestApproval(which: "dfu" | "reboot") {
+    pendingTrigger = which;
+    approvalNote = "";
+    needsApproval = true;
+  }
+
+  async function openHelperSettings() {
+    approvalNote = "";
+    try {
+      await api.approveHelper();
+    } catch (e) {
+      approvalNote = String(e);
+    }
+  }
+
+  async function retryApproval() {
+    approvalChecking = true;
+    approvalNote = "";
+    try {
+      const status = await api.helperStatus();
+      if (status !== "enabled") {
+        approvalNote = "Not enabled yet — turn RestoreKit on under Login Items, then try again.";
+        return;
+      }
+      needsApproval = false;
+      const which = pendingTrigger;
+      pendingTrigger = null;
+      if (which === "dfu") await enterDfu();
+      else if (which === "reboot") await rebootTarget();
+    } finally {
+      approvalChecking = false;
     }
   }
 
@@ -389,6 +431,19 @@
       danger
       onConfirm={clearCache}
       onCancel={() => (confirmingClear = false)}
+    />
+  {/if}
+
+  {#if needsApproval}
+    <ApproveHelper
+      note={approvalNote}
+      checking={approvalChecking}
+      onOpenSettings={openHelperSettings}
+      onRetry={retryApproval}
+      onClose={() => {
+        needsApproval = false;
+        pendingTrigger = null;
+      }}
     />
   {/if}
 </div>

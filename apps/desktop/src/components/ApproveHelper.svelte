@@ -1,0 +1,135 @@
+<script lang="ts">
+  let {
+    note = "",
+    checking = false,
+    onOpenSettings,
+    onRetry,
+    onClose,
+  }: {
+    note?: string;
+    checking?: boolean;
+    onOpenSettings: () => void;
+    onRetry: () => void;
+    onClose: () => void;
+  } = $props();
+</script>
+
+<div
+  class="backdrop"
+  role="button"
+  tabindex="-1"
+  onclick={onClose}
+  onkeydown={(e) => e.key === "Escape" && onClose()}
+>
+  <div
+    class="modal"
+    role="dialog"
+    aria-modal="true"
+    tabindex="0"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
+    <span class="eyebrow">One-time setup</span>
+    <h2>Approve the helper</h2>
+    <p>
+      Triggering DFU runs a small background helper with elevated privileges.
+      Approve it once and every trigger after that is instant — no password.
+    </p>
+
+    <ol class="steps">
+      <li><span class="n mono">1</span> Click <b>Open System Settings</b> below.</li>
+      <li>
+        <span class="n mono">2</span> Under <b>Allow in the Background</b>, turn
+        <b>RestoreKit</b> on.
+      </li>
+      <li><span class="n mono">3</span> Come back here and choose <b>Try again</b>.</li>
+    </ol>
+
+    {#if note}
+      <p class="note">{note}</p>
+    {/if}
+
+    <div class="actions">
+      <button class="btn ghost" onclick={onClose}>Close</button>
+      <button class="btn" onclick={onOpenSettings}>Open System Settings</button>
+      <button class="btn primary" onclick={onRetry} disabled={checking}>
+        {checking ? "Checking…" : "Try again"}
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(18, 23, 34, 0.32);
+    backdrop-filter: blur(2px);
+    display: grid;
+    place-items: center;
+    z-index: 50;
+  }
+  .modal {
+    width: 440px;
+    max-width: calc(100vw - 40px);
+    background: var(--panel);
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+  }
+  h2 {
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    margin: 4px 0 8px;
+  }
+  p {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 16px;
+  }
+  .steps {
+    list-style: none;
+    margin: 0 0 18px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .steps li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .n {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--signal-soft);
+    color: var(--signal);
+    font-size: 11px;
+    font-weight: 600;
+    align-self: center;
+  }
+  .steps b {
+    font-weight: 600;
+  }
+  .note {
+    margin: -4px 0 16px;
+    padding: 8px 11px;
+    border-radius: 8px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: 12.5px;
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+</style>
