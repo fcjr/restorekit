@@ -244,7 +244,7 @@ pub fn cached(cache_dir: &Path, fw: &Firmware) -> Option<PathBuf> {
 
     // Slow path: no trustworthy sidecar — verify by hashing, then record it.
     if let Some(expected) = &fw.sha256 {
-        match sha256_file(&path) {
+        match hash_file::<Sha256>(&path) {
             Ok(actual) if actual.eq_ignore_ascii_case(expected) => {
                 let _ = write_sidecar(&path, fw);
                 Some(path)
@@ -363,31 +363,28 @@ fn is_transient(e: &Error) -> bool {
 }
 
 fn verify(path: &Path, fw: &Firmware) -> Result<()> {
-    if let Some(expected) = &fw.sha256 {
-        let actual = sha256_file(path)?;
-        if &actual != expected {
-            return Err(Error::ChecksumMismatch {
-                path: path.to_path_buf(),
-                expected: expected.clone(),
-                actual,
-            });
-        }
+    let (expected, actual) = if let Some(expected) = &fw.sha256 {
+        (expected, hash_file::<Sha256>(path)?)
     } else if let Some(expected) = &fw.sha1 {
-        let actual = sha1_file(path)?;
-        if !actual.eq_ignore_ascii_case(expected) {
-            return Err(Error::ChecksumMismatch {
-                path: path.to_path_buf(),
-                expected: expected.clone(),
-                actual,
-            });
-        }
+        (expected, hash_file::<sha1::Sha1>(path)?)
+    } else {
+        return Ok(());
+    };
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(Error::ChecksumMismatch {
+            path: path.to_path_buf(),
+            expected: expected.clone(),
+            actual,
+        })
     }
-    Ok(())
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
+/// Stream a file through a digest and return the lowercase hex checksum.
+fn hash_file<D: Digest>(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
+    let mut hasher = D::new();
     let mut buf = [0u8; 1 << 20];
     loop {
         let n = file.read(&mut buf)?;
@@ -396,30 +393,13 @@ fn sha256_file(path: &Path) -> Result<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(hex(&hasher.finalize()))
-}
-
-fn sha1_file(path: &Path) -> Result<String> {
-    use sha1::Sha1;
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha1::new();
-    let mut buf = [0u8; 1 << 20];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
+    use std::fmt::Write;
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for b in digest {
+        let _ = write!(hex, "{b:02x}");
     }
-    Ok(hex(&hasher.finalize()))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{b:02x}"));
-    }
-    s
+    Ok(hex)
 }
 
 fn write_sidecar(final_path: &Path, fw: &Firmware) -> Result<()> {

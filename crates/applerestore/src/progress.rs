@@ -44,10 +44,6 @@ pub enum Event {
         name: String,
         progress: f32,
     },
-    /// A raw log line from the restore engine (for -v / debugging).
-    RestoreLog {
-        line: String,
-    },
     Done,
 }
 

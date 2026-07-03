@@ -7,6 +7,8 @@ use applerestore::restore::Mode;
 use applerestore::{dfu, firmware, restore, DfuDevice, Error, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 
+use super::render;
+
 pub struct Opts {
     pub revive: bool,
     pub ipsw: Option<PathBuf>,
@@ -62,7 +64,7 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
         say(json, &format!("Resolving firmware for {identifier}..."));
         let fw = firmware::resolve(&identifier, opts.os_version.as_deref())?;
         if json {
-            emit(Event::FirmwareResolved {
+            render::emit_json(&Event::FirmwareResolved {
                 identifier: fw.identifier.clone(),
                 version: fw.version.clone(),
                 build: fw.build.clone(),
@@ -74,7 +76,7 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
         }
 
         let bar = ProgressBar::hidden();
-        let path = firmware::download(&cache, &fw, &mut |e| download_render(&bar, e, json))?;
+        let path = firmware::download(&cache, &fw, &mut |e| render::download(&bar, e, json))?;
         bar.finish_and_clear();
         path
     };
@@ -125,14 +127,9 @@ fn say(json: bool, msg: &str) {
     }
 }
 
-/// Emit an event as a JSON line.
-fn emit(event: Event) {
-    println!("{}", serde_json::to_string(&event).unwrap());
-}
-
 fn emit_stage(json: bool, event: Event) {
     if json {
-        emit(event);
+        render::emit_json(&event);
     } else if let Event::DfuTriggerStage { stage } = event {
         println!("  {stage}");
     }
@@ -162,38 +159,9 @@ fn confirm(device: &DfuDevice, mode: Mode, yes: bool, json: bool) -> Result<bool
     Ok(input.trim() == "ERASE")
 }
 
-fn download_render(bar: &ProgressBar, event: Event, json: bool) {
-    if json {
-        emit(event);
-        return;
-    }
-    match event {
-        Event::CacheHit { path } => println!("Using cached firmware: {path}"),
-        Event::DownloadResumed { received } => {
-            println!("Resuming download from {:.1} GB...", received as f64 / 1e9)
-        }
-        Event::DownloadProgress { received, total } => {
-            if bar.length() != Some(total) && total > 0 {
-                bar.set_length(total);
-                bar.set_style(
-                    ProgressStyle::with_template("  {bytes}/{total_bytes} {bar:30} ({eta})")
-                        .unwrap(),
-                );
-                bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
-            }
-            bar.set_position(received);
-        }
-        Event::Verifying => {
-            bar.finish_and_clear();
-            println!("Verifying checksum...");
-        }
-        _ => {}
-    }
-}
-
 fn restore_render(bar: &ProgressBar, event: Event, json: bool) {
     if json {
-        println!("{}", serde_json::to_string(&event).unwrap());
+        render::emit_json(&event);
         return;
     }
     match event {

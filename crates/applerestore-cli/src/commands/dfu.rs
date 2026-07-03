@@ -3,10 +3,12 @@ use std::time::Duration;
 use applerestore::progress::Event;
 use applerestore::{dfu, Error, Result};
 
+use super::render;
+
 /// Emit an event: NDJSON in `--json` mode, human text otherwise.
 fn emit(json: bool, event: Event) {
     if json {
-        println!("{}", serde_json::to_string(&event).unwrap());
+        render::emit_json(&event);
     } else if let Event::DfuTriggerStage { stage } = event {
         println!("  {stage}");
     }
