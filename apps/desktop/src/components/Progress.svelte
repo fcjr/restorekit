@@ -46,11 +46,11 @@
   .fill {
     height: 100%;
     border-radius: 6px;
-    background: linear-gradient(90deg, var(--signal), #ffd089);
+    background: linear-gradient(90deg, var(--signal), #7b6cff);
     transition: width 0.35s ease;
   }
   .fill.alive {
-    background: linear-gradient(90deg, var(--alive), #7fe0b8);
+    background: linear-gradient(90deg, var(--alive), #4fd6a6);
   }
   .sub {
     margin-top: 8px;

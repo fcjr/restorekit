@@ -36,11 +36,11 @@
       border-color 0.12s;
   }
   .row:hover {
-    background: var(--panel);
+    background: var(--panel-2);
   }
   .row.selected {
-    background: var(--panel-2);
-    border-color: var(--line-2);
+    background: var(--signal-soft);
+    border-color: var(--signal-line);
   }
   .badge {
     display: inline-flex;

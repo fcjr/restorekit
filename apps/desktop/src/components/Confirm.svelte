@@ -44,8 +44,8 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(4, 6, 9, 0.72);
-    backdrop-filter: blur(3px);
+    background: rgba(18, 23, 34, 0.32);
+    backdrop-filter: blur(2px);
     display: grid;
     place-items: center;
     z-index: 50;
@@ -53,11 +53,11 @@
   .modal {
     width: 380px;
     max-width: calc(100vw - 40px);
-    background: var(--panel-2);
+    background: var(--panel);
     border: 1px solid var(--line-2);
     border-radius: 16px;
     padding: 24px;
-    box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.8);
+    box-shadow: var(--shadow);
   }
   h2 {
     font-size: 18px;

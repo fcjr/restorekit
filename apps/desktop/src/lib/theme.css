@@ -1,61 +1,68 @@
+/* RestoreKit — "service instrument" identity.
+   Light engineering datasheet · ink on cool paper · electric-indigo signal ·
+   a pulse-of-life motif. Token names are kept stable so components re-skin
+   through the tokens. */
 :root {
-  --bg: #0a0d12;
-  --panel: #11151c;
-  --panel-2: #161c26;
-  --line: #232b38;
-  --line-2: #2e3746;
-  --ink: #e9edf4;
-  --muted: #818c9e;
-  --faint: #5a6474;
-  --signal: #f2a63c;
-  --signal-soft: rgba(242, 166, 60, 0.13);
-  --signal-line: rgba(242, 166, 60, 0.38);
-  --alive: #46c38c;
-  --alive-soft: rgba(70, 195, 140, 0.12);
-  --danger: #ef6a6a;
-  --mode-dfu: #f2a63c;
-  --mode-recovery: #56cfe1;
-  --mode-restore: #46c38c;
-  --mode-wtf: #ef6a6a;
-  --mode-other: #818c9e;
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --paper: #e9edf3;
+  --panel: #ffffff;
+  --panel-2: #f4f7fb;
+  --bg: #e9edf3;
+  --line: #dbe1ea;
+  --line-2: #cbd3de;
+  --ink: #121722;
+  --muted: #5c6675;
+  --faint: #97a1b0;
+  --signal: #4b3af0;
+  --signal-ink: #ffffff;
+  --signal-soft: rgba(75, 58, 240, 0.09);
+  --signal-line: rgba(75, 58, 240, 0.4);
+  --alive: #10b981;
+  --alive-soft: rgba(16, 185, 129, 0.12);
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.1);
+  --mode-dfu: #4b3af0;
+  --mode-recovery: #0c96c4;
+  --mode-restore: #10b981;
+  --mode-wtf: #e5484d;
+  --mode-other: #8b95a4;
+  --shadow-sm: 0 1px 2px rgba(18, 23, 34, 0.05);
+  --shadow: 0 1px 2px rgba(18, 23, 34, 0.05), 0 16px 34px -18px rgba(18, 23, 34, 0.22);
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", monospace;
 }
 
 * {
   box-sizing: border-box;
 }
-
 html,
 body {
   margin: 0;
   height: 100%;
 }
-
 body {
-  background: var(--bg);
+  background: var(--paper);
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: 15px;
-  line-height: 1.55;
-  letter-spacing: -0.01em;
+  line-height: 1.5;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;
 }
-
 #app {
   height: 100vh;
 }
 
+/* Instrument label voice: mono, tracked, uppercase. */
 .eyebrow {
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
   color: var(--signal);
 }
-
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -68,19 +75,22 @@ button {
 
 .btn {
   border: 1px solid var(--line-2);
-  background: var(--panel-2);
+  background: var(--panel);
   color: var(--ink);
-  border-radius: 9px;
-  padding: 11px 18px;
-  font-size: 14px;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 13.5px;
   font-weight: 550;
+  box-shadow: var(--shadow-sm);
   transition:
-    border-color 0.15s,
-    background 0.15s,
+    border-color 0.14s,
+    background 0.14s,
+    box-shadow 0.14s,
     transform 0.05s;
 }
 .btn:hover {
-  border-color: var(--signal-line);
+  border-color: var(--line-2);
+  background: var(--panel-2);
 }
 .btn:active {
   transform: translateY(1px);
@@ -88,29 +98,38 @@ button {
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
+  box-shadow: none;
 }
 .btn.primary {
   background: var(--signal);
   border-color: var(--signal);
-  color: #1a1206;
-  font-weight: 650;
+  color: var(--signal-ink);
+  box-shadow: 0 1px 2px rgba(75, 58, 240, 0.25), 0 8px 18px -8px rgba(75, 58, 240, 0.5);
 }
 .btn.primary:hover {
-  filter: brightness(1.06);
+  background: #3c2ce0;
+  border-color: #3c2ce0;
 }
 .btn.danger {
   background: var(--danger);
   border-color: var(--danger);
-  color: #2a0d0d;
-  font-weight: 650;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(229, 72, 77, 0.25), 0 8px 18px -8px rgba(229, 72, 77, 0.5);
 }
 .btn.ghost {
   background: transparent;
+  box-shadow: none;
+}
+.btn.ghost:hover {
+  background: var(--panel-2);
 }
 
 :focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
+}
+::selection {
+  background: var(--signal-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {

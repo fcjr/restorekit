@@ -16,6 +16,7 @@
   import Progress from "./components/Progress.svelte";
   import ConfirmErase from "./components/ConfirmErase.svelte";
   import Confirm from "./components/Confirm.svelte";
+  import Logo from "./components/Logo.svelte";
 
   type Phase = "idle" | "resolving" | "downloading" | "restoring" | "done" | "error";
 
@@ -206,7 +207,7 @@
 
 <div class="app">
   <header>
-    <div class="brand"><span class="dot"></span> RestoreKit</div>
+    <Logo />
     <div class="host mono">{canTrigger ? "DFU-capable host" : "detect-only host"}</div>
   </header>
 
@@ -396,22 +397,9 @@
     align-items: center;
     justify-content: space-between;
     padding: 13px 20px;
+    background: var(--panel);
     border-bottom: 1px solid var(--line);
     -webkit-app-region: drag;
-  }
-  .brand {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--signal);
-    box-shadow: 0 0 10px var(--signal);
   }
   .host {
     font-size: 11px;
@@ -426,6 +414,7 @@
     min-height: 0;
   }
   .sidebar {
+    background: var(--panel);
     border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
@@ -667,6 +656,7 @@
     justify-content: space-between;
     gap: 12px;
     padding: 10px 20px;
+    background: var(--panel);
     border-top: 1px solid var(--line);
     font-size: 12px;
     color: var(--muted);
