@@ -46,6 +46,12 @@ pub enum Event {
     },
     /// The embedded usbmuxd server is starting (Linux only).
     UsbmuxdStarting,
+    /// Binding the WinUSB driver to Apple's DFU/recovery devices (Windows only).
+    DriverSetupStarting,
+    /// WinUSB was bound to a device class (Windows only).
+    DriverBound {
+        name: String,
+    },
     Done,
 }
 

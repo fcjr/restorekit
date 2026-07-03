@@ -51,6 +51,9 @@ pub enum Error {
     #[error("failed to start usbmuxd: {0}")]
     UsbmuxdFailed(String),
 
+    #[error("WinUSB driver setup failed: {0}")]
+    DriverInstall(String),
+
     #[error("restore failed (exit {status}); last output:\n{log_tail}")]
     RestoreFailed { status: i32, log_tail: String },
 

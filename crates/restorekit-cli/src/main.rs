@@ -53,6 +53,16 @@ enum Command {
         #[arg(long)]
         path: bool,
     },
+    /// Bind the WinUSB driver so restorekit can reach the cabled Mac (elevates).
+    #[cfg(target_os = "windows")]
+    SetupDriver {
+        /// Internal: this copy was relaunched already elevated.
+        #[arg(long, hide = true)]
+        elevated: bool,
+        /// Internal: file the elevated copy writes its outcome to.
+        #[arg(long, hide = true)]
+        result_file: Option<PathBuf>,
+    },
 }
 
 #[derive(clap::Args)]
@@ -111,6 +121,11 @@ fn main() {
             commands::restore::run_oneshot(args.into_opts(cli.cache_dir, cli.json, cli.verbose))
         }
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
+        #[cfg(target_os = "windows")]
+        Command::SetupDriver {
+            elevated,
+            result_file,
+        } => commands::setup_driver::run(cli.json, elevated, result_file),
     };
 
     if let Err(e) = result {

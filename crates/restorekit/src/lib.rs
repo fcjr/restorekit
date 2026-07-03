@@ -56,6 +56,8 @@
 
 pub mod device;
 pub mod dfu;
+#[cfg(target_os = "windows")]
+pub mod driver;
 pub mod error;
 pub mod firmware;
 pub mod progress;
