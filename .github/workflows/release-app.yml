@@ -31,12 +31,20 @@ jobs:
         working-directory: apps/desktop
         run: bash ./stage-helper.sh
 
-      - name: Build & release the app
+      - name: Build, sign, notarize & release the app
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
-          releaseName: "restorekit ${{ github.ref_name }}"
+          releaseName: "RestoreKit ${{ github.ref_name }}"
           releaseDraft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Developer ID signing (cert exported as base64 .p12).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Notarization (app-specific password, or an App Store Connect API key).
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

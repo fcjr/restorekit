@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened runtime with no special exceptions: the app links its C stack
+	     statically and talks to USB/IOKit, neither of which needs an entitlement
+	     on macOS. The privileged DFU trigger runs in the separate root helper. -->
+</dict>
+</plist>

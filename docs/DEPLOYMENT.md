@@ -45,6 +45,30 @@ variables → Actions**:
 The built-in `GITHUB_TOKEN` handles the GitHub Release itself (granted
 `contents: write` in the workflow) — no setup needed.
 
+## Desktop app (RestoreKit.app)
+
+`release-app.yml` builds, **signs, and notarizes** the macOS app with
+`tauri-apps/tauri-action` on the same `v*` tags. The privileged DFU helper is
+built and staged as a Tauri sidecar first (`apps/desktop/stage-helper.sh`).
+
+Signing + notarization secrets (Developer ID required — the app uses a signed
+privileged helper for the DFU trigger):
+
+| Secret | What it is |
+| --- | --- |
+| `APPLE_CERTIFICATE` | The Developer ID Application cert exported as a base64 `.p12`: `security export -k ~/Library/Keychains/login.keychain-db -t identities -f pkcs12 -o cert.p12` then `base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | The password you set on that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: <Org> (<TEAMID>)` |
+| `APPLE_ID` | Your Apple ID email (for notarization) |
+| `APPLE_PASSWORD` | An [app-specific password](https://support.apple.com/en-us/102654) for that Apple ID |
+| `APPLE_TEAM_ID` | Your 10-char Team ID |
+
+To sign a build locally (e.g. to test): set `APPLE_SIGNING_IDENTITY` in your
+shell and run `npm run tauri build` in `apps/desktop` (skip the `APPLE_ID`/
+`APPLE_PASSWORD`/`APPLE_TEAM_ID` vars to sign without notarizing).
+
+The app cask (`brew install --cask restorekit`) points at the notarized `.dmg`.
+
 ## How the crates.io publish works
 
 The three crates publish in dependency order (`restorekit-sys` →
