@@ -135,7 +135,7 @@ fn relaunch_elevated(result_path: &Path) -> Result<u32> {
     use windows_sys::Win32::UI::Shell::{
         ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_NORMAL;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
     let exe = std::env::current_exe().map_err(|e| Error::DriverInstall(e.to_string()))?;
     let verb = wide("runas");
@@ -152,7 +152,9 @@ fn relaunch_elevated(result_path: &Path) -> Result<u32> {
         sei.lpVerb = verb.as_ptr();
         sei.lpFile = file.as_ptr();
         sei.lpParameters = params.as_ptr();
-        sei.nShow = SW_NORMAL;
+        // Hide the elevated copy's console — the user's original window shows the
+        // result (via the temp file), and the GUI must not flash a terminal.
+        sei.nShow = SW_HIDE;
 
         if ShellExecuteExW(&mut sei) == 0 {
             return Err(Error::DriverInstall(

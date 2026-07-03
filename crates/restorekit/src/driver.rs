@@ -96,7 +96,11 @@ pub fn install_winusb(progress: ProgressFn) -> Result<usize> {
     }
     write_file(&script, WINUSB_SETUP_PS1.as_bytes())?;
 
+    // CREATE_NO_WINDOW: don't flash a PowerShell console (matters for the GUI).
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let output = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(&script)
         .arg("-WorkDir")
