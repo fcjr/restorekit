@@ -36,6 +36,68 @@ pub fn set_log_level(level: c_int) {
     }
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
+extern "C" {
+    /// Installs our log trampoline (see csrc/log_capture.c).
+    fn applerestore_install_log_capture();
+}
+
+static LOG_LINES: Mutex<Vec<(c_int, String)>> = Mutex::new(Vec::new());
+static LOG_ECHO: AtomicBool = AtomicBool::new(false);
+const LOG_CAPACITY: usize = 512;
+
+/// Called from C (log_capture.c) for each idevicerestore log line.
+///
+/// # Safety
+/// `msg`, if non-null, must be a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn applerestore_log_capture(level: c_int, msg: *const c_char) {
+    if msg.is_null() {
+        return;
+    }
+    let text = std::ffi::CStr::from_ptr(msg).to_string_lossy();
+    let line = text.trim_end_matches(['\n', '\r']).to_string();
+    if line.is_empty() {
+        return;
+    }
+    if LOG_ECHO.load(Ordering::Relaxed) {
+        eprintln!("{line}");
+    }
+    if let Ok(mut buf) = LOG_LINES.lock() {
+        if buf.len() >= LOG_CAPACITY {
+            buf.remove(0);
+        }
+        buf.push((level, line));
+    }
+}
+
+/// Route idevicerestore's logging into the capture sink. When `echo` is set,
+/// lines are also printed to stderr (for verbose mode). Clears prior lines.
+pub fn install_log_capture(echo: bool) {
+    LOG_ECHO.store(echo, Ordering::Relaxed);
+    if let Ok(mut buf) = LOG_LINES.lock() {
+        buf.clear();
+    }
+    unsafe { applerestore_install_log_capture() };
+}
+
+/// The last `max_lines` captured error/warning lines, newest-relevant last.
+pub fn error_tail(max_lines: usize) -> String {
+    let buf = match LOG_LINES.lock() {
+        Ok(b) => b,
+        Err(e) => e.into_inner(),
+    };
+    let errors: Vec<&str> = buf
+        .iter()
+        .filter(|(level, _)| *level <= LL_WARNING)
+        .map(|(_, line)| line.as_str())
+        .collect();
+    let start = errors.len().saturating_sub(max_lines);
+    errors[start..].join("\n")
+}
+
 // Progress step numbers (enum in idevicerestore.h).
 pub const RESTORE_STEP_DETECT: c_int = 0;
 pub const RESTORE_STEP_PREPARE: c_int = 1;
@@ -69,4 +131,33 @@ extern "C" {
         userdata: *mut c_void,
     );
     pub fn idevicerestore_start(client: *mut idevicerestore_client_t) -> c_int;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn error_tail_filters_by_level() {
+        if let Ok(mut b) = LOG_LINES.lock() {
+            b.clear();
+        }
+        LOG_ECHO.store(false, Ordering::Relaxed);
+
+        let cap = |level, s: &str| {
+            let c = CString::new(s).unwrap();
+            unsafe { applerestore_log_capture(level, c.as_ptr()) };
+        };
+        cap(LL_INFO, "info line");
+        cap(LL_ERROR, "boom -3");
+        cap(LL_VERBOSE, "verbose noise");
+        cap(LL_WARNING, "careful");
+
+        let tail = error_tail(10);
+        assert!(tail.contains("boom -3"));
+        assert!(tail.contains("careful"));
+        assert!(!tail.contains("info line"));
+        assert!(!tail.contains("verbose noise"));
+    }
 }

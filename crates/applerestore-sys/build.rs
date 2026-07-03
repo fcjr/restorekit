@@ -237,6 +237,12 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
         count > 0,
         "no idevicerestore .c sources found in {src_dir:?}"
     );
+
+    // Our log-capture shim (routes idevicerestore's logger to a Rust sink).
+    let shim = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc/log_capture.c");
+    println!("cargo:rerun-if-changed={}", shim.display());
+    build.file(&shim);
+
     build.compile("idevicerestore");
 }
 

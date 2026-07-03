@@ -64,8 +64,10 @@ pub fn restore(
 ) -> Result<()> {
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    // idevicerestore otherwise dumps its full info/verbose log to stdout,
-    // stomping on our progress UI. Keep it to warnings/errors unless asked.
+    // Route idevicerestore's logging through our capture sink (rather than its
+    // default stdout dump) so it doesn't stomp on the progress UI and so we can
+    // surface the real error text on failure. `verbose` also echoes to stderr.
+    sys::install_log_capture(verbose);
     sys::set_log_level(if verbose {
         sys::LL_DEBUG
     } else {
@@ -112,9 +114,15 @@ pub fn restore(
             if rc == 0 {
                 Ok(())
             } else {
+                let tail = sys::error_tail(20);
+                let log_tail = if tail.is_empty() {
+                    format!("idevicerestore_start returned {rc}")
+                } else {
+                    tail
+                };
                 Err(Error::RestoreFailed {
                     status: rc,
-                    log_tail: format!("idevicerestore_start returned {rc}"),
+                    log_tail,
                 })
             }
         })();

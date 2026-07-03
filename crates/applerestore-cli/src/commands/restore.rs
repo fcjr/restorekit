@@ -91,10 +91,17 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
     }
 
     say(json, "Starting restore. Do not disconnect the target.");
-    let bar = ProgressBar::new(100);
-    bar.set_style(
-        ProgressStyle::with_template("{msg:24} {bar:32.green/black} {percent:>3}%").unwrap(),
-    );
+    // In verbose mode idevicerestore's log streams to the terminal, so hide the
+    // progress bar to avoid interleaving with it.
+    let bar = if json || opts.verbose {
+        ProgressBar::hidden()
+    } else {
+        let b = ProgressBar::new(100);
+        b.set_style(
+            ProgressStyle::with_template("{msg:24} {bar:32.green/black} {percent:>3}%").unwrap(),
+        );
+        b
+    };
     restore::restore(
         &ipsw_path,
         device.ecid,
