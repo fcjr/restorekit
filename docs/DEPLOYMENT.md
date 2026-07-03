@@ -88,7 +88,14 @@ npm run tauri build
 
 Omit the three `APPLE_API_*` vars to sign without notarizing.
 
-The app cask (`brew install --cask restorekit`) points at the notarized `.dmg`.
+### App cask
+
+On each `v*` tag, `release-app.yml` fills `apps/desktop/homebrew/restorekit.rb`
+(the cask template) with the release version and the `.dmg`'s sha256 and pushes
+it to `fcjr/homebrew-fcjr` as `Casks/restorekit.rb` (using `TAP_GITHUB_TOKEN`),
+so `brew install --cask restorekit` tracks the latest notarized build. Edit the
+template in this repo to change cask metadata — the workflow only substitutes the
+version and sha256. The cask is arm64-only and requires macOS 13+ (SMAppService).
 
 ## How the crates.io publish works
 

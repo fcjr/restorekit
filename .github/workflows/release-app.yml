@@ -77,3 +77,25 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+
+      # Fill the cask template with this release's version + .dmg sha256 and push
+      # it to the tap, so `brew install --cask restorekit` tracks the release.
+      - name: Publish the Homebrew cask
+        if: runner.os == 'macOS'
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          dmg="apps/desktop/src-tauri/target/release/bundle/dmg/RestoreKit_${version}_aarch64.dmg"
+          sha="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/fcjr/homebrew-fcjr.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/VERSION_PLACEHOLDER/${version}/" -e "s/SHA256_PLACEHOLDER/${sha}/" \
+            apps/desktop/homebrew/restorekit.rb > tap/Casks/restorekit.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/restorekit.rb
+          git diff --cached --quiet || git commit -m "restorekit ${version}"
+          git push
