@@ -12,6 +12,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    // docs.rs builds in a sandbox without the C toolchain, system libraries, or
+    // network. `cargo doc` compiles the rlib but never links a final binary, so
+    // the static C stack isn't needed there — skip building it entirely.
+    if env::var_os("DOCS_RS").is_some() {
+        return;
+    }
+
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let vendor = manifest.join("vendor");
     ensure_submodules(&manifest, &vendor);
