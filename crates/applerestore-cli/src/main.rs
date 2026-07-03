@@ -19,6 +19,10 @@ struct Cli {
     #[arg(long, global = true)]
     cache_dir: Option<PathBuf>,
 
+    /// Verbose output (streams idevicerestore's detailed restore log).
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -75,7 +79,12 @@ struct RestoreArgs {
 }
 
 impl RestoreArgs {
-    fn into_opts(self, cache_dir: Option<PathBuf>, json: bool) -> commands::restore::Opts {
+    fn into_opts(
+        self,
+        cache_dir: Option<PathBuf>,
+        json: bool,
+        verbose: bool,
+    ) -> commands::restore::Opts {
         commands::restore::Opts {
             revive: self.revive,
             ipsw: self.ipsw,
@@ -84,6 +93,7 @@ impl RestoreArgs {
             yes: self.yes,
             cache_dir,
             json,
+            verbose,
         }
     }
 }
@@ -98,9 +108,11 @@ fn main() {
             identifier,
             os_version,
         } => commands::download::run(identifier, os_version, cli.cache_dir, cli.json),
-        Command::Restore(args) => commands::restore::run(args.into_opts(cli.cache_dir, cli.json)),
+        Command::Restore(args) => {
+            commands::restore::run(args.into_opts(cli.cache_dir, cli.json, cli.verbose))
+        }
         Command::Run(args) => {
-            commands::restore::run_oneshot(args.into_opts(cli.cache_dir, cli.json))
+            commands::restore::run_oneshot(args.into_opts(cli.cache_dir, cli.json, cli.verbose))
         }
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
     };

@@ -15,6 +15,27 @@ use std::os::raw::{c_char, c_int, c_void};
 pub const FLAG_DEBUG: c_int = 1 << 1;
 pub const FLAG_ERASE: c_int = 1 << 2;
 
+// idevicerestore log levels (enum loglevel in log.h).
+pub const LL_ERROR: c_int = 0;
+pub const LL_WARNING: c_int = 1;
+pub const LL_NOTICE: c_int = 2;
+pub const LL_INFO: c_int = 3;
+pub const LL_VERBOSE: c_int = 4;
+pub const LL_DEBUG: c_int = 5;
+
+extern "C" {
+    /// idevicerestore's global logging threshold; messages above it are dropped.
+    static mut log_level: c_int;
+}
+
+/// Set idevicerestore's global log verbosity. Messages more verbose than
+/// `level` are never emitted (by default it dumps everything to stdout).
+pub fn set_log_level(level: c_int) {
+    unsafe {
+        log_level = level;
+    }
+}
+
 // Progress step numbers (enum in idevicerestore.h).
 pub const RESTORE_STEP_DETECT: c_int = 0;
 pub const RESTORE_STEP_PREPARE: c_int = 1;

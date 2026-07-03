@@ -59,9 +59,18 @@ pub fn restore(
     ecid: u64,
     cache_dir: Option<&Path>,
     mode: Mode,
+    verbose: bool,
     progress: ProgressFn,
 ) -> Result<()> {
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    // idevicerestore otherwise dumps its full info/verbose log to stdout,
+    // stomping on our progress UI. Keep it to warnings/errors unless asked.
+    sys::set_log_level(if verbose {
+        sys::LL_DEBUG
+    } else {
+        sys::LL_WARNING
+    });
 
     let ipsw_c = CString::new(ipsw.as_os_str().to_string_lossy().as_bytes())
         .map_err(|_| Error::Download("ipsw path contains a NUL byte".into()))?;
