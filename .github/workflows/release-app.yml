@@ -78,12 +78,31 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
 
+      # tauri-action notarizes and staples the .app, but not the .dmg itself.
+      # Notarize + staple the .dmg so a directly-downloaded copy verifies offline,
+      # then re-upload it (the cask below hashes this stapled file).
+      - name: Notarize & staple the .dmg
+        if: runner.os == 'macOS'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          dmg="apps/desktop/src-tauri/target/release/bundle/dmg/RestoreKit_${version}_aarch64.dmg"
+          xcrun notarytool submit "$dmg" \
+            --key "$RUNNER_TEMP/asc/AuthKey.p8" \
+            --key-id "${{ secrets.APPLE_API_KEY }}" \
+            --issuer "${{ secrets.APPLE_API_ISSUER }}" \
+            --wait
+          xcrun stapler staple "$dmg"
+          gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
+
       # Fill the cask template with this release's version + .dmg sha256 and push
       # it to the tap, so `brew install --cask restorekit` tracks the release.
       - name: Publish the Homebrew cask
         if: runner.os == 'macOS'
         env:
-          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          TAP_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"

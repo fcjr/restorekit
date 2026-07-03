@@ -39,7 +39,7 @@ variables → Actions**:
 
 | Secret | Used for | Scope |
 | --- | --- | --- |
-| `TAP_GITHUB_TOKEN` | Pushing the Homebrew cask to `fcjr/homebrew-fcjr` | Fine-grained PAT, **Contents: write** on `fcjr/homebrew-fcjr` only |
+| `GORELEASER_GITHUB_TOKEN` | Pushing the Homebrew cask + Scoop bucket (CLI via goreleaser, app cask via `release-app.yml`) | PAT with **Contents: write** on `fcjr/homebrew-fcjr` (and the Scoop bucket repo) |
 | `CARGO_REGISTRY_TOKEN` | Publishing to crates.io | A crates.io API token with publish scope |
 
 The built-in `GITHUB_TOKEN` handles the GitHub Release itself (granted

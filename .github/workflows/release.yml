@@ -109,4 +109,5 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          # One token for both the Homebrew tap and the Scoop bucket.
+          TAP_GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
