@@ -424,8 +424,7 @@ fn compile_usbmuxd(src: &Path, deps: &Deps) {
     assert!(count > 0, "no usbmuxd .c sources found in {src_dir:?}");
 
     // Our shim that provides main-loop functions + preflight stubs.
-    let shim =
-        PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc/usbmuxd_server.c");
+    let shim = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc/usbmuxd_server.c");
     println!("cargo:rerun-if-changed={}", shim.display());
     build.file(&shim);
 

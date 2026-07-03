@@ -50,9 +50,10 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-  # Windows uses the GNU toolchain: the vendored C stack is built with autotools,
-  # which can't target MSVC. The build runs inside an MSYS2 MINGW64 shell.
-  build-windows:
+  # Windows is a separate job (not a `test` matrix entry) because it needs the
+  # GNU toolchain and an MSYS2 MINGW64 shell: the vendored C stack is built with
+  # autotools, which can't target MSVC.
+  test-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,8 +89,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build the CLI (windows-gnu, static C stack under MSYS2)
+      - name: Test (windows-gnu, static C stack under MSYS2)
         shell: msys2 {0}
         run: |
           export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
-          cargo build -p restorekit-cli --target x86_64-pc-windows-gnu
+          cargo test --workspace --target x86_64-pc-windows-gnu
