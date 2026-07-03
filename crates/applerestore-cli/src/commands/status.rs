@@ -28,10 +28,7 @@ pub fn run(json: bool) -> Result<()> {
         if let Some(id) = d.identifier() {
             println!("    identifier: {id}");
         }
-        println!(
-            "    chip: CPID:{:04x}  board: BDID:{:02x}",
-            d.cpid, d.bdid
-        );
+        println!("    chip: CPID:{:04x}  board: BDID:{:02x}", d.cpid, d.bdid);
         println!("    ECID: {}", d.ecid_hex());
         if let Some(srtg) = &d.srtg {
             println!("    iBoot: {srtg}");

@@ -33,9 +33,7 @@ impl Firmware {
             .next()
             .filter(|s| s.ends_with(".ipsw"))
             .map(str::to_string)
-            .unwrap_or_else(|| {
-                format!("UniversalMac_{}_{}_Restore.ipsw", self.version, self.build)
-            })
+            .unwrap_or_else(|| format!("UniversalMac_{}_{}_Restore.ipsw", self.version, self.build))
     }
 }
 
@@ -89,10 +87,13 @@ fn resolve_ipswme(identifier: &str, version: Option<&str>) -> Result<Firmware> {
     let mut candidates: Vec<IpswFirmware> = resp.firmwares;
     if let Some(v) = version {
         candidates.retain(|f| f.version == v);
-        let f = candidates.into_iter().next().ok_or_else(|| Error::NoFirmwareFound {
-            identifier: identifier.to_string(),
-            version: format!(" version {v}"),
-        })?;
+        let f = candidates
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::NoFirmwareFound {
+                identifier: identifier.to_string(),
+                version: format!(" version {v}"),
+            })?;
         return Ok(convert(identifier, f));
     }
 
@@ -260,8 +261,7 @@ pub fn download(cache_dir: &Path, fw: &Firmware, progress: ProgressFn) -> Result
         // Server ignored the range; start over.
         downloaded = 0;
     }
-    let total = downloaded
-        + resp.content_length().unwrap_or(0);
+    let total = downloaded + resp.content_length().unwrap_or(0);
     let total = if fw.size > 0 { fw.size } else { total };
 
     let mut file = std::fs::OpenOptions::new()

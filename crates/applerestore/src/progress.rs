@@ -9,9 +9,13 @@ use crate::dfu::DfuDevice;
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// A stage of the VDM DFU trigger (host-side USB-PD dance).
-    DfuTriggerStage { stage: String },
+    DfuTriggerStage {
+        stage: String,
+    },
     /// A Mac in DFU mode was detected.
-    DeviceDetected { device: DfuDevice },
+    DeviceDetected {
+        device: DfuDevice,
+    },
     /// Firmware metadata was resolved for the target.
     FirmwareResolved {
         identifier: String,
@@ -21,10 +25,17 @@ pub enum Event {
         url: String,
     },
     /// The requested firmware is already in the cache.
-    CacheHit { path: String },
+    CacheHit {
+        path: String,
+    },
     /// A previous partial download is being resumed.
-    DownloadResumed { received: u64 },
-    DownloadProgress { received: u64, total: u64 },
+    DownloadResumed {
+        received: u64,
+    },
+    DownloadProgress {
+        received: u64,
+        total: u64,
+    },
     /// Verifying the downloaded file's checksum.
     Verifying,
     /// A restore step reported by idevicerestore.
@@ -34,7 +45,9 @@ pub enum Event {
         progress: f32,
     },
     /// A raw log line from the restore engine (for -v / debugging).
-    RestoreLog { line: String },
+    RestoreLog {
+        line: String,
+    },
     Done,
 }
 

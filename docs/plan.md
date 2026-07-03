@@ -32,14 +32,14 @@ Working checklist; check items off as they land.
 - [x] **Hardware-verified**: an Apple Silicon host triggered DFU on a target Mac, which was then detected and identified correctly
 
 ## 6. Restore engine (idevicerestore wrapper)
-- [ ] Binary discovery (`--idevicerestore-path` → `$PATH`) with actionable install error
-- [ ] Spawn `idevicerestore [-e] -y -P -i <ecid> <ipsw>`, parse `progress: <step> <float>` lines into events, keep log ring buffer for failures
-- [ ] Unit tests: progress-line parser
+- [x] Binary discovery (`--idevicerestore-path` → `$PATH`) with actionable install error
+- [x] Spawn `idevicerestore [-e] -y -P -i <ecid> <ipsw>`, parse `progress: <step> <float>` lines into events, keep log ring buffer for failures
+- [x] Unit tests: progress-line parser
 
 ## 7. CLI
-- [ ] clap derive skeleton: `status`, `dfu`, `reboot`, `download`, `restore`, `run`, `cache`; global `--cache-dir`, `--json`, `-v`
-- [ ] indicatif progress rendering from library events; JSON-lines mode
-- [ ] Erase confirmation prompt (model + ECID, `--yes` to skip)
+- [x] clap derive skeleton: `status`, `dfu`, `reboot`, `download`, `restore`, `run`, `cache`; global `--cache-dir`, `--json`, `-v`
+- [x] indicatif progress rendering from library events; JSON-lines mode
+- [x] Erase confirmation prompt (model + ECID, `--yes` to skip)
 
 ## 8. CI/CD
 - [ ] `.github/workflows/ci.yml` — fmt, clippy, test on macos-14 + ubuntu-latest

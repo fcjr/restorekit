@@ -50,8 +50,7 @@ struct CFUUIDBytes {
 #[repr(C)]
 struct IOCFPlugInInterface {
     _reserved: *mut c_void,
-    query_interface:
-        unsafe extern "C" fn(*mut c_void, CFUUIDBytes, *mut *mut c_void) -> Hresult,
+    query_interface: unsafe extern "C" fn(*mut c_void, CFUUIDBytes, *mut *mut c_void) -> Hresult,
     add_ref: unsafe extern "C" fn(*mut c_void) -> Ulong,
     release: unsafe extern "C" fn(*mut c_void) -> Ulong,
     version: u16,
@@ -65,8 +64,7 @@ struct IOCFPlugInInterface {
 #[repr(C)]
 struct AppleHPMLib {
     _reserved: *mut c_void,
-    query_interface:
-        unsafe extern "C" fn(*mut c_void, CFUUIDBytes, *mut *mut c_void) -> Hresult,
+    query_interface: unsafe extern "C" fn(*mut c_void, CFUUIDBytes, *mut *mut c_void) -> Hresult,
     add_ref: unsafe extern "C" fn(*mut c_void) -> Ulong,
     release: unsafe extern "C" fn(*mut c_void) -> Ulong,
     field_20: u16,
@@ -142,8 +140,22 @@ fn cfuuid(b: [u8; 16]) -> CFUUIDRef {
     unsafe {
         CFUUIDGetConstantUUIDWithBytes(
             std::ptr::null(),
-            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13],
-            b[14], b[15],
+            b[0],
+            b[1],
+            b[2],
+            b[3],
+            b[4],
+            b[5],
+            b[6],
+            b[7],
+            b[8],
+            b[9],
+            b[10],
+            b[11],
+            b[12],
+            b[13],
+            b[14],
+            b[15],
         )
     }
 }
@@ -177,7 +189,9 @@ impl Hpm {
             )
         };
         if ret != 0 {
-            return Err(Error::Vdm(format!("readRegister(0x{data_addr:02x}) failed")));
+            return Err(Error::Vdm(format!(
+                "readRegister(0x{data_addr:02x}) failed"
+            )));
         }
         Ok(buf)
     }
@@ -206,9 +220,8 @@ impl Hpm {
                 return Err(Error::Vdm("writeRegister(9) failed".into()));
             }
         }
-        let ret = unsafe {
-            ((**self.device).command)(self.device as *mut c_void, self.chip, cmd, 0)
-        };
+        let ret =
+            unsafe { ((**self.device).command)(self.device as *mut c_void, self.chip, cmd, 0) };
         if ret != 0 {
             return Ok(0xff); // non-zero IOReturn: treat as command failure
         }
@@ -316,7 +329,9 @@ fn unlock_key() -> Result<(u32, String)> {
         let class = CString::new("IOPlatformExpertDevice").unwrap();
         let matching = IOServiceMatching(class.as_ptr());
         if matching.is_null() {
-            return Err(Error::Vdm("IOServiceMatching(IOPlatformExpertDevice) failed".into()));
+            return Err(Error::Vdm(
+                "IOServiceMatching(IOPlatformExpertDevice) failed".into(),
+            ));
         }
         let service = IOServiceGetMatchingService(0, matching);
         if service == 0 {
@@ -375,7 +390,11 @@ fn find_device() -> Result<Hpm> {
                 continue;
             }
             let mut rid: i32 = -1;
-            CFNumberGetValue(prop, K_CF_NUMBER_SINT32, &mut rid as *mut i32 as *mut c_void);
+            CFNumberGetValue(
+                prop,
+                K_CF_NUMBER_SINT32,
+                &mut rid as *mut i32 as *mut c_void,
+            );
             CFRelease(prop);
 
             if rid != 0 {
@@ -395,18 +414,16 @@ fn find_device() -> Result<Hpm> {
             );
             IOObjectRelease(device);
             if kr != KERN_SUCCESS || plugin.is_null() {
-                return Err(Error::Vdm("IOCreatePlugInInterfaceForService failed".into()));
+                return Err(Error::Vdm(
+                    "IOCreatePlugInInterfaceForService failed".into(),
+                ));
             }
 
             let mut device_iface: *mut c_void = std::ptr::null_mut();
             let iid = CFUUIDBytes {
                 bytes: APPLE_HPM_LIB_INTERFACE,
             };
-            let res = ((**plugin).query_interface)(
-                plugin as *mut c_void,
-                iid,
-                &mut device_iface,
-            );
+            let res = ((**plugin).query_interface)(plugin as *mut c_void, iid, &mut device_iface);
             if res != 0 || device_iface.is_null() {
                 IODestroyPlugInInterface(plugin);
                 return Err(Error::Vdm("QueryInterface(AppleHPMLib) failed".into()));

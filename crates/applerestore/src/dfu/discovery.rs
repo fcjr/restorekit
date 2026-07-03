@@ -33,7 +33,10 @@ impl DfuDevice {
     pub fn display_name(&self) -> String {
         match self.model {
             Some(m) => m.name.to_string(),
-            None => format!("Unknown Mac (CPID:{:04x} BDID:{:02x})", self.cpid, self.bdid),
+            None => format!(
+                "Unknown Mac (CPID:{:04x} BDID:{:02x})",
+                self.cpid, self.bdid
+            ),
         }
     }
 
@@ -62,7 +65,14 @@ pub fn parse_serial(serial: &str) -> Option<(u16, u8, u64, Option<String>)> {
             "CPID" => cpid = u16::from_str_radix(value, 16).ok(),
             "BDID" => bdid = u8::from_str_radix(value, 16).ok(),
             "ECID" => ecid = u64::from_str_radix(value, 16).ok(),
-            "SRTG" => srtg = Some(value.trim_start_matches('[').trim_end_matches(']').to_string()),
+            "SRTG" => {
+                srtg = Some(
+                    value
+                        .trim_start_matches('[')
+                        .trim_end_matches(']')
+                        .to_string(),
+                )
+            }
             _ => {}
         }
     }
