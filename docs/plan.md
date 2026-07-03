@@ -6,7 +6,7 @@ Working checklist; check items off as they land.
 - [x] Workspace `Cargo.toml` (crates/applerestore, crates/applerestore-cli), MIT LICENSE, NOTICE (Apache-2.0 attribution for the vdm port), .gitignore
 - [x] docs/prd.md
 - [x] docs/plan.md (this file)
-- [ ] README.md (install, usage, DFU port locations, safety warning)
+- [x] README.md (install, usage, DFU port locations, safety warning)
 
 ## 2. Library core
 - [x] `error.rs` — thiserror `Error` enum covering discovery, resolution, download, checksum, restore, host-support failures
@@ -47,14 +47,14 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 - [x] Erase confirmation prompt (model + ECID, `--yes` to skip)
 
 ## 8. CI/CD (native per-platform builds — the static C stack rules out zig cross-compile)
-- [ ] `.github/workflows/ci.yml` — fmt, clippy, test; matrix macos-14 (arm64) + ubuntu (needs `libusb-1.0`, autotools, cmake to build the stack)
-- [ ] Native release build matrix: macos-14 (arm64), macos-13 (x86_64), ubuntu-24 arm64 + x86_64 — each runs `cargo build --release` (build.rs builds the self-contained stack), uploads the artifact
-- [ ] `.goreleaser.yaml` — `builder: prebuilt` assembling the per-platform artifacts into archives + checksums; `homebrew_casks` → fcjr/homebrew-fcjr with quarantine-removal hook
-- [ ] `.github/workflows/release.yml` — tag-triggered: build matrix → goreleaser packages prebuilt binaries; `GITHUB_TOKEN` + `TAP_GITHUB_TOKEN`
+- [x] `.github/workflows/ci.yml` — fmt, clippy, test; matrix macos-14 (arm64) + ubuntu (needs `libusb-1.0`, autotools, cmake to build the stack)
+- [x] Native release build matrix: macos-14 (arm64), macos-13 (x86_64), ubuntu-24 arm64 + x86_64 — each runs `cargo build --release` (build.rs builds the self-contained stack), uploads the artifact
+- [x] `.goreleaser.yaml` — `builder: prebuilt` assembling the per-platform artifacts into archives + checksums; `homebrew_casks` → fcjr/homebrew-fcjr with quarantine-removal hook
+- [x] `.github/workflows/release.yml` — tag-triggered: build matrix → goreleaser packages prebuilt binaries; `GITHUB_TOKEN` + `TAP_GITHUB_TOKEN`
 
 ## 9. Verification
-- [ ] `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`
-- [ ] `applerestore status` / `download --identifier ... ` smoke tests against live APIs
+- [x] `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`
+- [x] `applerestore status` / `download --identifier ... ` smoke tests against live APIs
 - [ ] `goreleaser check` (and snapshot build if goreleaser available)
 - [ ] Hardware: `sudo applerestore dfu` + `status` + `sudo applerestore reboot` against the cabled target Mac
 - [ ] (Manual, destructive — needs explicit go-ahead) full `applerestore run` erase restore

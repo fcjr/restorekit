@@ -1,0 +1,65 @@
+version: 2
+
+project_name: applerestore
+
+# Binaries are built natively per-platform in CI (the self-contained static C
+# stack can't be zig cross-compiled) and downloaded into ./artifacts before
+# goreleaser runs. Here we only assemble/package them.
+builds:
+  - id: applerestore
+    builder: prebuilt
+    binary: applerestore
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    prebuilt:
+      path: artifacts/applerestore_{{ .Os }}_{{ .Arch }}/applerestore
+    hooks: {}
+
+archives:
+  - id: applerestore
+    ids: [applerestore]
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+homebrew_casks:
+  - name: applerestore
+    repository:
+      owner: fcjr
+      name: homebrew-fcjr
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/fcjr/applerestore"
+    description: "DFU-restore Apple Silicon Macs from the command line"
+    # Unsigned binary: strip the quarantine bit so Gatekeeper doesn't block it.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr",
+                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/applerestore"]
+          end
+    caveats: |
+      applerestore triggers DFU mode only from an Apple Silicon Mac host, and
+      needs root for that step (sudo applerestore dfu). Restores run on macOS
+      and Linux.
+
+release:
+  github:
+    owner: fcjr
+    name: applerestore

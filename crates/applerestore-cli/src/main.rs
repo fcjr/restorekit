@@ -44,6 +44,15 @@ enum Command {
     Restore(RestoreArgs),
     /// One-shot: trigger DFU, wait, download, and restore.
     Run(RestoreArgs),
+    /// Show or manage the firmware cache.
+    Cache {
+        /// Delete all cached firmware.
+        #[arg(long)]
+        clear: bool,
+        /// Print only the cache directory path.
+        #[arg(long)]
+        path: bool,
+    },
 }
 
 #[derive(clap::Args)]
@@ -93,6 +102,7 @@ fn main() {
         Command::Run(args) => {
             commands::restore::run_oneshot(args.into_opts(cli.cache_dir, cli.json))
         }
+        Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
     };
 
     if let Err(e) = result {

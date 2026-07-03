@@ -1,0 +1,89 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            target: aarch64-apple-darwin
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+            target: x86_64-apple-darwin
+          - os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake libtool pkg-config cmake \
+            libusb-1.0-0-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (self-contained static binary)
+        run: cargo build --release --locked -p applerestore-cli
+
+      - name: Stage artifact
+        run: |
+          mkdir -p "artifacts/applerestore_${{ matrix.goos }}_${{ matrix.goarch }}"
+          cp target/release/applerestore \
+            "artifacts/applerestore_${{ matrix.goos }}_${{ matrix.goarch }}/applerestore"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: applerestore_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: artifacts/applerestore_${{ matrix.goos }}_${{ matrix.goarch }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download prebuilt binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: applerestore_*
+          merge-multiple: false
+
+      - name: Mark binaries executable
+        run: chmod +x artifacts/*/applerestore
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
