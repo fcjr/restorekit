@@ -55,9 +55,10 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 ## 9. Verification
 - [x] `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`
 - [x] `applerestore status` / `download --identifier ... ` smoke tests against live APIs
-- [ ] `goreleaser check` (and snapshot build if goreleaser available)
-- [ ] Hardware: `sudo applerestore dfu` + `status` + `sudo applerestore reboot` against the cabled target Mac
-- [ ] (Manual, destructive — needs explicit go-ahead) full `applerestore run` erase restore
+- [ ] `goreleaser check` (goreleaser not installed locally — validated in CI)
+- [x] Release build (`cargo build --release`) links; 8.2 MB self-contained binary, no third-party dylibs
+- [x] Hardware: `sudo applerestore dfu` + `status` verified against the cabled target Mac (detection + model ID confirmed)
+- [ ] (Manual, destructive — needs explicit go-ahead) full `applerestore run` erase restore over the FFI
 
 ## Post-v1 follow-ups (not in this pass)
 - [ ] Create github.com/fcjr/applerestore and push; add `TAP_GITHUB_TOKEN` secret (PAT with write access to fcjr/homebrew-fcjr)
