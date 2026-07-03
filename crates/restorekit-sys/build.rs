@@ -151,16 +151,27 @@ fn build_autotools(src: &Path, name: &str, deps: &Deps) {
     }
     println!("cargo:warning=building {name} from source");
 
-    // autogen.sh regenerates configure from a git checkout. On Windows the
-    // scripts run through MSYS2's `sh` (Rust's Command can't exec a shell script
-    // directly); elsewhere they're executable.
-    if src.join("autogen.sh").exists() && !src.join("configure").exists() {
-        run(
-            shell(deps.windows, "./autogen.sh")
-                .current_dir(src)
-                .env("NOCONFIGURE", "1"),
-            &format!("{name} autogen"),
-        );
+    // Regenerate configure from the git checkout. On Windows we drive
+    // `autoreconf` directly — the projects' hand-rolled autogen.sh runs a bare
+    // `aclocal -I m4` that trips over MSYS2's gettext macro layout; autoreconf
+    // discovers and orders the macros robustly. Elsewhere autogen.sh is fine.
+    if !src.join("configure").exists() {
+        if deps.windows {
+            run(
+                Command::new("sh")
+                    .arg("-c")
+                    .arg("autoreconf --install --force")
+                    .current_dir(src),
+                &format!("{name} autoreconf"),
+            );
+        } else if src.join("autogen.sh").exists() {
+            run(
+                Command::new("./autogen.sh")
+                    .current_dir(src)
+                    .env("NOCONFIGURE", "1"),
+                &format!("{name} autogen"),
+            );
+        }
     }
 
     let mut configure = shell(deps.windows, "./configure");
