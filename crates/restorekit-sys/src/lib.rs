@@ -131,6 +131,21 @@ extern "C" {
         userdata: *mut c_void,
     );
     pub fn idevicerestore_start(client: *mut idevicerestore_client_t) -> c_int;
+    /// Register a progress bar (or, with a NULL label, just run the one-time
+    /// init of idevicerestore's global progress mutex).
+    pub fn register_progress(tag: u32, label: *const c_char);
+}
+
+/// Initialize idevicerestore's progress subsystem before a restore.
+///
+/// Several of its progress functions (e.g. `finalize_progress`, called from
+/// `dfu_client_free`) lock a global mutex without the lazy-init guard that
+/// `set_progress`/`register_progress` run. On Windows that mutex is a
+/// `CRITICAL_SECTION`, so locking it uninitialized is an access violation.
+/// `register_progress` with a NULL label runs the init and returns without
+/// adding an entry.
+pub fn init_progress() {
+    unsafe { register_progress(0, std::ptr::null()) };
 }
 
 // ── Embedded usbmuxd server (Linux only) ─────────────────────────────────────

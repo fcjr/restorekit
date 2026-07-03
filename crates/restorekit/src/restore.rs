@@ -82,6 +82,11 @@ pub fn restore(
         sys::LL_WARNING
     });
 
+    // Initialize idevicerestore's global progress mutex up front — some of its
+    // progress functions lock it without a lazy-init guard, which crashes on
+    // Windows (a CRITICAL_SECTION) if hit before the first `set_progress`.
+    sys::init_progress();
+
     // Owned copies to hand to the worker thread.
     let ipsw = ipsw.to_path_buf();
     let cache_dir = cache_dir.map(Path::to_path_buf);
