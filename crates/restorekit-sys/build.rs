@@ -115,6 +115,10 @@ impl Deps {
                 flags.push_str(&format!(" -D{def}"));
             }
             flags.push_str(" -DCURL_STATICLIB");
+            // 64-bit file offsets: mingw's default `stat`/`off_t` are 32-bit, so
+            // anything touching a >2 GB file (e.g. a ~20 GB IPSW) fails with
+            // EOVERFLOW without this.
+            flags.push_str(" -D_FILE_OFFSET_BITS=64");
         }
         // When the final artifact is a shared library (e.g. Tauri on Linux),
         // all static C code must be position-independent.
@@ -329,6 +333,9 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
         }
         // Link our static libcurl without dllimport stubs (see cflags()).
         build.define("CURL_STATICLIB", None);
+        // 64-bit file offsets so stat()/seek on a ~20 GB IPSW don't overflow
+        // mingw's 32-bit defaults (see cflags()).
+        build.define("_FILE_OFFSET_BITS", "64");
         // realpath/strsep/mkstemp are absent on mingw; idevicerestore ships
         // WIN32 fallbacks guarded by `#ifndef HAVE_*`, so leave these undefined.
     } else {
