@@ -49,3 +49,45 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  # Windows uses the GNU toolchain: the vendored C stack is built with autotools,
+  # which can't target MSVC. The build runs inside an MSYS2 MINGW64 shell.
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            git
+            make
+            autoconf
+            automake
+            libtool
+            autoconf-archive
+            gettext-devel
+            pkgconf
+            perl
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-libusb
+            mingw-w64-x86_64-nasm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the CLI (windows-gnu, static C stack under MSYS2)
+        shell: msys2 {0}
+        run: |
+          export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
+          cargo build -p restorekit-cli --target x86_64-pc-windows-gnu
