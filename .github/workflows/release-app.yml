@@ -1,7 +1,8 @@
 name: release-app
 
-# Builds and releases the macOS desktop app. Runs on the same version tags as
-# the CLI release; the .dmg/.app is attached to the GitHub Release.
+# Builds and releases the desktop app for macOS and Linux. Runs on the same
+# version tags as the CLI release; the .dmg/.app (macOS) and .deb/.AppImage
+# (Linux) are attached to the GitHub Release.
 on:
   push:
     tags: ["v*"]
@@ -11,14 +12,29 @@ permissions:
 
 jobs:
   build-app:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install macOS build deps
+        if: runner.os == 'macOS'
         run: brew install autoconf automake libtool pkg-config cmake autoconf-archive
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf \
+            build-essential autoconf automake libtool pkg-config cmake autoconf-archive \
+            libusb-1.0-0-dev libssl-dev libcurl4-openssl-dev zlib1g-dev
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -35,6 +51,7 @@ jobs:
         run: bash ./stage-helper.sh
 
       - name: Write the App Store Connect API key
+        if: runner.os == 'macOS'
         # The secret comes in via env (not inlined in the command) and is stored
         # base64-encoded — single-line base64 is masked reliably; a multi-line
         # PEM is not. The file lands in RUNNER_TEMP, which is wiped after the job.
@@ -44,7 +61,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/asc/AuthKey.p8"
 
-      - name: Build, sign, notarize & release the app
+      - name: Build & release the app
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: apps/desktop
@@ -53,11 +70,10 @@ jobs:
           releaseDraft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Developer ID signing (cert exported as base64 .p12).
+          # macOS Developer ID signing + notarization (ignored on Linux).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # Notarization via App Store Connect API key.
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8

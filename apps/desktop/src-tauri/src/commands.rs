@@ -6,8 +6,6 @@ use restorekit::{firmware, restore, Firmware};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::elevate;
-
 const APPLE_VID: u16 = 0x05ac;
 
 /// One connected Apple device and the USB mode it's in. ECID is a hex string
@@ -104,20 +102,37 @@ pub fn manual_instructions() -> String {
 }
 
 /// Trigger DFU on the cabled target via the elevated helper (Touch ID prompt).
+/// macOS-only: electronic DFU entry needs an Apple Silicon Mac host.
 #[tauri::command]
 pub async fn trigger_dfu() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(|| elevate::run_helper("dfu"))
-        .await
-        .map_err(|e| e.to_string())?
+    #[cfg(not(target_os = "macos"))]
+    return Err(NO_TRIGGER.into());
+
+    #[cfg(target_os = "macos")]
+    {
+        tauri::async_runtime::spawn_blocking(|| crate::elevate::run_helper("dfu"))
+            .await
+            .map_err(|e| e.to_string())?
+    }
 }
 
-/// Reboot the cabled target out of DFU via the elevated helper.
+/// Reboot the cabled target out of DFU via the elevated helper (macOS-only).
 #[tauri::command]
 pub async fn reboot_target() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(|| elevate::run_helper("reboot"))
-        .await
-        .map_err(|e| e.to_string())?
+    #[cfg(not(target_os = "macos"))]
+    return Err(NO_TRIGGER.into());
+
+    #[cfg(target_os = "macos")]
+    {
+        tauri::async_runtime::spawn_blocking(|| crate::elevate::run_helper("reboot"))
+            .await
+            .map_err(|e| e.to_string())?
+    }
 }
+
+#[cfg(not(target_os = "macos"))]
+const NO_TRIGGER: &str = "Entering DFU electronically needs an Apple Silicon Mac host. \
+    Put the target into DFU by hand and it will show up here.";
 
 #[tauri::command]
 pub async fn resolve_firmware(

@@ -1,4 +1,5 @@
 mod commands;
+#[cfg(target_os = "macos")]
 mod elevate;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

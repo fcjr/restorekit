@@ -5,7 +5,7 @@
 **Reformat an Apple Silicon Mac with one command.**
 
 Trigger DFU, detect the target, download the right firmware, and restore.
-A cross-platform CLI for macOS and Linux, plus a macOS desktop app.
+A cross-platform CLI and desktop app for macOS and Linux.
 
 [![CI](https://github.com/fcjr/restorekit/actions/workflows/ci.yml/badge.svg)](https://github.com/fcjr/restorekit/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/restorekit-cli.svg)](https://crates.io/crates/restorekit-cli)
@@ -19,8 +19,8 @@ A cross-platform CLI for macOS and Linux, plus a macOS desktop app.
 `restorekit` replaces the Apple Configurator dance with a single tool. It puts
 a cabled Mac into DFU mode, identifies exactly which Mac it is, fetches the
 matching macOS IPSW, and restores it — start to finish. It runs on **macOS and
-Linux** as a command-line tool, and ships a **macOS [desktop app](#desktop-app)**
-built on the same engine.
+Linux**, as a command-line tool or a **[desktop app](#desktop-app)** built on the
+same engine.
 
 > [!WARNING]
 > A restore **erases everything** on the target Mac. Double-check you have the
@@ -106,14 +106,18 @@ sure it's installed and running.
 
 ## Desktop app
 
-A macOS app (Tauri + Svelte) wraps the same engine for a point-and-click restore:
-detect the device, one-click *Enter DFU*, download, confirm, restore — with live
-progress. It links the `restorekit` library directly, so it's the same code path
-as the CLI.
+A cross-platform app (Tauri + Svelte) wraps the same engine for a point-and-click
+restore: detect the device, download, confirm, restore — with live progress. It
+links the `restorekit` library directly, so it's the same code path as the CLI.
 
 ```sh
-brew install --cask restorekit
+brew install --cask restorekit          # macOS
 ```
+
+On Linux, grab the `.deb` or `.AppImage` from the
+[releases page](https://github.com/fcjr/restorekit/releases). One-click *Enter
+DFU* needs an Apple Silicon Mac host; on other hosts the app shows the manual
+key-combo and takes over once the target is in DFU.
 
 See [docs/gui-prd.md](docs/gui-prd.md) for the app's design.
 
