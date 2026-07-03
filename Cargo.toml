@@ -5,7 +5,7 @@ members = ["crates/applerestore", "crates/applerestore-sys", "crates/applerestor
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fcjr/applerestore"
 authors = ["Frank Chiarulli Jr. <frank@frankchiarulli.com>"]
 

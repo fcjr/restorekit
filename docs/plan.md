@@ -3,7 +3,7 @@
 Working checklist; check items off as they land.
 
 ## 1. Scaffold
-- [x] Workspace `Cargo.toml` (crates/applerestore, crates/applerestore-cli), MIT LICENSE, NOTICE (Apache-2.0 attribution for the vdm port), .gitignore
+- [x] Workspace `Cargo.toml` (crates/applerestore, crates/applerestore-cli), Apache-2.0 LICENSE + NOTICE (attribution for the vdm port and vendored libs), .gitignore
 - [x] docs/prd.md
 - [x] docs/plan.md (this file)
 - [x] README.md (install, usage, DFU port locations, safety warning)

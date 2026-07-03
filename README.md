@@ -106,6 +106,6 @@ first build takes a few minutes.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The DFU-trigger implementation is a Rust port of
-macvdmtool and retains its Apache-2.0 licensing; the vendored C libraries keep
-their respective licenses. See [NOTICE](NOTICE).
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). The DFU-trigger
+implementation is a Rust port of macvdmtool (also Apache-2.0); the vendored C
+libraries keep their respective licenses.
