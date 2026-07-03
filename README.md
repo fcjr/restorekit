@@ -80,8 +80,18 @@ Detection, download, and restore work on macOS and Linux.
 ### Linux notes
 
 The restore phase talks to the device through `usbmuxd`; make sure it's
-installed and running. Building from source needs `autoconf`, `automake`,
-`libtool`, `pkg-config`, `cmake`, and `libusb-1.0` development headers.
+installed and running. Building from source needs the autotools/CMake
+toolchain and a few `-dev` packages:
+
+```sh
+sudo apt-get install -y \
+  build-essential autoconf automake libtool pkg-config cmake autoconf-archive \
+  libusb-1.0-0-dev libssl-dev libcurl4-openssl-dev zlib1g-dev
+```
+
+(The `-dev` packages only satisfy the vendored C libraries' `configure`
+checks; OpenSSL, libcurl, and zlib are still linked statically, so the built
+binary depends only on `libc` and `libusb`.)
 
 ## Building from source
 
