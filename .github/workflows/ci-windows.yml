@@ -31,6 +31,7 @@ jobs:
             automake
             libtool
             autoconf-archive
+            gettext-devel
             pkgconf
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkgconf
