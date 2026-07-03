@@ -54,7 +54,8 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 
 ## 9. Verification
 - [x] `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`
-- [x] `applerestore status` / `download --identifier ... ` smoke tests against live APIs
+- [x] `applerestore status` / `download` smoke tests against live APIs
+- [x] **Full firmware pipeline hardware-verified**: auto-detected the DFU device, resolved macOS 26.5.2, downloaded 19.8 GB (survived a mid-transfer drop via retry+resume), SHA-256 verified, cached with sidecar
 - [ ] `goreleaser check` (goreleaser not installed locally — validated in CI)
 - [x] Release build (`cargo build --release`) links; 8.2 MB self-contained binary, no third-party dylibs
 - [x] Hardware: `sudo applerestore dfu` + `status` verified against the cabled target Mac (detection + model ID confirmed)
