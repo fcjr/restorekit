@@ -213,9 +213,20 @@ void restorekit_usbmuxd_stop(void)
 
 void restorekit_usbmuxd_cleanup(void)
 {
-    device_kill_connections();
-    usb_shutdown();
-    device_shutdown();
+    /*
+     * We intentionally skip device_kill_connections() and usb_shutdown() here.
+     *
+     * device_kill_connections() tries to send TCP RSTs to the device, but after
+     * a successful restore the device has already rebooted and the USB handle is
+     * stale — attempting to submit transfers on it causes a crash.
+     *
+     * usb_shutdown() calls libusb_exit(NULL) which tears down the *shared*
+     * default libusb context.  idevicerestore (via libirecovery) also uses the
+     * default context, and any lingering state there becomes a use-after-free.
+     *
+     * Skipping these is safe: the device is gone, and the process either exits
+     * shortly or will re-initialise everything for the next restore.
+     */
     client_shutdown();
 
     if (listenfd >= 0) {
