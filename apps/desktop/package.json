@@ -10,7 +10,9 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "stage-helper": "bash ./stage-helper.sh",
     "build:signed": "bash ./build-signed.sh",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "udev:install": "sudo cp ../../udev/51-restorekit.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger",
+    "udev:uninstall": "sudo rm -f /etc/udev/rules.d/51-restorekit.rules && sudo udevadm control --reload-rules && sudo udevadm trigger"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
