@@ -59,6 +59,12 @@ fn main() {
     // idevicerestore: compile its sources directly (no library upstream).
     compile_idevicerestore(&vendor.join("idevicerestore"), &deps);
 
+    // usbmuxd server (Linux only): embed the daemon event loop so the binary
+    // is self-contained — no external usbmuxd process needed.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        compile_usbmuxd(&vendor.join("usbmuxd"), &deps);
+    }
+
     emit_link_directives(&prefix);
 }
 
@@ -109,6 +115,11 @@ impl Deps {
                 flags.push_str(&format!(" -D{def}"));
             }
             flags.push_str(" -DCURL_STATICLIB");
+        }
+        // When the final artifact is a shared library (e.g. Tauri on Linux),
+        // all static C code must be position-independent.
+        if !self.windows {
+            flags.push_str(" -fPIC");
         }
         flags
     }
@@ -271,7 +282,8 @@ fn build_libzip(src: &Path, deps: &Deps) {
         .define("ENABLE_BZIP2", "OFF")
         .define("ENABLE_LZMA", "OFF")
         .define("ENABLE_ZSTD", "OFF")
-        .define("CMAKE_INSTALL_PREFIX", &deps.prefix);
+        .define("CMAKE_INSTALL_PREFIX", &deps.prefix)
+        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
     if let Some(inc) = &deps.zlib_include {
         cfg.define("ZLIB_INCLUDE_DIR", inc);
     }
@@ -355,6 +367,69 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
     build.file(&shim);
 
     build.compile("idevicerestore");
+}
+
+/// Compile usbmuxd's server sources (minus main.c/preflight.c) plus our shim
+/// into a static archive so restorekit can run an in-process usbmuxd on Linux.
+fn compile_usbmuxd(src: &Path, deps: &Deps) {
+    let src_dir = src.join("src");
+    let mut build = cc::Build::new();
+    build
+        .include(&src_dir)
+        .include(deps.prefix.join("include"))
+        .flag_if_supported("-Wno-unused-parameter")
+        .flag_if_supported("-Wno-sign-compare")
+        // usbmuxd's log.c defines `unsigned int log_level` which clashes with
+        // idevicerestore's identically-named global. Rename it at the
+        // preprocessor level to avoid a linker duplicate-symbol error.
+        .define("log_level", "usbmuxd_log_level")
+        .define("HAVE_PPOLL", None)
+        .define("HAVE_CLOCK_GETTIME", None)
+        .define("HAVE_LOCALTIME_R", None)
+        .define("PACKAGE_NAME", "\"usbmuxd\"")
+        .define("PACKAGE_VERSION", "\"restorekit-embedded\"")
+        .define("PACKAGE_URL", "\"https://libimobiledevice.org\"")
+        .define(
+            "PACKAGE_BUGREPORT",
+            "\"https://github.com/libimobiledevice/usbmuxd/issues\"",
+        );
+    // Do NOT define HAVE_LIBIMOBILEDEVICE — avoids pulling in preflight/lockdown.
+
+    // libusb-1.0 headers (usbmuxd includes <libusb.h> directly).
+    if let Ok(output) = std::process::Command::new("pkg-config")
+        .args(["--cflags-only-I", "libusb-1.0"])
+        .output()
+    {
+        let flags = String::from_utf8_lossy(&output.stdout);
+        for flag in flags.split_whitespace() {
+            if let Some(dir) = flag.strip_prefix("-I") {
+                build.include(dir);
+            }
+        }
+    }
+
+    let skip = ["main.c", "preflight.c"];
+    let mut count = 0;
+    for entry in std::fs::read_dir(&src_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) == Some("c") {
+            let name = path.file_name().unwrap().to_str().unwrap();
+            if skip.contains(&name) {
+                continue;
+            }
+            build.file(&path);
+            count += 1;
+        }
+    }
+    assert!(count > 0, "no usbmuxd .c sources found in {src_dir:?}");
+
+    // Our shim that provides main-loop functions + preflight stubs.
+    let shim =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc/usbmuxd_server.c");
+    println!("cargo:rerun-if-changed={}", shim.display());
+    build.file(&shim);
+
+    build.compile("usbmuxd_server");
 }
 
 fn emit_link_directives(prefix: &Path) {

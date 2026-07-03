@@ -30,3 +30,6 @@
 	path = crates/restorekit-sys/vendor/libzip
 	url = https://github.com/nih-at/libzip.git
 	ignore = dirty
+[submodule "crates/restorekit-sys/vendor/usbmuxd"]
+	path = crates/restorekit-sys/vendor/usbmuxd
+	url = https://github.com/libimobiledevice/usbmuxd.git

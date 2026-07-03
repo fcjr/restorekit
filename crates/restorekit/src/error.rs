@@ -48,6 +48,9 @@ pub enum Error {
     )]
     IdevicerestoreNotFound,
 
+    #[error("failed to start usbmuxd: {0}")]
+    UsbmuxdFailed(String),
+
     #[error("restore failed (exit {status}); last output:\n{log_tail}")]
     RestoreFailed { status: i32, log_tail: String },
 

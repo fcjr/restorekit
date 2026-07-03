@@ -133,6 +133,46 @@ extern "C" {
     pub fn idevicerestore_start(client: *mut idevicerestore_client_t) -> c_int;
 }
 
+// ── Embedded usbmuxd server (Linux only) ─────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+extern "C" {
+    fn restorekit_usbmuxd_start(socket_path: *const c_char) -> c_int;
+    fn restorekit_usbmuxd_run();
+    fn restorekit_usbmuxd_stop();
+    fn restorekit_usbmuxd_cleanup();
+}
+
+/// Initialize the embedded usbmuxd server, binding a Unix socket at `path`.
+/// Returns `Ok(())` on success.
+#[cfg(target_os = "linux")]
+pub fn usbmuxd_start(path: &std::ffi::CStr) -> std::result::Result<(), c_int> {
+    let rc = unsafe { restorekit_usbmuxd_start(path.as_ptr()) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(rc)
+    }
+}
+
+/// Run the usbmuxd event loop (blocks until [`usbmuxd_stop`] is called).
+#[cfg(target_os = "linux")]
+pub fn usbmuxd_run() {
+    unsafe { restorekit_usbmuxd_run() }
+}
+
+/// Signal the event loop to exit.
+#[cfg(target_os = "linux")]
+pub fn usbmuxd_stop() {
+    unsafe { restorekit_usbmuxd_stop() }
+}
+
+/// Tear down USB devices, close the listen socket, and unlink the socket file.
+#[cfg(target_os = "linux")]
+pub fn usbmuxd_cleanup() {
+    unsafe { restorekit_usbmuxd_cleanup() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

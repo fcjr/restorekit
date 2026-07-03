@@ -44,6 +44,8 @@ pub enum Event {
         name: String,
         progress: f32,
     },
+    /// The embedded usbmuxd server is starting (Linux only).
+    UsbmuxdStarting,
     Done,
 }
 

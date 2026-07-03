@@ -64,6 +64,11 @@ pub fn restore(
 ) -> Result<()> {
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
+    // On Linux, start the embedded usbmuxd server so idevicerestore can
+    // communicate with USB devices without an external daemon.
+    #[cfg(target_os = "linux")]
+    let _usbmuxd = crate::usbmuxd::UsbmuxdGuard::start(progress)?;
+
     // Route idevicerestore's logging through our capture sink (rather than its
     // default stdout dump) so it doesn't stomp on the progress UI and so we can
     // surface the real error text on failure. `verbose` also echoes to stderr.

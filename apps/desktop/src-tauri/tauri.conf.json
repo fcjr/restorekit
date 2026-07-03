@@ -35,6 +35,13 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/helper"],
+    "linux": {
+      "deb": {
+        "files": {
+          "/etc/udev/rules.d/51-restorekit.rules": "../../../udev/51-restorekit.rules"
+        }
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "13.0",
       "entitlements": "entitlements.plist",

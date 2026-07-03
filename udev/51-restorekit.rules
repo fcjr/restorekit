@@ -1,0 +1,22 @@
+# RestoreKit — grant unprivileged USB access to Apple devices in DFU and
+# restore mode so the GUI/CLI can operate without root.
+#
+# Install:  sudo cp 51-restorekit.rules /etc/udev/rules.d/
+#           sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# All rules match vendor 05ac (Apple) and cover the product-ID ranges that
+# usbmuxd and libirecovery use for DFU, Recovery, and normal iOS/macOS mode.
+
+# Normal iOS / iPadOS / Apple Silicon restore devices (PID 0x1290–0x12af)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", ATTR{idProduct}=="12[9a][0-9a-f]", MODE="0666"
+
+# Apple Silicon DFU restore (PID 0x1901–0x1905)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", ATTR{idProduct}=="190[1-5]", MODE="0666"
+
+# Apple T2 coprocessor (PID 0x8600)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", ATTR{idProduct}=="8600", MODE="0666"
+
+# DFU and Recovery mode (PID 0x1222, 0x1227, 0x1280–0x1283, 0x1338)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", ATTR{idProduct}=="122[27]", MODE="0666"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", ATTR{idProduct}=="128[0-3]", MODE="0666"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", ATTR{idProduct}=="1338", MODE="0666"
