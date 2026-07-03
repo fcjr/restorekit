@@ -56,7 +56,17 @@ fn download_stream(partial: &Path, fw: &Firmware, progress: ProgressFn) -> Resul
     if downloaded > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={downloaded}-"));
     }
-    let mut resp = req.send()?.error_for_status()?;
+    let resp = req.send()?;
+
+    // A 416 means our Range header is invalid (e.g. the partial file is larger
+    // than the remote resource, or the URL now points at different content).
+    // Discard the stale partial data and re-request without a Range header.
+    if resp.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && downloaded > 0 {
+        std::fs::remove_file(partial).ok();
+        return download_stream(partial, fw, progress);
+    }
+
+    let mut resp = resp.error_for_status()?;
 
     let resuming = resp.status() == reqwest::StatusCode::PARTIAL_CONTENT;
     if downloaded > 0 && !resuming {
