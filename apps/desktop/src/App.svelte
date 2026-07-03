@@ -37,6 +37,7 @@
   let error = $state("");
   let confirming = $state(false);
   let confirmingClear = $state(false);
+  let doneKind = $state<"restore" | "download">("restore");
   let dl = $state({ received: 0, total: 0, cached: false, verifying: false });
   let rs = $state({ name: "starting", percent: 0 });
 
@@ -167,6 +168,7 @@
       rs = { name: "starting", percent: 0 };
       phase = "restoring";
       await api.restore(ipsw, active.serial, revive);
+      doneKind = "restore";
       phase = "done";
       api.cacheInfo().then((v) => (cache = v)).catch(() => {});
     } catch (e) {
@@ -185,6 +187,7 @@
       dl = { received: 0, total: firmware.size, cached: false, verifying: false };
       phase = "downloading";
       await api.downloadFirmware(firmware);
+      doneKind = "download";
       phase = "done";
       api.cacheInfo().then((v) => (cache = v)).catch(() => {});
     } catch (e) {
@@ -254,9 +257,13 @@
         </div>
       {:else if phase === "done"}
         <div class="stage center">
-          <span class="eyebrow alive">Complete</span>
-          <h1>Done.</h1>
-          <p class="lede">{active ? "The target is booting to Setup Assistant." : "Firmware is cached and ready."}</p>
+          <span class="eyebrow alive">{doneKind === "restore" ? "Restored" : "Downloaded"}</span>
+          <h1>{doneKind === "restore" ? "Restored." : "Firmware ready."}</h1>
+          <p class="lede">
+            {doneKind === "restore"
+              ? "The target is booting to Setup Assistant."
+              : "The matching firmware is cached and ready to restore."}
+          </p>
           <button class="btn" onclick={resetAction}>Back to devices</button>
         </div>
       {:else if phase === "error"}
@@ -290,7 +297,7 @@
                 Options <span class="faint">— defaults are fine; override only if you need to</span>
               </div>
               <div class="opt">
-                <label for="osv">macOS version</label>
+                <label for="osv">macOS version <span class="faint">optional</span></label>
                 <input id="osv" class="mono" placeholder="latest signed" bind:value={osVersion} />
               </div>
               <div class="opt">
