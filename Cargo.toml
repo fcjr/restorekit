@@ -1,6 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["crates/restorekit", "crates/restorekit-sys", "crates/restorekit-cli"]
+members = [
+    "crates/restorekit",
+    "crates/restorekit-sys",
+    "crates/restorekit-cli",
+    "crates/restorekit-dfu-helper",
+]
+# The Tauri app pulls in webkit/GTK deps that don't build on the Linux CI
+# runners, so it's a standalone crate outside the workspace build.
+exclude = ["apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

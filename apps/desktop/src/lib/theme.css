@@ -1,0 +1,116 @@
+:root {
+  --bg: #0a0d12;
+  --panel: #11151c;
+  --panel-2: #161c26;
+  --line: #232b38;
+  --line-2: #2e3746;
+  --ink: #e9edf4;
+  --muted: #818c9e;
+  --faint: #5a6474;
+  --signal: #f2a63c;
+  --signal-soft: rgba(242, 166, 60, 0.13);
+  --signal-line: rgba(242, 166, 60, 0.38);
+  --alive: #46c38c;
+  --alive-soft: rgba(70, 195, 140, 0.12);
+  --danger: #ef6a6a;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+#app {
+  height: 100vh;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.btn {
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--ink);
+  border-radius: 9px;
+  padding: 11px 18px;
+  font-size: 14px;
+  font-weight: 550;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    transform 0.05s;
+}
+.btn:hover {
+  border-color: var(--signal-line);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn.primary {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #1a1206;
+  font-weight: 650;
+}
+.btn.primary:hover {
+  filter: brightness(1.06);
+}
+.btn.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #2a0d0d;
+  font-weight: 650;
+}
+.btn.ghost {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

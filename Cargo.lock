@@ -1034,6 +1034,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "restorekit-dfu-helper"
+version = "0.1.0"
+dependencies = [
+ "restorekit",
+]
+
+[[package]]
 name = "restorekit-sys"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,42 @@
+name: release-app
+
+# Builds and releases the macOS desktop app. Runs on the same version tags as
+# the CLI release; the .dmg/.app is attached to the GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-app:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend deps
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build & stage the privileged DFU helper
+        working-directory: apps/desktop
+        run: bash ./stage-helper.sh
+
+      - name: Build & release the app
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "restorekit ${{ github.ref_name }}"
+          releaseDraft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
