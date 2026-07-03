@@ -3,3 +3,5 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/binaries/
+# Local signing/notarization secrets — never commit.
+.env

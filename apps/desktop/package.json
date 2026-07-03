@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "stage-helper": "bash ./stage-helper.sh",
+    "build:signed": "bash ./build-signed.sh",
     "tauri": "tauri"
   },
   "dependencies": {
