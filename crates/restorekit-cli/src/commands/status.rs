@@ -1,4 +1,4 @@
-use applerestore::{dfu, Result};
+use restorekit::{dfu, Result};
 
 pub fn run(json: bool) -> Result<()> {
     let devices = dfu::list()?;
@@ -13,7 +13,7 @@ pub fn run(json: bool) -> Result<()> {
         if !dfu::host_can_trigger_dfu() {
             println!("\n{}", dfu::manual_dfu_instructions());
         } else {
-            println!("Cable a target Mac to the DFU port and run `applerestore dfu`.");
+            println!("Cable a target Mac to the DFU port and run `restorekit dfu`.");
         }
         return Ok(());
     }

@@ -1,23 +1,23 @@
 version: 2
 
-project_name: applerestore
+project_name: restorekit
 
 # Binaries are built natively per-platform in CI (the self-contained static C
 # stack can't be zig cross-compiled) and downloaded into ./artifacts before
 # goreleaser runs. Here we only assemble/package them.
 builds:
-  - id: applerestore
+  - id: restorekit
     builder: prebuilt
-    binary: applerestore
+    binary: restorekit
     goos: [darwin, linux]
     goarch: [amd64, arm64]
     prebuilt:
-      path: artifacts/applerestore_{{ .Os }}_{{ .Arch }}/applerestore
+      path: artifacts/restorekit_{{ .Os }}_{{ .Arch }}/restorekit
     hooks: {}
 
 archives:
-  - id: applerestore
-    ids: [applerestore]
+  - id: restorekit
+    ids: [restorekit]
     formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
@@ -39,15 +39,15 @@ changelog:
       - "^chore:"
 
 homebrew_casks:
-  # The CLI ships as `applerestore-cli`; the plain `applerestore` cask token is
-  # reserved for the desktop app. The installed binary is still `applerestore`.
-  - name: applerestore-cli
-    binary: applerestore
+  # The CLI ships as `restorekit-cli`; the plain `restorekit` cask token is
+  # reserved for the desktop app. The installed binary is still `restorekit`.
+  - name: restorekit-cli
+    binary: restorekit
     repository:
       owner: fcjr
       name: homebrew-fcjr
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    homepage: "https://github.com/fcjr/applerestore"
+    homepage: "https://github.com/fcjr/restorekit"
     description: "DFU-restore Apple Silicon Macs from the command line"
     # Unsigned binary: strip the quarantine bit so Gatekeeper doesn't block it.
     hooks:
@@ -55,14 +55,14 @@ homebrew_casks:
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr",
-                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/applerestore"]
+                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/restorekit"]
           end
     caveats: |
-      applerestore triggers DFU mode only from an Apple Silicon Mac host, and
-      needs root for that step (sudo applerestore dfu). Restores run on macOS
+      restorekit triggers DFU mode only from an Apple Silicon Mac host, and
+      needs root for that step (sudo restorekit dfu). Restores run on macOS
       and Linux.
 
 release:
   github:
     owner: fcjr
-    name: applerestore
+    name: restorekit

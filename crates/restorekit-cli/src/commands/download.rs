@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use applerestore::progress::Event;
-use applerestore::{dfu, firmware, Error, Result};
 use indicatif::ProgressBar;
+use restorekit::progress::Event;
+use restorekit::{dfu, firmware, Error, Result};
 
 use super::render;
 

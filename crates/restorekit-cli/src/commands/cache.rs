@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use applerestore::{firmware, Result};
+use restorekit::{firmware, Result};
 
 pub fn run(cache_dir: Option<PathBuf>, clear: bool, path_only: bool) -> Result<()> {
     let cache = match cache_dir {

@@ -1,32 +1,32 @@
 [submodule "crates/applerestore-sys/vendor/libplist"]
-	path = crates/applerestore-sys/vendor/libplist
+	path = crates/restorekit-sys/vendor/libplist
 	url = https://github.com/libimobiledevice/libplist.git
 	ignore = dirty
 [submodule "crates/applerestore-sys/vendor/libimobiledevice-glue"]
-	path = crates/applerestore-sys/vendor/libimobiledevice-glue
+	path = crates/restorekit-sys/vendor/libimobiledevice-glue
 	url = https://github.com/libimobiledevice/libimobiledevice-glue.git
 	ignore = dirty
 [submodule "crates/applerestore-sys/vendor/libusbmuxd"]
-	path = crates/applerestore-sys/vendor/libusbmuxd
+	path = crates/restorekit-sys/vendor/libusbmuxd
 	url = https://github.com/libimobiledevice/libusbmuxd.git
 	ignore = dirty
 [submodule "crates/applerestore-sys/vendor/libirecovery"]
-	path = crates/applerestore-sys/vendor/libirecovery
+	path = crates/restorekit-sys/vendor/libirecovery
 	url = https://github.com/libimobiledevice/libirecovery.git
 	ignore = dirty
 [submodule "crates/applerestore-sys/vendor/libtatsu"]
-	path = crates/applerestore-sys/vendor/libtatsu
+	path = crates/restorekit-sys/vendor/libtatsu
 	url = https://github.com/libimobiledevice/libtatsu.git
 	ignore = dirty
 [submodule "crates/applerestore-sys/vendor/libimobiledevice"]
-	path = crates/applerestore-sys/vendor/libimobiledevice
+	path = crates/restorekit-sys/vendor/libimobiledevice
 	url = https://github.com/libimobiledevice/libimobiledevice.git
 	ignore = dirty
 [submodule "crates/applerestore-sys/vendor/idevicerestore"]
-	path = crates/applerestore-sys/vendor/idevicerestore
+	path = crates/restorekit-sys/vendor/idevicerestore
 	url = https://github.com/libimobiledevice/idevicerestore.git
 	ignore = dirty
 [submodule "crates/applerestore-sys/vendor/libzip"]
-	path = crates/applerestore-sys/vendor/libzip
+	path = crates/restorekit-sys/vendor/libzip
 	url = https://github.com/nih-at/libzip.git
 	ignore = dirty

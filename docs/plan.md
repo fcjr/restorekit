@@ -1,9 +1,9 @@
-# applerestore — Implementation Plan
+# restorekit — Implementation Plan
 
 Working checklist; check items off as they land.
 
 ## 1. Scaffold
-- [x] Workspace `Cargo.toml` (crates/applerestore, crates/applerestore-cli), Apache-2.0 LICENSE + NOTICE (attribution for the vdm port and vendored libs), .gitignore
+- [x] Workspace `Cargo.toml` (crates/restorekit, crates/restorekit-cli), Apache-2.0 LICENSE + NOTICE (attribution for the vdm port and vendored libs), .gitignore
 - [x] docs/prd.md
 - [x] docs/plan.md (this file)
 - [x] README.md (install, usage, DFU port locations, safety warning)
@@ -21,7 +21,7 @@ Working checklist; check items off as they land.
 ## 4. Firmware resolve + cache + download
 - [x] ipsw.me `/v4/device/{identifier}?type=ipsw` resolver (latest signed, or pinned `--os-version`)
 - [x] mesu.apple.com `com_apple_macOSIPSW.xml` fallback resolver (latest only)
-- [x] Cache dir resolution: `${XDG_CONFIG_HOME:-~/.config}/applerestore/firmwares` (+ env/flag overrides)
+- [x] Cache dir resolution: `${XDG_CONFIG_HOME:-~/.config}/restorekit/firmwares` (+ env/flag overrides)
 - [x] Resumable download (`Range` into `.partial`, atomic rename), SHA-256/SHA-1 verification, cache hit short-circuit
 - [x] Unit tests: resolver parsing (JSON + plist fixtures), cache-dir resolution
 
@@ -34,7 +34,7 @@ Working checklist; check items off as they land.
 ## 6. Restore engine (statically-linked libidevicerestore, FFI-only)
 Self-contained binary: the idevicerestore C stack is built from pinned sources
 and linked in. No subprocess, no `brew install idevicerestore`.
-- [x] `applerestore-sys` crate: git submodules (`vendor/`) pinning libplist, libimobiledevice-glue, libusbmuxd, libirecovery, libtatsu, libimobiledevice, idevicerestore
+- [x] `restorekit-sys` crate: git submodules (`vendor/`) pinning libplist, libimobiledevice-glue, libusbmuxd, libirecovery, libtatsu, libimobiledevice, idevicerestore
 - [x] `build.rs` builds the stack in cargo flow: openssl/zlib/curl via vendored `-sys` crates, libzip via CMake, the 6 autotools libs into a staging prefix, then compiles idevicerestore's `.c` sources (with `main` renamed) and emits static link directives + macOS frameworks
 - [x] FFI decls (`idevicerestore_client_new/set_flags/set_ipsw/set_ecid/set_progress_callback/start/get_error`, `FLAG_ERASE`)
 - [x] `restore.rs` rewritten over the FFI (progress callback → `Event::RestoreStep`), subprocess path removed
@@ -59,15 +59,15 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 
 ## 9. Verification
 - [x] `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`
-- [x] `applerestore status` / `download` smoke tests against live APIs
+- [x] `restorekit status` / `download` smoke tests against live APIs
 - [x] **Full firmware pipeline hardware-verified**: auto-detected the DFU device, resolved macOS 26.5.2, downloaded 19.8 GB (survived a mid-transfer drop via retry+resume), SHA-256 verified, cached with sidecar
 - [ ] `goreleaser check` (goreleaser not installed locally — validated in CI)
 - [x] Release build (`cargo build --release`) links; 8.2 MB self-contained binary, no third-party dylibs
-- [x] Hardware: `sudo applerestore dfu` + `status` verified against the cabled target Mac (detection + model ID confirmed)
+- [x] Hardware: `sudo restorekit dfu` + `status` verified against the cabled target Mac (detection + model ID confirmed)
 - [x] **Full restore hardware-verified**: end-to-end erase-restore of an M1 Pro over the FFI succeeded; target booted to Setup Assistant
 
 ## Post-v1 follow-ups (not in this pass)
-- [ ] Create github.com/fcjr/applerestore and push; add `TAP_GITHUB_TOKEN` secret (PAT with write access to fcjr/homebrew-fcjr)
+- [ ] Create github.com/fcjr/restorekit and push; add `TAP_GITHUB_TOKEN` secret (PAT with write access to fcjr/homebrew-fcjr)
 - [ ] Code signing + notarization for the macOS binaries
 - [ ] Tauri desktop UI over the library
 - [ ] Windows packaging/testing

@@ -1,5 +1,5 @@
 [package]
-name = "applerestore"
+name = "restorekit"
 description = "Library for DFU-restoring Apple Silicon Macs: DFU trigger, detection, firmware download, and restore"
 version.workspace = true
 edition.workspace = true
@@ -12,7 +12,7 @@ categories.workspace = true
 readme = "../../README.md"
 
 [dependencies]
-applerestore-sys = { path = "../applerestore-sys", version = "0.1.0" }
+restorekit-sys = { path = "../restorekit-sys", version = "0.1.0" }
 nusb = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +27,6 @@ libc = "0.2"
 core-foundation = "0.10"
 
 [package.metadata.docs.rs]
-# The native C stack is skipped on docs.rs (applerestore-sys/build.rs no-ops
+# The native C stack is skipped on docs.rs (restorekit-sys/build.rs no-ops
 # when DOCS_RS is set). Build docs for the linux host target.
 default-target = "x86_64-unknown-linux-gnu"

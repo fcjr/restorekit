@@ -1,5 +1,5 @@
 [package]
-name = "applerestore-sys"
+name = "restorekit-sys"
 description = "Static FFI bindings to the idevicerestore C stack (self-contained build)"
 version.workspace = true
 edition.workspace = true

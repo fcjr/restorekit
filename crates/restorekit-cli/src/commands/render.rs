@@ -1,5 +1,5 @@
-use applerestore::progress::Event;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use restorekit::progress::Event;
 
 /// Emit an event as a single NDJSON line.
 pub fn emit_json(event: &Event) {

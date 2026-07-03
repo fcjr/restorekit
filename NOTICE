@@ -1,10 +1,10 @@
-applerestore
+restorekit
 Copyright 2026 Frank Chiarulli Jr.
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 The USB-PD VDM DFU-trigger implementation in
-crates/applerestore/src/dfu/vdm.rs is a Rust port of macvdmtool
+crates/restorekit/src/dfu/vdm.rs is a Rust port of macvdmtool
 (https://github.com/AsahiLinux/macvdmtool), Copyright The Asahi Linux
 Contributors, which is itself based on ThunderboltPatcher
 (https://github.com/osy/ThunderboltPatcher), Copyright 2019 osy86. Both are

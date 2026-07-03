@@ -53,44 +53,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "applerestore"
-version = "0.1.0"
-dependencies = [
- "applerestore-sys",
- "core-foundation",
- "libc",
- "nusb",
- "plist",
- "reqwest",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "applerestore-cli"
-version = "0.1.0"
-dependencies = [
- "applerestore",
- "clap",
- "indicatif",
- "serde_json",
-]
-
-[[package]]
-name = "applerestore-sys"
-version = "0.1.0"
-dependencies = [
- "cc",
- "cmake",
- "curl-sys",
- "libz-sys",
- "openssl-sys",
-]
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1042,6 +1004,44 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "webpki-roots",
+]
+
+[[package]]
+name = "restorekit"
+version = "0.1.0"
+dependencies = [
+ "core-foundation",
+ "libc",
+ "nusb",
+ "plist",
+ "reqwest",
+ "restorekit-sys",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "restorekit-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "indicatif",
+ "restorekit",
+ "serde_json",
+]
+
+[[package]]
+name = "restorekit-sys"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "cmake",
+ "curl-sys",
+ "libz-sys",
+ "openssl-sys",
 ]
 
 [[package]]

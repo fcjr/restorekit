@@ -6,12 +6,12 @@ use sha2::{Digest, Sha256};
 use super::Firmware;
 use crate::error::{Error, Result};
 
-/// The firmware cache directory: `${XDG_CONFIG_HOME:-~/.config}/applerestore/firmwares`.
+/// The firmware cache directory: `${XDG_CONFIG_HOME:-~/.config}/restorekit/firmwares`.
 ///
-/// Overridable by the caller (CLI `--cache-dir` / `APPLERESTORE_CACHE_DIR`).
+/// Overridable by the caller (CLI `--cache-dir` / `RESTOREKIT_CACHE_DIR`).
 pub fn default_cache_dir() -> Result<PathBuf> {
     resolve_cache_dir(
-        std::env::var_os("APPLERESTORE_CACHE_DIR"),
+        std::env::var_os("RESTOREKIT_CACHE_DIR"),
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
     )
@@ -31,7 +31,7 @@ fn resolve_cache_dir(
         Some(x) if !x.is_empty() => PathBuf::from(x),
         _ => PathBuf::from(home.filter(|h| !h.is_empty()).ok_or(Error::NoHomeDir)?).join(".config"),
     };
-    Ok(base.join("applerestore").join("firmwares"))
+    Ok(base.join("restorekit").join("firmwares"))
 }
 
 /// Path a firmware would occupy in the cache.
@@ -166,13 +166,13 @@ mod tests {
     #[test]
     fn cache_dir_uses_xdg() {
         let got = resolve_cache_dir(None, Some("/tmp/xdg".into()), Some("/home/x".into())).unwrap();
-        assert_eq!(got, PathBuf::from("/tmp/xdg/applerestore/firmwares"));
+        assert_eq!(got, PathBuf::from("/tmp/xdg/restorekit/firmwares"));
     }
 
     #[test]
     fn cache_dir_falls_back_to_home() {
         let got = resolve_cache_dir(None, None, Some("/home/x".into())).unwrap();
-        assert_eq!(got, PathBuf::from("/home/x/.config/applerestore/firmwares"));
+        assert_eq!(got, PathBuf::from("/home/x/.config/restorekit/firmwares"));
     }
 
     #[test]

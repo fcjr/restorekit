@@ -2,7 +2,7 @@ use std::ffi::{c_void, CString};
 use std::path::Path;
 use std::sync::Mutex;
 
-use applerestore_sys as sys;
+use restorekit_sys as sys;
 
 use crate::error::{Error, Result};
 use crate::progress::{Event, ProgressFn};

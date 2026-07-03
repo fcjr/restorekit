@@ -41,7 +41,7 @@ use std::sync::Mutex;
 
 extern "C" {
     /// Installs our log trampoline (see csrc/log_capture.c).
-    fn applerestore_install_log_capture();
+    fn restorekit_install_log_capture();
 }
 
 static LOG_LINES: Mutex<Vec<(c_int, String)>> = Mutex::new(Vec::new());
@@ -53,7 +53,7 @@ const LOG_CAPACITY: usize = 512;
 /// # Safety
 /// `msg`, if non-null, must be a valid NUL-terminated C string.
 #[no_mangle]
-pub unsafe extern "C" fn applerestore_log_capture(level: c_int, msg: *const c_char) {
+pub unsafe extern "C" fn restorekit_log_capture(level: c_int, msg: *const c_char) {
     if msg.is_null() {
         return;
     }
@@ -80,7 +80,7 @@ pub fn install_log_capture(echo: bool) {
     if let Ok(mut buf) = LOG_LINES.lock() {
         buf.clear();
     }
-    unsafe { applerestore_install_log_capture() };
+    unsafe { restorekit_install_log_capture() };
 }
 
 /// The last `max_lines` captured error/warning lines, newest-relevant last.
@@ -147,7 +147,7 @@ mod tests {
 
         let cap = |level, s: &str| {
             let c = CString::new(s).unwrap();
-            unsafe { applerestore_log_capture(level, c.as_ptr()) };
+            unsafe { restorekit_log_capture(level, c.as_ptr()) };
         };
         cap(LL_INFO, "info line");
         cap(LL_ERROR, "boom -3");

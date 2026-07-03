@@ -48,7 +48,7 @@ impl Firmware {
 fn http_client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
-        .user_agent(concat!("applerestore/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("restorekit/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(Error::Http)
 }

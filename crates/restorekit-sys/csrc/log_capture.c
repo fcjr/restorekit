@@ -14,19 +14,19 @@
 /* idevicerestore's print threshold (defined in log.c, not exported in log.h). */
 extern enum loglevel print_level;
 
-/* Implemented in Rust (applerestore-sys). */
-void applerestore_log_capture(int level, const char *msg);
+/* Implemented in Rust (restorekit-sys). */
+void restorekit_log_capture(int level, const char *msg);
 
-static void applerestore_log_trampoline(enum loglevel level, const char *fmt, va_list ap)
+static void restorekit_log_trampoline(enum loglevel level, const char *fmt, va_list ap)
 {
 	char buf[4096];
 	vsnprintf(buf, sizeof(buf), fmt, ap);
-	applerestore_log_capture((int)level, buf);
+	restorekit_log_capture((int)level, buf);
 }
 
-void applerestore_install_log_capture(void)
+void restorekit_install_log_capture(void)
 {
 	print_level = LL_DEBUG;                          /* let the sink see every passed level */
 	logger_set_logfile("NONE");                      /* stop idevicerestore writing to the terminal */
-	logger_set_print_func(applerestore_log_trampoline);
+	logger_set_print_func(restorekit_log_trampoline);
 }

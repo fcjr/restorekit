@@ -1,4 +1,4 @@
-//! Restore Apple Silicon Macs over USB — the engine behind the `applerestore`
+//! Restore Apple Silicon Macs over USB — the engine behind the `restorekit`
 //! CLI, usable directly from Rust (e.g. to build a GUI).
 //!
 //! The workflow has four stages, each a module:
@@ -27,7 +27,7 @@
 //!
 //! ```no_run
 //! use std::time::Duration;
-//! use applerestore::{dfu, firmware, restore, Event, Mode, Result};
+//! use restorekit::{dfu, firmware, restore, Event, Mode, Result};
 //!
 //! fn main() -> Result<()> {
 //!     // Wait for a target to appear in DFU mode (trigger it first with

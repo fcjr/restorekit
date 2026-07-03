@@ -5,17 +5,13 @@ use clap::{Parser, Subcommand};
 mod commands;
 
 #[derive(Parser)]
-#[command(
-    name = "applerestore",
-    version,
-    about = "DFU-restore Apple Silicon Macs"
-)]
+#[command(name = "restorekit", version, about = "DFU-restore Apple Silicon Macs")]
 struct Cli {
     /// Emit machine-readable JSON lines instead of human output.
     #[arg(long, global = true)]
     json: bool,
 
-    /// Firmware cache directory (default: $XDG_CONFIG_HOME/applerestore/firmwares).
+    /// Firmware cache directory (default: $XDG_CONFIG_HOME/restorekit/firmwares).
     #[arg(long, global = true)]
     cache_dir: Option<PathBuf>,
 

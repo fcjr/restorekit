@@ -211,8 +211,8 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
         .define("HAVE_STRCSPN", None)
         .define("HAVE_MKSTEMP", None)
         .define("PACKAGE_NAME", "\"idevicerestore\"")
-        .define("PACKAGE_VERSION", "\"applerestore-vendored\"")
-        .define("PACKAGE_STRING", "\"idevicerestore (applerestore)\"")
+        .define("PACKAGE_VERSION", "\"restorekit-vendored\"")
+        .define("PACKAGE_STRING", "\"idevicerestore (restorekit)\"")
         .define("PACKAGE_URL", "\"https://libimobiledevice.org\"")
         .define(
             "PACKAGE_BUGREPORT",

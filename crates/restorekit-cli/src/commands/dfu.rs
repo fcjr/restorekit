@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use applerestore::progress::Event;
-use applerestore::{dfu, DfuDevice, Error, Result};
+use restorekit::progress::Event;
+use restorekit::{dfu, DfuDevice, Error, Result};
 
 use super::render;
 
@@ -42,7 +42,7 @@ pub(crate) fn ensure_present(json: bool, timeout: Duration) -> Result<DfuDevice>
     dfu::wait_for_dfu(timeout)
 }
 
-/// `applerestore dfu` — trigger DFU on the cabled target, then wait for it.
+/// `restorekit dfu` — trigger DFU on the cabled target, then wait for it.
 pub fn enter(json: bool) -> Result<()> {
     if !dfu::host_can_trigger_dfu() {
         if !json {
@@ -69,7 +69,7 @@ pub fn enter(json: bool) -> Result<()> {
     Ok(())
 }
 
-/// `applerestore reboot` — reboot the cabled target out of DFU / back to normal.
+/// `restorekit reboot` — reboot the cabled target out of DFU / back to normal.
 pub fn reboot(json: bool) -> Result<()> {
     if !dfu::host_can_trigger_dfu() {
         if !json {

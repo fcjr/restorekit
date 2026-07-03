@@ -1,8 +1,8 @@
-# applerestore — Product Requirements
+# restorekit — Product Requirements
 
 ## Summary
 
-`applerestore` is a cross-platform CLI (and Rust library) for restoring Apple
+`restorekit` is a cross-platform CLI (and Rust library) for restoring Apple
 Silicon Macs over USB. It automates the full recovery workflow that today
 requires Apple Configurator 2 and manual steps:
 
@@ -15,13 +15,13 @@ requires Apple Configurator 2 and manual steps:
 4. Restore (erase) or revive the target by driving
    [idevicerestore](https://github.com/libimobiledevice/idevicerestore).
 
-The core is a reusable library crate (`applerestore`) with a thin clap CLI
-(`applerestore-cli`) on top, so a GUI (e.g. Tauri) can be layered on later
+The core is a reusable library crate (`restorekit`) with a thin clap CLI
+(`restorekit-cli`) on top, so a GUI (e.g. Tauri) can be layered on later
 without touching the core.
 
 ## Goals
 
-- One-command restore: `applerestore run` takes a cabled, powered-on target Mac
+- One-command restore: `restorekit run` takes a cabled, powered-on target Mac
   from any state to a fresh macOS install.
 - DFU triggering from an Apple Silicon macOS host via USB-PD VDM (requires
   root; DFU-capable port on both ends).
@@ -30,12 +30,12 @@ without touching the core.
 - Automatic firmware resolution: DFU device → chip/board IDs → model →
   latest signed IPSW (or a user-pinned version).
 - Resumable, checksum-verified downloads cached in
-  `${XDG_CONFIG_HOME:-~/.config}/applerestore/firmwares` (override with
-  `--cache-dir` or `APPLERESTORE_CACHE_DIR`).
+  `${XDG_CONFIG_HOME:-~/.config}/restorekit/firmwares` (override with
+  `--cache-dir` or `RESTOREKIT_CACHE_DIR`).
 - Library-first design: no printing or prompting inside the library; all
   progress flows through a typed event callback (CLI renders progress bars,
   `--json` emits machine-readable events).
-- Distribution: Homebrew (`brew install fcjr/fcjr/applerestore`) plus GitHub
+- Distribution: Homebrew (`brew install fcjr/fcjr/restorekit`) plus GitHub
   release tarballs for Linux, built and published by goreleaser.
 
 ## Non-goals (v1)
@@ -53,15 +53,15 @@ without touching the core.
 ## Users & flows
 
 **IT technician / refurbisher** — bench setup with a host Mac:
-`sudo applerestore run` → target reboots into DFU, firmware resolves from
+`sudo restorekit run` → target reboots into DFU, firmware resolves from
 cache, restore runs to 100%, target boots to Setup Assistant.
 
 **Developer / tinkerer with a bricked Mac and a Linux box:** puts the target
-into DFU manually (applerestore prints the key-combo instructions), then
-`applerestore run` detects, downloads, and restores.
+into DFU manually (restorekit prints the key-combo instructions), then
+`restorekit run` detects, downloads, and restores.
 
-**Cautious user:** `applerestore status` → `applerestore download` →
-`applerestore restore` as separate, inspectable steps.
+**Cautious user:** `restorekit status` → `restorekit download` →
+`restorekit restore` as separate, inspectable steps.
 
 ## CLI surface
 
@@ -113,6 +113,6 @@ Global flags: `--cache-dir`, `--json`, `-v`.
 
 - A target Mac cabled to an AS host restores end-to-end with a single command.
 - The same binary on Linux detects a DFU Mac and restores it (manual DFU entry).
-- `brew install fcjr/fcjr/applerestore` works on a clean machine.
+- `brew install fcjr/fcjr/restorekit` works on a clean machine.
 - Firmware for a repeat restore of the same model is served from the cache with
   zero re-download.

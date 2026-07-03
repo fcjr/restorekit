@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/applerestore", "crates/applerestore-sys", "crates/applerestore-cli"]
+members = ["crates/restorekit", "crates/restorekit-sys", "crates/restorekit-cli"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/fcjr/applerestore"
-homepage = "https://github.com/fcjr/applerestore"
+repository = "https://github.com/fcjr/restorekit"
+homepage = "https://github.com/fcjr/restorekit"
 authors = ["Frank Chiarulli Jr. <frank@frankchiarulli.com>"]
 keywords = ["macos", "dfu", "restore", "apple-silicon", "idevicerestore"]
 categories = ["command-line-utilities", "hardware-support"]

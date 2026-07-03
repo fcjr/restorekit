@@ -23,9 +23,9 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish -p applerestore-sys --no-verify
-          cargo publish -p applerestore --no-verify
-          cargo publish -p applerestore-cli --no-verify
+          cargo publish -p restorekit-sys --no-verify
+          cargo publish -p restorekit --no-verify
+          cargo publish -p restorekit-cli --no-verify
 
   build:
     strategy:
@@ -66,18 +66,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build (self-contained static binary)
-        run: cargo build --release --locked -p applerestore-cli
+        run: cargo build --release --locked -p restorekit-cli
 
       - name: Stage artifact
         run: |
-          mkdir -p "artifacts/applerestore_${{ matrix.goos }}_${{ matrix.goarch }}"
-          cp target/release/applerestore \
-            "artifacts/applerestore_${{ matrix.goos }}_${{ matrix.goarch }}/applerestore"
+          mkdir -p "artifacts/restorekit_${{ matrix.goos }}_${{ matrix.goarch }}"
+          cp target/release/restorekit \
+            "artifacts/restorekit_${{ matrix.goos }}_${{ matrix.goarch }}/restorekit"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: applerestore_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: artifacts/applerestore_${{ matrix.goos }}_${{ matrix.goarch }}
+          name: restorekit_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: artifacts/restorekit_${{ matrix.goos }}_${{ matrix.goarch }}
           if-no-files-found: error
 
   release:
@@ -92,11 +92,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: applerestore_*
+          pattern: restorekit_*
           merge-multiple: false
 
       - name: Mark binaries executable
-        run: chmod +x artifacts/*/applerestore
+        run: chmod +x artifacts/*/restorekit
 
       - uses: goreleaser/goreleaser-action@v6
         with:

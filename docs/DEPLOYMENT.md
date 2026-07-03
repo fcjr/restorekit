@@ -1,21 +1,21 @@
 # Deployment
 
-How `applerestore` is built, released, and distributed. Cutting a release is a
+How `restorekit` is built, released, and distributed. Cutting a release is a
 single tag push; everything below happens automatically in GitHub Actions.
 
 ## Distribution channels
 
 | Channel | What ships | Who it's for |
 | --- | --- | --- |
-| **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a cask | End users: `brew install fcjr/fcjr/applerestore-cli` (the `applerestore` cask token is reserved for the desktop app) |
+| **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a cask | End users: `brew install fcjr/fcjr/restorekit-cli` (the `restorekit` cask token is reserved for the desktop app) |
 | **GitHub Releases** | `tar.gz` archives per platform + checksums | Direct downloads, scripts |
-| **crates.io** | Source crates (`applerestore-sys`, `applerestore`, `applerestore-cli`) | `cargo install applerestore-cli`, and Rust consumers of the library |
+| **crates.io** | Source crates (`restorekit-sys`, `restorekit`, `restorekit-cli`) | `cargo install restorekit-cli`, and Rust consumers of the library |
 
 ## Cutting a release
 
 1. Bump the version in the root `Cargo.toml` (`[workspace.package] version`) and
-   the internal dependency versions in `crates/applerestore/Cargo.toml` and
-   `crates/applerestore-cli/Cargo.toml` (they pin `version = "x.y.z"`).
+   the internal dependency versions in `crates/restorekit/Cargo.toml` and
+   `crates/restorekit-cli/Cargo.toml` (they pin `version = "x.y.z"`).
 2. Commit, then tag and push:
 
    ```sh
@@ -34,7 +34,7 @@ in parallel:
 
 ## Required secrets
 
-Set these in the `fcjr/applerestore` repo under **Settings → Secrets and
+Set these in the `fcjr/restorekit` repo under **Settings → Secrets and
 variables → Actions**:
 
 | Secret | Used for | Scope |
@@ -47,12 +47,12 @@ The built-in `GITHUB_TOKEN` handles the GitHub Release itself (granted
 
 ## How the crates.io publish works
 
-The three crates publish in dependency order (`applerestore-sys` →
-`applerestore` → `applerestore-cli`); `cargo publish` waits for each to appear
+The three crates publish in dependency order (`restorekit-sys` →
+`restorekit` → `restorekit-cli`); `cargo publish` waits for each to appear
 in the index before the next. Publishing uses `--no-verify`: `ci.yml` is the
 build gate, and verifying here would rebuild the entire C stack three times.
 
-`applerestore-sys` vendors its C sources (libimobiledevice stack, libzip,
+`restorekit-sys` vendors its C sources (libimobiledevice stack, libzip,
 idevicerestore) as git submodules, but `cargo package` includes them in the
 published `.crate` (~2.2 MiB compressed), so it builds on a consumer's machine
 with **no submodules required** — only the C toolchain (see below).
@@ -81,12 +81,12 @@ The binary statically links its C stack, so building needs a C toolchain:
 - Linux build in a container (arm64):
   `docker run --rm -i -v "$PWD":/src:ro ubuntu:24.04 bash -s < <build script>`
   (mirrors the CI apt list; see git history for the exact script).
-- `cargo package --list -p applerestore-sys` to confirm the vendored sources are
+- `cargo package --list -p restorekit-sys` to confirm the vendored sources are
   included in the crate.
 
 ## First-time setup checklist
 
-- [ ] Create the `fcjr/applerestore` GitHub repo and push.
+- [ ] Create the `fcjr/restorekit` GitHub repo and push.
 - [ ] Create the `TAP_GITHUB_TOKEN` and `CARGO_REGISTRY_TOKEN` secrets.
 - [ ] Confirm the `fcjr/homebrew-fcjr` tap repo exists.
 - [ ] Reserve the crate names on crates.io by publishing `v0.1.0` (names are

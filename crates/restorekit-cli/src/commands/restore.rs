@@ -2,10 +2,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use applerestore::progress::Event;
-use applerestore::restore::Mode;
-use applerestore::{dfu, firmware, restore, DfuDevice, Error, Result};
 use indicatif::{ProgressBar, ProgressStyle};
+use restorekit::progress::Event;
+use restorekit::restore::Mode;
+use restorekit::{dfu, firmware, restore, DfuDevice, Error, Result};
 
 use super::render;
 
