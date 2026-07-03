@@ -9,16 +9,24 @@ builds:
   - id: restorekit
     builder: prebuilt
     binary: restorekit
-    goos: [darwin, linux]
+    goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
+    # Only amd64 is built for Windows (see build-windows in release.yml).
+    ignore:
+      - goos: windows
+        goarch: arm64
     prebuilt:
-      path: artifacts/restorekit_{{ .Os }}_{{ .Arch }}/restorekit
+      path: artifacts/restorekit_{{ .Os }}_{{ .Arch }}/restorekit{{ .Ext }}
     hooks: {}
 
 archives:
   - id: restorekit
     ids: [restorekit]
     formats: [tar.gz]
+    # Windows users expect a .zip.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:

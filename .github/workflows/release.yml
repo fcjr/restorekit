@@ -84,8 +84,64 @@ jobs:
           path: artifacts/restorekit_${{ matrix.goos }}_${{ matrix.goarch }}
           if-no-files-found: error
 
+  # Windows builds with the GNU toolchain inside MSYS2 (the autotools C stack
+  # can't target MSVC). Uploads the same artifact shape as the `build` matrix so
+  # the `release` job's GoReleaser step packages it alongside the others.
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            git
+            make
+            autoconf
+            automake
+            libtool
+            autoconf-archive
+            gettext-devel
+            pkgconf
+            perl
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-libusb
+            mingw-w64-x86_64-nasm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (self-contained static binary)
+        shell: msys2 {0}
+        run: |
+          export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
+          cargo build --release --locked -p restorekit-cli --target x86_64-pc-windows-gnu
+
+      - name: Stage artifact
+        shell: msys2 {0}
+        run: |
+          mkdir -p "artifacts/restorekit_windows_amd64"
+          cp target/x86_64-pc-windows-gnu/release/restorekit.exe \
+            "artifacts/restorekit_windows_amd64/restorekit.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: restorekit_windows_amd64
+          path: artifacts/restorekit_windows_amd64
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +156,7 @@ jobs:
           merge-multiple: false
 
       - name: Mark binaries executable
-        run: chmod +x artifacts/*/restorekit
+        run: chmod +x artifacts/*/restorekit artifacts/*/restorekit.exe
 
       - uses: goreleaser/goreleaser-action@v6
         with:
