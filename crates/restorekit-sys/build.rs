@@ -101,6 +101,15 @@ impl Deps {
         {
             flags.push_str(&format!(" -I{}", self.path(Path::new(inc))));
         }
+        // Force the whole family's headers into static-linkage mode (no
+        // `__declspec(dllimport)`) for every library we configure. CURL_STATICLIB
+        // does the same for <curl/curl.h> (libtatsu links our static libcurl).
+        if self.windows {
+            for def in WINDOWS_STATIC_DEFINES {
+                flags.push_str(&format!(" -D{def}"));
+            }
+            flags.push_str(" -DCURL_STATICLIB");
+        }
         flags
     }
 
@@ -108,6 +117,22 @@ impl Deps {
         format!("-L{}", self.path(&self.prefix.join("lib")))
     }
 }
+
+/// The libimobiledevice family decorates its public API with
+/// `__declspec(dllimport)` on Windows unless a per-library `*_STATIC` macro is
+/// defined. We link the whole stack statically, so every consumer (each library
+/// that includes an upstream header, plus idevicerestore) must define *all* of
+/// these — otherwise the compiler emits `__imp_`-prefixed references that don't
+/// exist in the static archives and the link fails. Each library's own
+/// configure only sets its own macro, so we supply the full set globally.
+const WINDOWS_STATIC_DEFINES: &[&str] = &[
+    "LIBPLIST_STATIC",
+    "LIMD_GLUE_STATIC",
+    "LIBUSBMUXD_STATIC",
+    "IRECV_STATIC",
+    "LIBTATSU_STATIC",
+    "LIBIMOBILEDEVICE_STATIC",
+];
 
 /// Translate `C:\a\b` → `/c/a/b` for MSYS2 tools.
 fn to_msys(p: &Path) -> String {
@@ -143,6 +168,17 @@ fn ensure_submodules(manifest: &Path, vendor: &Path) {
     }
 }
 
+/// Clean POSIX aclocal search path for the MSYS2 autotools.
+///
+/// Native cargo inherits `ACLOCAL_PATH` from the launching MSYS2 shell already
+/// translated to Windows form (`C:\msys64\mingw64\share\aclocal;...`). When
+/// build.rs re-enters MSYS2 via `sh`, aclocal reads that value back as a bogus
+/// `/msys64/usr/share/aclocal` prefix and dies looking for its own macros
+/// (e.g. `progtest.m4`), which aborts autoreconf. Forcing the correct POSIX
+/// dirs sidesteps the Win32↔POSIX round-trip. `/usr/share/aclocal` holds the
+/// automake/gettext macros; `/mingw64/share/aclocal` holds `pkg.m4` et al.
+const MSYS_ACLOCAL_PATH: &str = "/usr/share/aclocal:/mingw64/share/aclocal";
+
 /// Run autogen + configure + make + make install into the staging prefix.
 fn build_autotools(src: &Path, name: &str, deps: &Deps) {
     let marker = deps.prefix.join(format!(".built-{name}"));
@@ -161,7 +197,8 @@ fn build_autotools(src: &Path, name: &str, deps: &Deps) {
                 Command::new("sh")
                     .arg("-c")
                     .arg("autoreconf --install --force")
-                    .current_dir(src),
+                    .current_dir(src)
+                    .env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH),
                 &format!("{name} autoreconf"),
             );
         } else if src.join("autogen.sh").exists() {
@@ -185,26 +222,33 @@ fn build_autotools(src: &Path, name: &str, deps: &Deps) {
         .env("CFLAGS", deps.cflags())
         .env("CPPFLAGS", deps.cflags())
         .env("LDFLAGS", deps.ldflags());
+    // A stale-timestamp maintainer-mode rebuild can re-invoke aclocal from
+    // configure/make, so keep the sanitized aclocal path in scope on Windows.
+    if deps.windows {
+        configure.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
+    }
     run(&mut configure, &format!("{name} configure"));
 
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "4".into());
-    run(
-        Command::new("make")
-            .current_dir(src)
-            .arg(format!("-j{jobs}")),
-        &format!("{name} make"),
-    );
+    let mut make = Command::new("make");
+    make.current_dir(src).arg(format!("-j{jobs}"));
+    if deps.windows {
+        make.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
+    }
+    run(&mut make, &format!("{name} make"));
     // libirecovery installs a udev rule to a system dir by default, which fails
     // for a non-root user (e.g. CI). Redirect it into our staging prefix.
     let udevdir = deps.prefix.join("udev");
     std::fs::create_dir_all(&udevdir).ok();
-    run(
-        Command::new("make")
-            .current_dir(src)
-            .arg("install")
-            .arg(format!("udevrulesdir={}", udevdir.display())),
-        &format!("{name} make install"),
-    );
+    let mut make_install = Command::new("make");
+    make_install
+        .current_dir(src)
+        .arg("install")
+        .arg(format!("udevrulesdir={}", udevdir.display()));
+    if deps.windows {
+        make_install.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
+    }
+    run(&mut make_install, &format!("{name} make install"));
     std::fs::write(&marker, "").unwrap();
 }
 
@@ -251,10 +295,8 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
         .define("main", "idevicerestore_cli_main_unused")
         .define("HAVE_OPENSSL", None)
         // Function-detection defines normally emitted into autotools' config.h.
-        .define("HAVE_REALPATH", None)
-        .define("HAVE_STRSEP", None)
+        // strcspn is standard C and present everywhere (incl. mingw).
         .define("HAVE_STRCSPN", None)
-        .define("HAVE_MKSTEMP", None)
         .define("PACKAGE_NAME", "\"idevicerestore\"")
         .define("PACKAGE_VERSION", "\"restorekit-vendored\"")
         .define("PACKAGE_STRING", "\"idevicerestore (restorekit)\"")
@@ -265,6 +307,23 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
         );
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         build.define("_DARWIN_BETTER_REALPATH", None);
+    }
+    if deps.windows {
+        // idevicerestore includes the family's headers; match the static
+        // linkage the libraries were built with so it doesn't emit dllimport
+        // references.
+        for def in WINDOWS_STATIC_DEFINES {
+            build.define(def, None);
+        }
+        // Link our static libcurl without dllimport stubs (see cflags()).
+        build.define("CURL_STATICLIB", None);
+        // realpath/strsep/mkstemp are absent on mingw; idevicerestore ships
+        // WIN32 fallbacks guarded by `#ifndef HAVE_*`, so leave these undefined.
+    } else {
+        build
+            .define("HAVE_REALPATH", None)
+            .define("HAVE_STRSEP", None)
+            .define("HAVE_MKSTEMP", None);
     }
     for inc in [
         &deps.openssl_include,
@@ -327,7 +386,11 @@ fn emit_link_directives(prefix: &Path) {
         }
     } else if target_os.as_deref() == Ok("windows") {
         // libusb (static, from MSYS2) plus the Win32 libraries it, libcurl, and
-        // OpenSSL pull in.
+        // OpenSSL pull in. libusb-1.0.a lives in the MinGW prefix, not our
+        // staging dir, so point rustc's linker at that libdir (via pkg-config).
+        if let Some(libdir) = mingw_libusb_libdir() {
+            println!("cargo:rustc-link-search=native={libdir}");
+        }
         println!("cargo:rustc-link-lib=static=usb-1.0");
         for lib in [
             "setupapi", "ole32", "ws2_32", "crypt32", "secur32", "bcrypt", "iphlpapi", "userenv",
@@ -339,6 +402,20 @@ fn emit_link_directives(prefix: &Path) {
         println!("cargo:rustc-link-lib=dylib=usb-1.0");
         println!("cargo:rustc-link-lib=dylib=pthread");
     }
+}
+
+/// Ask pkg-config where MSYS2's static libusb (`libusb-1.0.a`) lives, so the
+/// final rustc link can find it. Returns a native path rustc's linker accepts.
+fn mingw_libusb_libdir() -> Option<String> {
+    let out = Command::new("pkg-config")
+        .args(["--variable=libdir", "libusb-1.0"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!dir.is_empty()).then_some(dir)
 }
 
 /// A Command that runs `script` — directly on Unix, or via MSYS2's `sh` on
