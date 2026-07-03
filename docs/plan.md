@@ -3,20 +3,20 @@
 Working checklist; check items off as they land.
 
 ## 1. Scaffold
-- [ ] Workspace `Cargo.toml` (crates/applerestore, crates/applerestore-cli), MIT LICENSE, NOTICE (Apache-2.0 attribution for the vdm port), .gitignore
-- [ ] docs/prd.md
-- [ ] docs/plan.md (this file)
+- [x] Workspace `Cargo.toml` (crates/applerestore, crates/applerestore-cli), MIT LICENSE, NOTICE (Apache-2.0 attribution for the vdm port), .gitignore
+- [x] docs/prd.md
+- [x] docs/plan.md (this file)
 - [ ] README.md (install, usage, DFU port locations, safety warning)
 
 ## 2. Library core
-- [ ] `error.rs` — thiserror `Error` enum covering discovery, resolution, download, checksum, restore, host-support failures
-- [ ] `progress.rs` — serializable `Event` enum; all long operations take `&mut dyn FnMut(Event)`
+- [x] `error.rs` — thiserror `Error` enum covering discovery, resolution, download, checksum, restore, host-support failures
+- [x] `progress.rs` — serializable `Event` enum; all long operations take `&mut dyn FnMut(Event)`
 
 ## 3. DFU discovery (cross-platform)
-- [ ] `dfu/discovery.rs` — nusb enumeration, VID 0x05ac / PID 0x1227, DFU serial-string parser (`CPID:... BDID:... ECID:...`)
-- [ ] `wait_for_dfu(timeout)` polling loop for post-trigger / manual DFU entry
-- [ ] `device.rs` — static (CPID, BDID) → (board, identifier, marketing name) table generated from ipsw.me `/v4/devices`; runtime ipsw.me fallback for unknown boards
-- [ ] Unit tests: serial parser, table lookup
+- [x] `dfu/discovery.rs` — nusb enumeration, VID 0x05ac / PID 0x1227, DFU serial-string parser (`CPID:... BDID:... ECID:...`)
+- [x] `wait_for_dfu(timeout)` polling loop for post-trigger / manual DFU entry
+- [x] `device.rs` — static (CPID, BDID) → (board, identifier, marketing name) table generated from ipsw.me `/v4/devices`; runtime ipsw.me fallback for unknown boards
+- [x] Unit tests: serial parser, table lookup
 
 ## 4. Firmware resolve + cache + download
 - [ ] ipsw.me `/v4/device/{identifier}?type=ipsw` resolver (latest signed, or pinned `--os-version`)
@@ -26,9 +26,10 @@ Working checklist; check items off as they land.
 - [ ] Unit tests: resolver parsing (JSON + plist fixtures), cache-dir resolution
 
 ## 5. DFU trigger (macOS Apple Silicon only)
-- [ ] `dfu/vdm.rs` — Rust port of macvdmtool: AppleHPM IOKit plug-in FFI (COM vtable), LOCK unlock w/ platform-name key, Gaid reset retry, DBMa enter/exit (RAII), VDMs send + reg 0x4d ack polling
-- [ ] `enter_dfu()` (VDM `{0x5ac8012, 0x106, 0x80010000}`) and `reboot()` (VDM `{0x5ac8012, 0x105, 0x80000000}`)
-- [ ] Root + Apple Silicon host guards with clear errors; manual DFU instructions helper for unsupported hosts
+- [x] `dfu/vdm.rs` — Rust port of macvdmtool: AppleHPM IOKit plug-in FFI (COM vtable), LOCK unlock w/ platform-name key, Gaid reset retry, DBMa enter/exit (RAII), VDMs send + reg 0x4d ack polling
+- [x] `enter_dfu()` (VDM `{0x5ac8012, 0x106, 0x80010000}`) and `reboot()` (VDM `{0x5ac8012, 0x105, 0x80000000}`)
+- [x] Root + Apple Silicon host guards with clear errors; manual DFU instructions helper for unsupported hosts
+- [ ] **Hardware-verify against the cabled target Mac (needs Frank)**
 
 ## 6. Restore engine (idevicerestore wrapper)
 - [ ] Binary discovery (`--idevicerestore-path` → `$PATH`) with actionable install error

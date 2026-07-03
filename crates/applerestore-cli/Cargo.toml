@@ -1,0 +1,18 @@
+[package]
+name = "applerestore-cli"
+description = "CLI for DFU-restoring Apple Silicon Macs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "applerestore"
+path = "src/main.rs"
+
+[dependencies]
+applerestore = { path = "../applerestore" }
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+serde_json = "1"
