@@ -285,20 +285,36 @@
 
           {#if selected.restorable}
             <div class="options">
+              <div class="opt-head">
+                Options <span class="faint">— defaults are fine; override only if you need to</span>
+              </div>
               <div class="opt">
                 <label for="osv">macOS version</label>
-                <input id="osv" class="mono" placeholder="latest" bind:value={osVersion} />
+                <input id="osv" class="mono" placeholder="latest signed" bind:value={osVersion} />
               </div>
               <div class="opt">
-                <label for="ipsw">Local IPSW</label>
-                <button id="ipsw" class="picker mono" onclick={chooseIpsw}>
-                  {ipswPath ? ipswPath.split("/").pop() : "Choose file…"}
-                </button>
-                {#if ipswPath}<button class="clearx" onclick={() => (ipswPath = null)}>×</button>{/if}
+                <label for="ipsw">Local IPSW <span class="faint">optional</span></label>
+                <div class="picker-wrap">
+                  <button id="ipsw" class="picker mono" class:set={ipswPath} onclick={chooseIpsw}>
+                    {ipswPath ? ipswPath.split("/").pop() : "Choose a .ipsw file…"}
+                  </button>
+                  {#if ipswPath}
+                    <button
+                      class="clearx"
+                      title="Use downloaded firmware instead"
+                      onclick={() => (ipswPath = null)}>×</button
+                    >
+                  {/if}
+                </div>
               </div>
+              <p class="opt-hint">
+                {ipswPath
+                  ? "Restoring from your chosen file — nothing will be downloaded."
+                  : "Leave empty to download the matching firmware automatically."}
+              </p>
               <label class="toggle">
                 <input type="checkbox" bind:checked={revive} />
-                Revive <span class="faint">— reinstall firmware, keep data</span>
+                Revive <span class="faint">— reinstall firmware, keep data (no erase)</span>
               </label>
             </div>
 
@@ -556,6 +572,38 @@
   }
   .clearx:hover {
     color: var(--danger);
+  }
+  .opt-head {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .opt-head .faint {
+    color: var(--faint);
+  }
+  .opt label .faint {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 10px;
+    margin-left: 5px;
+    color: var(--faint);
+  }
+  .picker-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .picker.set {
+    color: var(--ink);
+  }
+  .picker:not(.set) {
+    color: var(--faint);
+  }
+  .opt-hint {
+    margin: -4px 0 0 118px;
+    font-size: 11px;
+    color: var(--faint);
   }
   .toggle {
     display: flex;
