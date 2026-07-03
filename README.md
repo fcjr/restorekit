@@ -62,6 +62,7 @@ rule](#linux-usb-permissions) first.
 | `restorekit restore` | Erase-restore the detected device (confirms first). |
 | `restorekit run` | The full flow: trigger → wait → download → restore. |
 | `restorekit cache` | Show or clear the firmware cache. |
+| `restorekit setup-driver` | Bind the WinUSB driver to the cabled Mac. *(Windows, one-time; elevates.)* |
 
 Handy flags: `--os-version 26.5.2` pins a build · `--ipsw ./file.ipsw` uses a
 local firmware · `--revive` keeps user data instead of erasing · `--yes` skips
@@ -108,9 +109,11 @@ everywhere else, put the target into DFU by hand and `restorekit` takes it from
 there. On Linux, `restorekit` embeds its own usbmuxd server — no external daemon
 needed — but requires USB device access (see [Linux USB
 permissions](#linux-usb-permissions) below). On Windows the target in DFU/recovery
-needs a libusb-compatible driver: bind **WinUSB** to it with
-[Zadig](https://zadig.akeo.ie/) (or install the
-[UsbDk](https://github.com/daynix/UsbDk) filter) so `restorekit` can talk to it.
+needs the **WinUSB** driver bound to it: run **`restorekit setup-driver`** once
+(the desktop app offers a one-click *Set up USB access*), and it's installed for
+every Mac after that. It's a self-signed driver package, so approve the one-time
+Windows prompt. (Prefer to do it by hand? [Zadig](https://zadig.akeo.ie/) or the
+[UsbDk](https://github.com/daynix/UsbDk) filter work too.)
 
 ## Linux USB permissions
 
