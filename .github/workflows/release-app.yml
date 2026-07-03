@@ -31,6 +31,16 @@ jobs:
         working-directory: apps/desktop
         run: bash ./stage-helper.sh
 
+      - name: Write the App Store Connect API key
+        # The secret comes in via env (not inlined in the command) and is stored
+        # base64-encoded — single-line base64 is masked reliably; a multi-line
+        # PEM is not. The file lands in RUNNER_TEMP, which is wiped after the job.
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/asc/AuthKey.p8"
+
       - name: Build, sign, notarize & release the app
         uses: tauri-apps/tauri-action@v0
         with:
@@ -44,7 +54,7 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # Notarization (app-specific password, or an App Store Connect API key).
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Notarization via App Store Connect API key.
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8

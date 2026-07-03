@@ -54,18 +54,39 @@ built and staged as a Tauri sidecar first (`apps/desktop/stage-helper.sh`).
 Signing + notarization secrets (Developer ID required — the app uses a signed
 privileged helper for the DFU trigger):
 
+Signing (Developer ID):
+
 | Secret | What it is |
 | --- | --- |
-| `APPLE_CERTIFICATE` | The Developer ID Application cert exported as a base64 `.p12`: `security export -k ~/Library/Keychains/login.keychain-db -t identities -f pkcs12 -o cert.p12` then `base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE` | The Developer ID Application cert + key exported as a base64 `.p12` (export from Keychain Access, then `base64 -i cert.p12 \| pbcopy`) |
 | `APPLE_CERTIFICATE_PASSWORD` | The password you set on that `.p12` |
 | `APPLE_SIGNING_IDENTITY` | `Developer ID Application: <Org> (<TEAMID>)` |
-| `APPLE_ID` | Your Apple ID email (for notarization) |
-| `APPLE_PASSWORD` | An [app-specific password](https://support.apple.com/en-us/102654) for that Apple ID |
-| `APPLE_TEAM_ID` | Your 10-char Team ID |
 
-To sign a build locally (e.g. to test): set `APPLE_SIGNING_IDENTITY` in your
-shell and run `npm run tauri build` in `apps/desktop` (skip the `APPLE_ID`/
-`APPLE_PASSWORD`/`APPLE_TEAM_ID` vars to sign without notarizing).
+Notarization (App Store Connect API key — from App Store Connect → Users and
+Access → Integrations → keys):
+
+| Secret | What it is |
+| --- | --- |
+| `APPLE_API_ISSUER` | The Issuer ID (UUID) |
+| `APPLE_API_KEY` | The Key ID (10 chars, e.g. `Y6269F7S2X`) |
+| `APPLE_API_KEY_P8_BASE64` | The `.p8` file **base64-encoded**: `base64 -i AuthKey_<KEYID>.p8 \| pbcopy`. Base64 (single line) is masked reliably in logs; the raw multi-line PEM is not. The workflow decodes it into `$RUNNER_TEMP` (auto-wiped). |
+
+GitHub Actions auto-masks any registered secret in logs (`***`). The workflow
+passes the key through `env:` — never inlined into a command — and stores it
+base64 so masking is robust; nothing prints the key.
+
+To sign + notarize a build locally: point the env at the `.p8` directly and run
+`npm run tauri build` in `apps/desktop`:
+
+```sh
+export APPLE_SIGNING_IDENTITY="<sha1 of your Developer ID cert>"   # a hash disambiguates duplicate certs
+export APPLE_API_ISSUER="<issuer-uuid>"
+export APPLE_API_KEY="<key-id>"
+export APPLE_API_KEY_PATH="$HOME/Downloads/AuthKey_<key-id>.p8"
+npm run tauri build
+```
+
+Omit the three `APPLE_API_*` vars to sign without notarizing.
 
 The app cask (`brew install --cask restorekit`) points at the notarized `.dmg`.
 
