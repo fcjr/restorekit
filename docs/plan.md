@@ -59,7 +59,7 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 - [ ] `goreleaser check` (goreleaser not installed locally — validated in CI)
 - [x] Release build (`cargo build --release`) links; 8.2 MB self-contained binary, no third-party dylibs
 - [x] Hardware: `sudo applerestore dfu` + `status` verified against the cabled target Mac (detection + model ID confirmed)
-- [ ] (Manual, destructive — needs explicit go-ahead) full `applerestore run` erase restore over the FFI
+- [x] **Full restore hardware-verified**: end-to-end erase-restore of an M1 Pro over the FFI succeeded; target booted to Setup Assistant
 
 ## Post-v1 follow-ups (not in this pass)
 - [ ] Create github.com/fcjr/applerestore and push; add `TAP_GITHUB_TOKEN` secret (PAT with write access to fcjr/homebrew-fcjr)
