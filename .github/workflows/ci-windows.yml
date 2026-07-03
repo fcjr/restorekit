@@ -44,6 +44,20 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
+      - name: Diagnose autotools macros
+        shell: msys2 {0}
+        run: |
+          echo "--- progtest.m4 present? ---"
+          ls -la /usr/share/aclocal/progtest.m4 2>&1 || echo "MISSING"
+          echo "--- who references progtest.m4 in the aclocal dir? ---"
+          grep -rl progtest /usr/share/aclocal/ 2>/dev/null || echo "no references"
+          echo "--- which package provides progtest.m4? ---"
+          pacman -Fy >/dev/null 2>&1 || true
+          pacman -F progtest.m4 2>&1 | head || true
+          echo "--- gettext / gettext-devel m4 files installed ---"
+          pacman -Ql gettext 2>/dev/null | grep -iE "aclocal.*\.m4" | head || true
+          pacman -Ql gettext-devel 2>/dev/null | grep -iE "aclocal.*\.m4" | head || true
+
       - name: Build the CLI (windows-gnu, C stack under MSYS2)
         shell: msys2 {0}
         run: |
