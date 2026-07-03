@@ -27,37 +27,50 @@ stack overflow (restore now on a 64 MB-stack thread), 20 GB IPSW `stat`
 The restore hangs at `Waiting for device to enter restore mode`. The device *is*
 in restore mode (PID 0x12ac) with **WinUSB bound via Apple's `appleusb.inf`**
 (a composite driver — plus a USB-NCM interface). idevicerestore reaches restore
-mode over the **usbmux / `restored`** protocol, which needs a **usbmuxd**, and the
-embedded usbmuxd server is currently **Linux-only** (`#[cfg(target_os = "linux")]`
-in `crates/restorekit/src/usbmuxd.rs` and `compile_usbmuxd` in
-`crates/restorekit-sys/build.rs`).
+mode over the **usbmux / `restored`** protocol, which needs a **usbmuxd**.
 
-Good news: we **play nice with `appleusb.inf`** — it provides the WinUSB
-interface we need, so no driver removal or WHQL-signing war. The one piece is the
-usbmux bridge.
+**Embedded usbmuxd is now ported to Windows** (compiles + links): the vendored
+daemon builds on MinGW behind a small POSIX→Winsock shim (`csrc/win_shim/`: fake
+`sys/socket.h`/`poll.h`/`netinet/tcp.h` with a BSD `tcphdr`/`sys/time.h`/`syslog.h`
+plus `close`→`closesocket`, fcntl-nonblock→`ioctlsocket`, sockopt casts,
+`localtime_r`), and `usbmuxd_server.c` listens on TCP `127.0.0.1:27015`
+(libusbmuxd's Windows default) with `WSAPoll`. The `UsbmuxdGuard` starts it on
+Windows too. We **play nice with `appleusb.inf`** — it binds the WinUSB interface,
+so no driver removal / WHQL-signing war.
 
-### Port plan (embedded usbmuxd → Windows)
+### Where it now stands (hardware-tested, restore-mode)
 
-Vendored `usbmuxd` daemon is POSIX-oriented but the socket surface is small
-(`client.c` 6 refs, `device.c`/`utils.c` a couple, `usb.c` is portable libusb).
+The restore reaches restore mode and the embedded usbmuxd runs, but two
+**libusb-on-Windows** limitations block the final device comms:
 
-1. **`win_shim/` headers** — provide `sys/socket.h`, `sys/un.h`, `unistd.h`,
-   `poll.h` (and `netinet/in.h`, `arpa/inet.h`) that pull in `<winsock2.h>` /
-   `<ws2tcpip.h>`. Put this dir first on the include path so only the *missing*
-   POSIX headers resolve to it; existing ones (`sys/stat.h`…) fall through to
-   MinGW.
-2. **Compat mapping**: `close`→`closesocket` (usbmuxd uses `fclose` for files, so
-   socket-only), `poll`→`WSAPoll`, non-blocking via `ioctlsocket(FIONBIO)`,
-   `errno`→`WSAGetLastError` where it matters, `SOCKET` vs `int` fd handling.
-3. **`usbmuxd_server.c` shim**: `#ifdef _WIN32` path — `WSAStartup`, listen on
-   **TCP 127.0.0.1:27015** instead of an AF_UNIX socket, `WSAPoll` instead of
-   `ppoll` (drop `sigset`).
-4. **`usbmuxd.rs`**: Windows guard variant — no Unix socket path; rely on
-   libusbmuxd's default TCP 27015 (or set `USBMUXD_SOCKET_ADDRESS=127.0.0.1:27015`).
-5. **`build.rs`**: enable `compile_usbmuxd` on Windows (drop `HAVE_PPOLL`/
-   `HAVE_CLOCK_GETTIME`/`HAVE_LOCALTIME_R`; add `win_shim` include; link `ws2_32`).
-6. Then debug the usbmux protocol over TCP at runtime against a real restore.
+1. `libusb_get_pollfds()` is **not implemented on libusb's Windows backend**
+   ("external polling of libusb's internal event sources is not yet supported on
+   Windows"). usbmuxd integrates libusb into its `poll()` loop via that call, so
+   on Windows it falls back to timeout-only polling (noisy, degraded). Not
+   necessarily fatal, but the event model differs.
+2. **The hard blocker:** libusb's WinUSB backend can't open the restore-mode
+   device — `winusbx_open ... PID_12AC&RESTORE_MODE&MI_00 (interface 0): [50] The
+   request is not supported` → `LIBUSB_ERROR_IO`. Interface topology (device live
+   in restore mode):
+   - `MI_00` — **WinUSB**, bound by **Apple's `appleusb.inf`** (status OK)
+   - `MI_01`/`MI_02` — UsbNcm / NCM data (both `Error`)
+   Crucially, `MI_00` *is* the WinUSB interface — but it's Apple's WinUSB variant,
+   which libusb rejects. DFU and recovery worked because `setup-driver` bound plain
+   `winusb.sys` to those PIDs; the restore-mode device (0x12ac) is claimed by
+   Apple's driver instead.
 
-Also watch: the restore-mode device's **USB-NCM interface showed `Error`** —
-Apple Silicon restore does a USB-network connection, so that path may need
-attention once usbmux connects.
+### Remaining work (concrete)
+
+- **Bind our WinUSB to the restore-mode interface.** Extend `setup-driver`'s INF
+  to match `USB\VID_05AC&PID_12xx&RESTORE_MODE&MI_00` (safe — the `RESTORE_MODE`
+  qualifier is Mac-restore-only, so it won't hijack normal-mode iPhones/iPads at
+  0x129x). A more-specific, trusted match should win over `appleusb.inf`, giving
+  libusb a plain WinUSB interface it can open — exactly as DFU/recovery already do.
+- Address libusb's missing `libusb_get_pollfds` on Windows (usbmuxd's event loop
+  falls back to timeout polling — noisy but appeared non-fatal during the
+  recovery-mode uploads; adapt or patch/upstream if it blocks the muxer).
+- The `MI_01`/`MI_02` NCM interfaces are in `Error`; may or may not matter once
+  the WinUSB path opens.
+
+Everything up to this point (DFU → recovery → all component uploads → entering
+restore mode, with usbmuxd ported) is committed and works on real hardware.

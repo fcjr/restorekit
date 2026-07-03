@@ -40,6 +40,12 @@ pub const DRIVER_PIDS: &[u16] = &[
     0x1881, // KIS
 ];
 
+/// Apple's normal-mode product-id range (0x1290–0x12af). A Mac in **restore
+/// mode** enumerates as a composite device with one of these ids plus a
+/// `RESTORE_MODE` qualifier; we bind WinUSB to that qualified interface only (see
+/// [`winusb_inf`]), never the bare id — so a normal iPhone/iPad is untouched.
+const RESTORE_MODE_PIDS: std::ops::RangeInclusive<u16> = 0x1290..=0x12af;
+
 /// Does `pid` name a mode restorekit binds WinUSB for?
 pub fn is_target_pid(pid: u16) -> bool {
     DRIVER_PIDS.contains(&pid)
@@ -149,6 +155,18 @@ fn winusb_inf(pids: &[u16]) -> String {
     for pid in pids {
         models.push_str(&format!(
             "%DeviceName% = WINUSB_Install, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}\n"
+        ));
+    }
+    // Restore mode (Apple Silicon): the device becomes a USB *composite* whose
+    // data interface enumerates as `VID&PID&RESTORE_MODE&MI_00`. Apple's
+    // `appleusb.inf` binds a WinUSB *variant* that libusb can't open
+    // (`winusbx_open` → ERROR_NOT_SUPPORTED), so bind our plain `winusb.sys`
+    // there too — a more specific, trusted match that wins on re-enumeration.
+    // The `RESTORE_MODE` qualifier is restore-only, so this never hijacks a
+    // normal-mode iPhone/iPad sharing a 0x129x product id.
+    for pid in RESTORE_MODE_PIDS {
+        models.push_str(&format!(
+            "%DeviceName% = WINUSB_Install, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}&RESTORE_MODE&MI_00\n"
         ));
     }
     format!(
