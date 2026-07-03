@@ -6,19 +6,34 @@ use sha2::{Digest, Sha256};
 use super::Firmware;
 use crate::error::{Error, Result};
 
-/// The firmware cache directory: `${XDG_CONFIG_HOME:-~/.config}/restorekit/firmwares`.
+/// The firmware cache directory. On Unix, `${XDG_CONFIG_HOME:-~/.config}/
+/// restorekit/firmwares`; on Windows, `%APPDATA%\restorekit\firmwares`.
 ///
 /// Overridable by the caller (CLI `--cache-dir` / `RESTOREKIT_CACHE_DIR`).
 pub fn default_cache_dir() -> Result<PathBuf> {
-    resolve_cache_dir(
-        std::env::var_os("RESTOREKIT_CACHE_DIR"),
-        std::env::var_os("XDG_CONFIG_HOME"),
-        std::env::var_os("HOME"),
-    )
+    if let Some(dir) = std::env::var_os("RESTOREKIT_CACHE_DIR").filter(|d| !d.is_empty()) {
+        return Ok(PathBuf::from(dir));
+    }
+    #[cfg(windows)]
+    {
+        let base = std::env::var_os("APPDATA")
+            .filter(|a| !a.is_empty())
+            .ok_or(Error::NoHomeDir)?;
+        Ok(PathBuf::from(base).join("restorekit").join("firmwares"))
+    }
+    #[cfg(not(windows))]
+    {
+        resolve_cache_dir(
+            None,
+            std::env::var_os("XDG_CONFIG_HOME"),
+            std::env::var_os("HOME"),
+        )
+    }
 }
 
 /// Pure resolution logic behind [`default_cache_dir`] (testable without touching
 /// process-global environment variables).
+#[cfg(not(windows))]
 fn resolve_cache_dir(
     override_dir: Option<std::ffi::OsString>,
     xdg_config_home: Option<std::ffi::OsString>,
@@ -152,6 +167,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn cache_dir_prefers_env_override() {
         let got = resolve_cache_dir(
@@ -163,12 +179,14 @@ mod tests {
         assert_eq!(got, PathBuf::from("/tmp/ar-test-cache"));
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn cache_dir_uses_xdg() {
         let got = resolve_cache_dir(None, Some("/tmp/xdg".into()), Some("/home/x".into())).unwrap();
         assert_eq!(got, PathBuf::from("/tmp/xdg/restorekit/firmwares"));
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn cache_dir_falls_back_to_home() {
         let got = resolve_cache_dir(None, None, Some("/home/x".into())).unwrap();
