@@ -39,10 +39,15 @@ fn run(mode: Mode) -> ExitCode {
         Mode::Dfu => vdm::enter_dfu(&mut on_stage),
         Mode::Reboot => vdm::reboot(&mut on_stage),
     };
+    // A machine-readable final line: the app reads this over the authorization
+    // pipe (which doesn't surface the exit code) to learn the outcome.
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => {
+            println!("RESULT: ok");
+            ExitCode::SUCCESS
+        }
         Err(e) => {
-            eprintln!("{e}");
+            println!("RESULT: error {e}");
             ExitCode::FAILURE
         }
     }

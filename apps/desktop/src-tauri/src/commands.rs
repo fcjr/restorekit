@@ -1,16 +1,22 @@
+use nusb::MaybeFuture;
+use restorekit::device;
+use restorekit::dfu::{self, parse_serial};
 use restorekit::restore::Mode;
-use restorekit::{dfu, firmware, restore, DfuDevice, Firmware};
+use restorekit::{firmware, restore, Firmware};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::elevate;
 
-/// Display-oriented view of a detected device. ECID is a hex **string** (a u64
-/// serialized as a JSON number would lose precision in JS), and `serial` is the
-/// raw DFU string the frontend hands back so the backend can re-derive the exact
-/// ECID without any float round-trip.
+const APPLE_VID: u16 = 0x05ac;
+
+/// One connected Apple device and the USB mode it's in. ECID is a hex string
+/// (a u64 as a JSON number would lose precision in JS); `serial` is the raw DFU
+/// string so the backend can re-derive the exact ECID without a float round-trip.
 #[derive(Serialize)]
 pub struct DeviceView {
+    /// "dfu" | "recovery" | "wtf" | "restore" | "other"
+    pub mode: String,
     pub name: String,
     pub identifier: Option<String>,
     pub chip: String,
@@ -18,20 +24,73 @@ pub struct DeviceView {
     pub ecid: String,
     pub srtg: Option<String>,
     pub serial: String,
+    /// Whether restorekit can restore a device in this mode (DFU only).
+    pub restorable: bool,
 }
 
-impl From<DfuDevice> for DeviceView {
-    fn from(d: DfuDevice) -> Self {
-        DeviceView {
-            name: d.display_name(),
-            identifier: d.identifier().map(str::to_string),
-            chip: format!("CPID:{:04x}", d.cpid),
-            board: format!("BDID:{:02x}", d.bdid),
-            ecid: d.ecid_hex(),
-            srtg: d.srtg.clone(),
-            serial: d.serial.clone(),
-        }
+fn mode_for(pid: u16) -> &'static str {
+    match pid {
+        0x1227 => "dfu",
+        0x1280 | 0x1281 => "recovery",
+        0x1222 => "wtf",
+        0x1338 | 0x1339 => "restore",
+        _ => "other",
     }
+}
+
+/// Every Apple device currently on the USB bus, with its mode. Devices in a
+/// restore mode (DFU/recovery/restore) carry a full identity; anything else is
+/// shown by its USB product name so the user still sees what's connected.
+#[tauri::command]
+pub fn list_devices() -> Result<Vec<DeviceView>, String> {
+    let devices = nusb::list_devices().wait().map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+
+    for info in devices {
+        if info.vendor_id() != APPLE_VID {
+            continue;
+        }
+        let serial = info.serial_number().unwrap_or("");
+        let parsed = parse_serial(serial);
+        let mode = mode_for(info.product_id());
+
+        let (name, identifier, chip, board, ecid, srtg) = match parsed {
+            Some((cpid, bdid, ecid, srtg)) => {
+                let model = device::lookup(cpid, bdid);
+                (
+                    model
+                        .map(|m| m.name.to_string())
+                        .unwrap_or_else(|| format!("Unknown Mac (CPID:{cpid:04x})")),
+                    model.map(|m| m.identifier.to_string()),
+                    format!("CPID:{cpid:04x}"),
+                    format!("BDID:{bdid:02x}"),
+                    format!("0x{ecid:x}"),
+                    srtg,
+                )
+            }
+            None => (
+                info.product_string().unwrap_or("Apple device").to_string(),
+                None,
+                String::new(),
+                String::new(),
+                String::new(),
+                None,
+            ),
+        };
+
+        out.push(DeviceView {
+            restorable: mode == "dfu",
+            mode: mode.to_string(),
+            name,
+            identifier,
+            chip,
+            board,
+            ecid,
+            srtg,
+            serial: serial.to_string(),
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -44,31 +103,20 @@ pub fn manual_instructions() -> String {
     dfu::manual_dfu_instructions().to_string()
 }
 
+/// Trigger DFU on the cabled target via the elevated helper (Touch ID prompt).
 #[tauri::command]
-pub fn list_devices() -> Result<Vec<DeviceView>, String> {
-    dfu::list()
-        .map(|v| v.into_iter().map(DeviceView::from).collect())
-        .map_err(|e| e.to_string())
+pub async fn trigger_dfu() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| elevate::run_helper("dfu"))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
+/// Reboot the cabled target out of DFU via the elevated helper.
 #[tauri::command]
-pub fn cache_dir() -> Result<String, String> {
-    firmware::default_cache_dir()
-        .map(|p| p.display().to_string())
-        .map_err(|e| e.to_string())
-}
-
-/// Trigger DFU via the elevated helper (admin prompt), then wait for the device.
-#[tauri::command]
-pub async fn trigger_dfu() -> Result<DeviceView, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        elevate::run_helper("dfu")?;
-        dfu::wait_for_dfu(std::time::Duration::from_secs(30))
-            .map(DeviceView::from)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+pub async fn reboot_target() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| elevate::run_helper("reboot"))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -98,9 +146,8 @@ pub async fn download_firmware(app: AppHandle, firmware: Firmware) -> Result<Str
     .map_err(|e| e.to_string())?
 }
 
-/// Restore (or revive) the device, emitting `progress` events. The UI confirms
-/// the erase before calling this. `serial` is the raw DFU string; the exact ECID
-/// is parsed from it here.
+/// Restore (or revive) a device, emitting `progress` events. The UI confirms the
+/// erase first. `serial` is the raw DFU string; the exact ECID is parsed from it.
 #[tauri::command]
 pub async fn restore(
     app: AppHandle,
@@ -110,7 +157,7 @@ pub async fn restore(
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (_, _, ecid, _) =
-            dfu::parse_serial(&serial).ok_or_else(|| "could not parse device serial".to_string())?;
+            parse_serial(&serial).ok_or_else(|| "could not parse device serial".to_string())?;
         let cache = firmware::default_cache_dir().ok();
         let mode = if revive { Mode::Revive } else { Mode::Erase };
         restore::restore(
@@ -127,4 +174,48 @@ pub async fn restore(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+pub struct CacheInfo {
+    pub path: String,
+    pub bytes: u64,
+    pub count: usize,
+}
+
+#[tauri::command]
+pub fn cache_info() -> Result<CacheInfo, String> {
+    let dir = firmware::default_cache_dir().map_err(|e| e.to_string())?;
+    let mut bytes = 0u64;
+    let mut count = 0usize;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|e| e.to_str()) == Some("ipsw") {
+                bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                count += 1;
+            }
+        }
+    }
+    Ok(CacheInfo {
+        path: dir.display().to_string(),
+        bytes,
+        count,
+    })
+}
+
+#[tauri::command]
+pub fn clear_cache() -> Result<(), String> {
+    let dir = firmware::default_cache_dir().map_err(|e| e.to_string())?;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.ends_with(".ipsw") || name.ends_with(".ipsw.json") || name.ends_with(".partial")
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Ok(())
 }

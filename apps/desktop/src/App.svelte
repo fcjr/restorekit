@@ -1,34 +1,47 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, onProgress, gib, type Device, type Firmware, type ProgressEvent } from "./lib/api";
+  import {
+    api,
+    onProgress,
+    pickIpsw,
+    gib,
+    MODES,
+    type Device,
+    type Firmware,
+    type ProgressEvent,
+    type CacheInfo,
+  } from "./lib/api";
   import DeviceCard from "./components/DeviceCard.svelte";
+  import DeviceRow from "./components/DeviceRow.svelte";
   import Progress from "./components/Progress.svelte";
   import ConfirmErase from "./components/ConfirmErase.svelte";
+  import Confirm from "./components/Confirm.svelte";
 
-  type Phase =
-    | "idle"
-    | "detected"
-    | "resolving"
-    | "confirm"
-    | "downloading"
-    | "restoring"
-    | "done"
-    | "error";
+  type Phase = "idle" | "resolving" | "downloading" | "restoring" | "done" | "error";
 
-  let phase = $state<Phase>("idle");
-  let device = $state<Device | null>(null);
-  let firmware = $state<Firmware | null>(null);
+  let devices = $state<Device[]>([]);
+  let selectedSerial = $state<string | null>(null);
   let canTrigger = $state(false);
   let manual = $state("");
-  let triggering = $state(false);
-  let revive = $state(false);
-  let error = $state("");
+  let cache = $state<CacheInfo | null>(null);
 
+  // Per-action state.
+  let phase = $state<Phase>("idle");
+  let active = $state<Device | null>(null); // frozen device an action runs against
+  let firmware = $state<Firmware | null>(null);
+  let osVersion = $state("");
+  let ipswPath = $state<string | null>(null);
+  let revive = $state(false);
+  let busy = $state(""); // short-lived status for trigger/reboot
+  let error = $state("");
+  let confirming = $state(false);
+  let confirmingClear = $state(false);
   let dl = $state({ received: 0, total: 0, cached: false, verifying: false });
   let rs = $state({ name: "starting", percent: 0 });
 
+  const selected = $derived(devices.find((d) => d.serial === selectedSerial) ?? null);
   const dlPercent = $derived(dl.total > 0 ? (dl.received / dl.total) * 100 : 0);
-  const settled = $derived(phase === "idle" || phase === "detected");
+  const running = $derived(phase !== "idle");
 
   function handleProgress(e: ProgressEvent) {
     switch (e.event) {
@@ -36,11 +49,9 @@
         dl.cached = true;
         break;
       case "download_resumed":
-        dl.received = (e as any).received;
-        break;
       case "download_progress":
-        dl.received = (e as any).received;
-        dl.total = (e as any).total;
+        dl.received = (e as any).received ?? dl.received;
+        if ("total" in e) dl.total = (e as any).total;
         break;
       case "verifying":
         dl.verifying = true;
@@ -52,26 +63,23 @@
     }
   }
 
+  async function refresh() {
+    try {
+      devices = await api.listDevices();
+      if (!selectedSerial && devices.length) selectedSerial = devices[0].serial;
+    } catch {
+      /* enumeration hiccups are fine */
+    }
+  }
+
   onMount(() => {
     api.hostCanTrigger().then((v) => (canTrigger = v));
     api.manualInstructions().then((v) => (manual = v));
-
-    const poll = setInterval(async () => {
-      if (!settled) return;
-      try {
-        const devices = await api.listDevices();
-        if (devices.length > 0) {
-          device = devices[0];
-          if (phase === "idle") phase = "detected";
-        } else {
-          device = null;
-          if (phase === "detected") phase = "idle";
-        }
-      } catch {
-        /* transient enumeration errors are fine */
-      }
+    api.cacheInfo().then((v) => (cache = v)).catch(() => {});
+    refresh();
+    const poll = setInterval(() => {
+      if (phase === "idle") refresh();
     }, 2000);
-
     const unlisten = onProgress(handleProgress);
     return () => {
       clearInterval(poll);
@@ -79,30 +87,65 @@
     };
   });
 
+  function select(serial: string) {
+    if (running) return;
+    selectedSerial = serial;
+    resetAction();
+  }
+  function resetAction() {
+    phase = "idle";
+    active = null;
+    firmware = null;
+    error = "";
+    confirming = false;
+  }
+
   async function enterDfu() {
     error = "";
-    triggering = true;
+    busy = "Waiting for authorization…";
     try {
-      device = await api.triggerDfu();
-      phase = "detected";
+      await api.triggerDfu();
+      await refresh();
+      const dfuDev = devices.find((d) => d.mode === "dfu");
+      if (dfuDev) selectedSerial = dfuDev.serial;
     } catch (e) {
       error = String(e);
     } finally {
-      triggering = false;
+      busy = "";
+    }
+  }
+
+  async function rebootTarget() {
+    error = "";
+    busy = "Waiting for authorization…";
+    try {
+      await api.rebootTarget();
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = "";
     }
   }
 
   async function beginRestore() {
-    if (!device?.identifier) {
-      error = "This Mac model isn't recognized, so firmware can't be resolved.";
+    if (!selected) return;
+    error = "";
+    active = selected;
+    if (ipswPath) {
+      confirming = true;
+      return;
+    }
+    if (!selected.identifier) {
+      error = "This Mac model isn't recognized, so firmware can't be resolved. Pick a local IPSW.";
       phase = "error";
       return;
     }
-    error = "";
     phase = "resolving";
     try {
-      firmware = await api.resolveFirmware(device.identifier);
-      phase = "confirm";
+      firmware = await api.resolveFirmware(selected.identifier, osVersion);
+      phase = "idle";
+      confirming = true;
     } catch (e) {
       error = String(e);
       phase = "error";
@@ -110,104 +153,219 @@
   }
 
   async function runRestore() {
-    if (!device || !firmware) return;
-    dl = { received: 0, total: firmware.size, cached: false, verifying: false };
-    phase = "downloading";
+    confirming = false;
+    if (!active) return;
     try {
-      const ipsw = await api.downloadFirmware(firmware);
+      let ipsw = ipswPath;
+      if (!ipsw && firmware) {
+        dl = { received: 0, total: firmware.size, cached: false, verifying: false };
+        phase = "downloading";
+        ipsw = await api.downloadFirmware(firmware);
+      }
+      if (!ipsw) throw new Error("no firmware to restore");
       rs = { name: "starting", percent: 0 };
       phase = "restoring";
-      await api.restore(ipsw, device.serial, revive);
+      await api.restore(ipsw, active.serial, revive);
       phase = "done";
+      api.cacheInfo().then((v) => (cache = v)).catch(() => {});
     } catch (e) {
       error = String(e);
       phase = "error";
     }
   }
 
-  function reset() {
+  async function downloadOnly() {
+    if (!selected?.identifier) return;
     error = "";
-    firmware = null;
-    phase = device ? "detected" : "idle";
+    active = selected;
+    phase = "resolving";
+    try {
+      firmware = await api.resolveFirmware(selected.identifier, osVersion);
+      dl = { received: 0, total: firmware.size, cached: false, verifying: false };
+      phase = "downloading";
+      await api.downloadFirmware(firmware);
+      phase = "done";
+      api.cacheInfo().then((v) => (cache = v)).catch(() => {});
+    } catch (e) {
+      error = String(e);
+      phase = "error";
+    }
+  }
+
+  async function chooseIpsw() {
+    const p = await pickIpsw();
+    if (p) ipswPath = p;
+  }
+
+  async function clearCache() {
+    confirmingClear = false;
+    await api.clearCache();
+    cache = await api.cacheInfo();
   }
 </script>
 
 <div class="app">
   <header>
-    <div class="brand"><span class="dot"></span> restorekit</div>
-    <div class="host mono">{canTrigger ? "Apple Silicon host" : "manual DFU host"}</div>
+    <div class="brand"><span class="dot"></span> RestoreKit</div>
+    <div class="host mono">{canTrigger ? "DFU-capable host" : "detect-only host"}</div>
   </header>
 
-  <main>
-    {#if phase === "idle"}
-      <div class="stage center">
-        <span class="eyebrow">No device</span>
-        <h1>Connect a Mac in DFU mode</h1>
-        {#if canTrigger}
-          <p class="lede">Cable the target to this Mac's DFU port, then trigger DFU below.</p>
-          <button class="btn primary" onclick={enterDfu} disabled={triggering}>
-            {triggering ? "Waiting for authorization…" : "Enter DFU mode"}
-          </button>
-          <p class="hint">Requires your admin password — only the trigger runs as root.</p>
+  <div class="body">
+    <aside class="sidebar">
+      <div class="list-head">
+        <span>Devices</span><span class="count">{devices.length}</span>
+      </div>
+      <div class="list">
+        {#if devices.length === 0}
+          <div class="empty">
+            <div class="pulse"></div>
+            <p>No Apple devices connected.</p>
+            <span>Cable a Mac to this host's DFU port.</span>
+          </div>
         {:else}
-          <p class="lede">This host can't trigger DFU electronically. Put the target into DFU by hand:</p>
-          <pre class="manual mono">{manual}</pre>
+          {#each devices as d (d.serial)}
+            <DeviceRow
+              device={d}
+              selected={d.serial === selectedSerial && !running}
+              onselect={() => select(d.serial)}
+            />
+          {/each}
         {/if}
-        {#if error}<p class="err">{error}</p>{/if}
       </div>
-    {:else if phase === "detected"}
-      <div class="stage">
-        <span class="eyebrow">Detected in DFU</span>
-        {#if device}<DeviceCard {device} />{/if}
-        <label class="revive">
-          <input type="checkbox" bind:checked={revive} />
-          Revive instead of erase <span class="faint">(keep data, fix firmware only)</span>
-        </label>
-        <button class="btn primary wide" onclick={beginRestore}>
-          {revive ? "Revive this Mac" : "Erase & restore this Mac"}
-        </button>
-      </div>
-    {:else if phase === "resolving"}
-      <div class="stage center">
-        <span class="eyebrow">Firmware</span>
-        <h1>Finding the right macOS…</h1>
-        <div class="spinner"></div>
-      </div>
-    {:else if phase === "downloading"}
-      <div class="stage">
-        <span class="eyebrow">Firmware · macOS {firmware?.version}</span>
-        <h2>{dl.verifying ? "Verifying download" : dl.cached ? "Already downloaded" : "Downloading firmware"}</h2>
-        <Progress
-          label={dl.verifying ? "Verifying checksum" : "Downloading"}
-          percent={dl.verifying ? 100 : dlPercent}
-          sub={dl.total > 0 ? `${gib(dl.received)} / ${gib(dl.total)}` : ""}
-        />
-      </div>
-    {:else if phase === "restoring"}
-      <div class="stage">
-        <span class="eyebrow">Restoring</span>
-        <h2>{rs.name}</h2>
-        <Progress label="Restore" percent={rs.percent} sub="Do not disconnect the target." />
-      </div>
-    {:else if phase === "done"}
-      <div class="stage center">
-        <span class="eyebrow alive">Complete</span>
-        <h1>Restored.</h1>
-        <p class="lede">The target is booting to Setup Assistant.</p>
-        <button class="btn" onclick={reset}>Restore another</button>
-      </div>
-    {:else if phase === "error"}
-      <div class="stage center">
-        <span class="eyebrow danger">Failed</span>
-        <h1>Something went wrong</h1>
-        <pre class="manual mono err-log">{error}</pre>
-        <button class="btn" onclick={reset}>Back</button>
-      </div>
-    {/if}
-  </main>
+    </aside>
 
-  {#if phase === "confirm" && device && firmware}
-    <ConfirmErase {device} {firmware} onConfirm={runRestore} onCancel={reset} />
+    <section class="detail">
+      {#if phase === "downloading"}
+        <div class="stage">
+          <span class="eyebrow">{active?.name}</span>
+          <h2>{dl.verifying ? "Verifying download" : dl.cached ? "Using cached firmware" : "Downloading firmware"}</h2>
+          <Progress
+            label={dl.verifying ? "Verifying checksum" : "Downloading"}
+            percent={dl.verifying ? 100 : dlPercent}
+            sub={dl.total > 0 ? `${gib(dl.received)} / ${gib(dl.total)}` : ""}
+          />
+        </div>
+      {:else if phase === "restoring"}
+        <div class="stage">
+          <span class="eyebrow">{active?.name}</span>
+          <h2>{rs.name}</h2>
+          <Progress label="Restoring" percent={rs.percent} sub="Do not disconnect the target." />
+        </div>
+      {:else if phase === "done"}
+        <div class="stage center">
+          <span class="eyebrow alive">Complete</span>
+          <h1>Done.</h1>
+          <p class="lede">{active ? "The target is booting to Setup Assistant." : "Firmware is cached and ready."}</p>
+          <button class="btn" onclick={resetAction}>Back to devices</button>
+        </div>
+      {:else if phase === "error"}
+        <div class="stage center">
+          <span class="eyebrow danger">Failed</span>
+          <pre class="log mono">{error}</pre>
+          <button class="btn" onclick={resetAction}>Back</button>
+        </div>
+      {:else if !selected}
+        <div class="stage center muted">
+          <span class="eyebrow">No selection</span>
+          <p class="lede">Select a device to see its details and actions.</p>
+        </div>
+      {:else}
+        <div class="stage">
+          <div class="detail-head">
+            <div>
+              <span class="eyebrow" style="color: var(--mode-{selected.mode})">
+                {MODES[selected.mode].label} · {MODES[selected.mode].hint}
+              </span>
+            </div>
+          </div>
+          <DeviceCard device={selected} />
+
+          {#if error}<p class="err">{error}</p>{/if}
+          {#if busy}<p class="busy mono">{busy}</p>{/if}
+
+          {#if selected.restorable}
+            <div class="options">
+              <div class="opt">
+                <label for="osv">macOS version</label>
+                <input id="osv" class="mono" placeholder="latest" bind:value={osVersion} />
+              </div>
+              <div class="opt">
+                <label for="ipsw">Local IPSW</label>
+                <button id="ipsw" class="picker mono" onclick={chooseIpsw}>
+                  {ipswPath ? ipswPath.split("/").pop() : "Choose file…"}
+                </button>
+                {#if ipswPath}<button class="clearx" onclick={() => (ipswPath = null)}>×</button>{/if}
+              </div>
+              <label class="toggle">
+                <input type="checkbox" bind:checked={revive} />
+                Revive <span class="faint">— reinstall firmware, keep data</span>
+              </label>
+            </div>
+
+            <div class="actions">
+              <button class="btn primary" onclick={beginRestore}>
+                {revive ? "Revive" : "Erase & restore"}
+              </button>
+              <button class="btn" onclick={downloadOnly} disabled={!selected.identifier || !!ipswPath}>
+                Download only
+              </button>
+              <button class="btn ghost" onclick={rebootTarget} disabled={!!busy}>Reboot out of DFU</button>
+            </div>
+          {:else if canTrigger}
+            <p class="lede">Restore needs DFU mode. Put this Mac into DFU to continue.</p>
+            <div class="actions">
+              <button class="btn primary" onclick={enterDfu} disabled={!!busy}>
+                {busy ? "Authorizing…" : "Enter DFU mode"}
+              </button>
+              <button class="btn ghost" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
+            </div>
+            <p class="hint">The trigger asks for permission (Touch ID) — only that step runs as root.</p>
+          {:else}
+            <p class="lede">This host can't trigger DFU. Put the target into DFU by hand:</p>
+            <pre class="log mono manual">{manual}</pre>
+          {/if}
+        </div>
+      {/if}
+    </section>
+  </div>
+
+  <footer>
+    {#if cache}
+      <span class="mono">
+        Cache · {cache.count} firmware · {gib(cache.bytes)}
+        <span class="faint">{cache.path}</span>
+      </span>
+      <button
+        class="btn ghost sm"
+        onclick={() => (confirmingClear = true)}
+        disabled={cache.count === 0}>Clear</button
+      >
+    {/if}
+  </footer>
+
+  {#if confirming && active}
+    <ConfirmErase
+      device={active}
+      {firmware}
+      localIpsw={ipswPath}
+      {revive}
+      onConfirm={runRestore}
+      onCancel={() => {
+        confirming = false;
+        active = null;
+      }}
+    />
+  {/if}
+
+  {#if confirmingClear && cache}
+    <Confirm
+      title="Clear firmware cache?"
+      body={`This deletes ${cache.count} cached firmware (${gib(cache.bytes)}). You'll re-download next time.`}
+      confirmLabel="Clear cache"
+      danger
+      onConfirm={clearCache}
+      onCancel={() => (confirmingClear = false)}
+    />
   {/if}
 </div>
 
@@ -221,7 +379,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 22px;
+    padding: 13px 20px;
     border-bottom: 1px solid var(--line);
     -webkit-app-region: drag;
   }
@@ -245,12 +403,74 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
-  main {
+  .body {
     flex: 1;
     display: grid;
-    place-items: center;
-    padding: 28px;
+    grid-template-columns: 268px 1fr;
+    min-height: 0;
+  }
+  .sidebar {
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .list-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .count {
+    color: var(--muted);
+  }
+  .list {
+    padding: 4px 8px 12px;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .empty {
+    text-align: center;
+    color: var(--faint);
+    padding: 40px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .empty p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .empty span {
+    font-size: 12px;
+  }
+  .pulse {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--line-2);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% {
+      background: var(--muted);
+      transform: scale(1.25);
+    }
+  }
+  .detail {
+    padding: 30px 34px;
+    overflow-y: auto;
+    display: grid;
+    place-items: start start;
   }
   .stage {
     width: 100%;
@@ -260,8 +480,12 @@
     gap: 16px;
   }
   .stage.center {
+    place-self: center;
     align-items: center;
     text-align: center;
+  }
+  .stage.muted {
+    color: var(--muted);
   }
   h1 {
     font-size: 26px;
@@ -277,27 +501,94 @@
   .lede {
     color: var(--muted);
     margin: 0;
-    max-width: 34ch;
+    max-width: 40ch;
   }
   .hint {
     color: var(--faint);
     font-size: 12px;
     margin: 0;
   }
-  .wide {
-    width: 100%;
+  .options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
   }
-  .revive {
+  .opt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .opt label {
+    width: 108px;
+    font-size: 12px;
+    color: var(--faint);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex: none;
+  }
+  .opt input,
+  .picker {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 8px 11px;
+    color: var(--ink);
+    font-size: 13px;
+    text-align: left;
+  }
+  .opt input:focus,
+  .picker:hover {
+    border-color: var(--signal-line);
+    outline: none;
+  }
+  .clearx {
+    background: transparent;
+    border: 0;
+    color: var(--faint);
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .clearx:hover {
+    color: var(--danger);
+  }
+  .toggle {
     display: flex;
     align-items: center;
     gap: 9px;
     font-size: 13px;
     color: var(--muted);
   }
-  .revive .faint {
+  .toggle .faint {
     color: var(--faint);
   }
-  .manual {
+  .actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .err {
+    color: var(--danger);
+    font-size: 13px;
+    margin: 0;
+  }
+  .busy {
+    color: var(--signal);
+    font-size: 13px;
+    margin: 0;
+  }
+  .eyebrow.alive {
+    color: var(--alive);
+  }
+  .eyebrow.danger {
+    color: var(--danger);
+  }
+  .log {
     white-space: pre-wrap;
     text-align: left;
     background: var(--panel);
@@ -307,36 +598,37 @@
     font-size: 12px;
     line-height: 1.6;
     color: var(--muted);
-    max-width: 440px;
-    max-height: 220px;
+    width: 100%;
+    max-height: 240px;
     overflow-y: auto;
   }
-  .err {
-    color: var(--danger);
-    font-size: 13px;
-    margin: 0;
+  .log.mono.manual {
+    color: var(--muted);
   }
-  .err-log {
+  pre.log {
     color: var(--danger);
     border-color: rgba(239, 106, 106, 0.35);
   }
-  .eyebrow.alive {
-    color: var(--alive);
+  pre.log.manual {
+    color: var(--muted);
+    border-color: var(--line);
   }
-  .eyebrow.danger {
-    color: var(--danger);
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 20px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--muted);
   }
-  .spinner {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: 2px solid var(--line-2);
-    border-top-color: var(--signal);
-    animation: spin 0.8s linear infinite;
+  footer .faint {
+    color: var(--faint);
+    margin-left: 8px;
   }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+  .btn.sm {
+    padding: 6px 12px;
+    font-size: 12px;
   }
 </style>

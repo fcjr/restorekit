@@ -3,17 +3,21 @@
   let {
     device,
     firmware,
+    localIpsw,
+    revive = false,
     onConfirm,
     onCancel,
   }: {
     device: Device;
-    firmware: Firmware;
+    firmware?: Firmware | null;
+    localIpsw?: string | null;
+    revive?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
   } = $props();
 
   let typed = $state("");
-  const ready = $derived(typed.trim().toUpperCase() === "ERASE");
+  const ready = $derived(revive || typed.trim().toUpperCase() === "ERASE");
 </script>
 
 <div
@@ -31,29 +35,43 @@
     onclick={(e) => e.stopPropagation()}
     onkeydown={(e) => e.stopPropagation()}
   >
-    <div class="mark">ERASE</div>
-    <h2>Erase and restore this Mac?</h2>
+    <div class="mark" class:revive>{revive ? "REVIVE" : "ERASE"}</div>
+    <h2>{revive ? "Revive this Mac?" : "Erase and restore this Mac?"}</h2>
     <p>
-      This permanently erases <b>everything</b> on {device.name}
-      <span class="mono">({device.ecid})</span> and installs macOS
-      {firmware.version} <span class="mono">({firmware.build})</span>.
+      {#if revive}
+        This reinstalls firmware on {device.name}
+        <span class="mono">({device.ecid})</span> without erasing user data.
+      {:else}
+        This permanently erases <b>everything</b> on {device.name}
+        <span class="mono">({device.ecid})</span> and installs
+        {#if firmware}macOS {firmware.version} <span class="mono">({firmware.build})</span>{:else}the
+          selected IPSW{/if}.
+      {/if}
     </p>
-    <label for="confirm-input">Type <b>ERASE</b> to continue</label>
-    <!-- svelte-ignore a11y_autofocus -->
-    <input
-      id="confirm-input"
-      class="mono"
-      bind:value={typed}
-      autocomplete="off"
-      autocorrect="off"
-      autocapitalize="characters"
-      spellcheck="false"
-      autofocus
-      onkeydown={(e) => e.key === "Enter" && ready && onConfirm()}
-    />
+    {#if !revive}
+      <label for="confirm-input">Type <b>ERASE</b> to continue</label>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        id="confirm-input"
+        class="mono"
+        bind:value={typed}
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="characters"
+        spellcheck="false"
+        autofocus
+        onkeydown={(e) => e.key === "Enter" && ready && onConfirm()}
+      />
+    {/if}
     <div class="actions">
       <button class="btn ghost" onclick={onCancel}>Cancel</button>
-      <button class="btn danger" disabled={!ready} onclick={onConfirm}>Erase &amp; restore</button>
+      <button
+        class="btn {revive ? 'primary' : 'danger'}"
+        disabled={!ready}
+        onclick={onConfirm}
+      >
+        {revive ? "Revive" : "Erase & restore"}
+      </button>
     </div>
   </div>
 </div>
@@ -87,6 +105,11 @@
     border-radius: 6px;
     padding: 4px 9px;
     display: inline-block;
+  }
+  .mark.revive {
+    color: var(--signal);
+    background: var(--signal-soft);
+    border-color: var(--signal-line);
   }
   h2 {
     font-size: 19px;

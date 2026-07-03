@@ -13,6 +13,11 @@
   --alive: #46c38c;
   --alive-soft: rgba(70, 195, 140, 0.12);
   --danger: #ef6a6a;
+  --mode-dfu: #f2a63c;
+  --mode-recovery: #56cfe1;
+  --mode-restore: #46c38c;
+  --mode-wtf: #ef6a6a;
+  --mode-other: #818c9e;
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 }
