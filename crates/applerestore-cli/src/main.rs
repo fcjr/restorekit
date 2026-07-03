@@ -63,9 +63,6 @@ struct RestoreArgs {
     /// Skip the erase confirmation prompt.
     #[arg(long)]
     yes: bool,
-    /// Path to the idevicerestore binary (default: found on PATH).
-    #[arg(long)]
-    idevicerestore_path: Option<PathBuf>,
 }
 
 impl RestoreArgs {
@@ -77,7 +74,6 @@ impl RestoreArgs {
             identifier: self.identifier,
             yes: self.yes,
             cache_dir,
-            idevicerestore_path: self.idevicerestore_path,
             json,
         }
     }

@@ -31,20 +31,26 @@ Working checklist; check items off as they land.
 - [x] Root + Apple Silicon host guards with clear errors; manual DFU instructions helper for unsupported hosts
 - [x] **Hardware-verified**: an Apple Silicon host triggered DFU on a target Mac, which was then detected and identified correctly
 
-## 6. Restore engine (idevicerestore wrapper)
-- [x] Binary discovery (`--idevicerestore-path` → `$PATH`) with actionable install error
-- [x] Spawn `idevicerestore [-e] -y -P -i <ecid> <ipsw>`, parse `progress: <step> <float>` lines into events, keep log ring buffer for failures
-- [x] Unit tests: progress-line parser
+## 6. Restore engine (statically-linked libidevicerestore, FFI-only)
+Self-contained binary: the idevicerestore C stack is built from pinned sources
+and linked in. No subprocess, no `brew install idevicerestore`.
+- [x] `applerestore-sys` crate: git submodules (`vendor/`) pinning libplist, libimobiledevice-glue, libusbmuxd, libirecovery, libtatsu, libimobiledevice, idevicerestore
+- [x] `build.rs` builds the stack in cargo flow: openssl/zlib/curl via vendored `-sys` crates, libzip via CMake, the 6 autotools libs into a staging prefix, then compiles idevicerestore's `.c` sources (with `main` renamed) and emits static link directives + macOS frameworks
+- [x] FFI decls (`idevicerestore_client_new/set_flags/set_ipsw/set_ecid/set_progress_callback/start/get_error`, `FLAG_ERASE`)
+- [x] `restore.rs` rewritten over the FFI (progress callback → `Event::RestoreStep`), subprocess path removed
+- [x] Native macOS build links cleanly (self-contained: no Homebrew dylib deps — verify with `otool -L`)
+- [x] Unit tests: progress step-name mapping
 
 ## 7. CLI
 - [x] clap derive skeleton: `status`, `dfu`, `reboot`, `download`, `restore`, `run`, `cache`; global `--cache-dir`, `--json`, `-v`
 - [x] indicatif progress rendering from library events; JSON-lines mode
 - [x] Erase confirmation prompt (model + ECID, `--yes` to skip)
 
-## 8. CI/CD
-- [ ] `.github/workflows/ci.yml` — fmt, clippy, test on macos-14 + ubuntu-latest
-- [ ] `.goreleaser.yaml` — Rust builder (`-p=applerestore-cli`), darwin arm64/x64 + linux amd64/arm64, archives, checksums, `homebrew_casks` → fcjr/homebrew-fcjr with quarantine-removal hook
-- [ ] `.github/workflows/release.yml` — tag-triggered goreleaser on macos-14 (rust toolchain, zig, cargo-zigbuild), `GITHUB_TOKEN` + `TAP_GITHUB_TOKEN`
+## 8. CI/CD (native per-platform builds — the static C stack rules out zig cross-compile)
+- [ ] `.github/workflows/ci.yml` — fmt, clippy, test; matrix macos-14 (arm64) + ubuntu (needs `libusb-1.0`, autotools, cmake to build the stack)
+- [ ] Native release build matrix: macos-14 (arm64), macos-13 (x86_64), ubuntu-24 arm64 + x86_64 — each runs `cargo build --release` (build.rs builds the self-contained stack), uploads the artifact
+- [ ] `.goreleaser.yaml` — `builder: prebuilt` assembling the per-platform artifacts into archives + checksums; `homebrew_casks` → fcjr/homebrew-fcjr with quarantine-removal hook
+- [ ] `.github/workflows/release.yml` — tag-triggered: build matrix → goreleaser packages prebuilt binaries; `GITHUB_TOKEN` + `TAP_GITHUB_TOKEN`
 
 ## 9. Verification
 - [ ] `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`

@@ -1,0 +1,23 @@
+[package]
+name = "applerestore-sys"
+description = "Static FFI bindings to the idevicerestore C stack (self-contained build)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+# `links` lets downstream crates and build ordering see this owns the native libs.
+links = "idevicerestore"
+build = "build.rs"
+
+[dependencies]
+# Regular deps so their static archives link into the final binary AND their
+# include paths reach our build.rs via DEP_<name>_INCLUDE. Vendored/static so the
+# resulting binary is self-contained.
+openssl-sys = { version = "0.9", features = ["vendored"] }
+libz-sys = { version = "1", default-features = false, features = ["static"] }
+curl-sys = { version = "0.4", default-features = false, features = ["static-curl", "ssl"] }
+
+[build-dependencies]
+cc = "1"
+cmake = "0.1"

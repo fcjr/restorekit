@@ -14,7 +14,6 @@ pub struct Opts {
     pub identifier: Option<String>,
     pub yes: bool,
     pub cache_dir: Option<PathBuf>,
-    pub idevicerestore_path: Option<PathBuf>,
     pub json: bool,
 }
 
@@ -44,9 +43,6 @@ pub fn run_oneshot(opts: Opts) -> Result<()> {
 }
 
 fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
-    // Locate idevicerestore up front so we fail fast before downloading.
-    let engine = restore::find_idevicerestore(opts.idevicerestore_path.as_deref())?;
-
     let cache = match &opts.cache_dir {
         Some(d) => d.clone(),
         None => firmware::default_cache_dir()?,
@@ -90,13 +86,9 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
     bar.set_style(
         ProgressStyle::with_template("{msg:24} {bar:32.green/black} {percent:>3}%").unwrap(),
     );
-    restore::restore(
-        &engine,
-        &ipsw_path,
-        Some(&device.ecid_hex()),
-        mode,
-        &mut |event| restore_render(&bar, event, opts.json),
-    )?;
+    restore::restore(&ipsw_path, device.ecid, Some(&cache), mode, &mut |event| {
+        restore_render(&bar, event, opts.json)
+    })?;
     bar.finish_and_clear();
     println!("Restore complete. The target should boot to Setup Assistant.");
     Ok(())

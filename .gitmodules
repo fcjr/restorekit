@@ -1,0 +1,24 @@
+[submodule "crates/applerestore-sys/vendor/libplist"]
+	path = crates/applerestore-sys/vendor/libplist
+	url = https://github.com/libimobiledevice/libplist.git
+[submodule "crates/applerestore-sys/vendor/libimobiledevice-glue"]
+	path = crates/applerestore-sys/vendor/libimobiledevice-glue
+	url = https://github.com/libimobiledevice/libimobiledevice-glue.git
+[submodule "crates/applerestore-sys/vendor/libusbmuxd"]
+	path = crates/applerestore-sys/vendor/libusbmuxd
+	url = https://github.com/libimobiledevice/libusbmuxd.git
+[submodule "crates/applerestore-sys/vendor/libirecovery"]
+	path = crates/applerestore-sys/vendor/libirecovery
+	url = https://github.com/libimobiledevice/libirecovery.git
+[submodule "crates/applerestore-sys/vendor/libtatsu"]
+	path = crates/applerestore-sys/vendor/libtatsu
+	url = https://github.com/libimobiledevice/libtatsu.git
+[submodule "crates/applerestore-sys/vendor/libimobiledevice"]
+	path = crates/applerestore-sys/vendor/libimobiledevice
+	url = https://github.com/libimobiledevice/libimobiledevice.git
+[submodule "crates/applerestore-sys/vendor/idevicerestore"]
+	path = crates/applerestore-sys/vendor/idevicerestore
+	url = https://github.com/libimobiledevice/idevicerestore.git
+[submodule "crates/applerestore-sys/vendor/libzip"]
+	path = crates/applerestore-sys/vendor/libzip
+	url = https://github.com/nih-at/libzip.git

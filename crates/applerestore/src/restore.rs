@@ -1,7 +1,8 @@
-use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::ffi::{c_void, CString};
+use std::path::Path;
+use std::sync::Mutex;
+
+use applerestore_sys as sys;
 
 use crate::error::{Error, Result};
 use crate::progress::{Event, ProgressFn};
@@ -9,141 +10,112 @@ use crate::progress::{Event, ProgressFn};
 /// How to restore the target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// Full restore, erasing all data (`idevicerestore --erase`).
+    /// Full restore, erasing all data (`FLAG_ERASE`).
     Erase,
     /// Update-style restore that preserves user data ("revive").
     Revive,
 }
 
-/// idevicerestore progress step numbers, from `enum` in idevicerestore's
-/// `common.h`. Used to give restore steps human names.
-fn step_name(step: u32) -> &'static str {
+/// Human name for an idevicerestore progress step.
+fn step_name(step: i32) -> &'static str {
     match step {
-        0 => "detecting device",
-        1 => "preparing",
-        2 => "uploading iBEC",
-        3 => "waiting for reconnect",
-        4 => "uploading ramdisk",
-        5 => "restoring image",
-        6 => "verifying restore",
-        7 => "checking filesystem",
-        8 => "flashing firmware",
+        sys::RESTORE_STEP_DETECT => "detecting device",
+        sys::RESTORE_STEP_PREPARE => "preparing",
+        sys::RESTORE_STEP_UPLOAD_FS => "uploading filesystem",
+        sys::RESTORE_STEP_VERIFY_FS => "verifying filesystem",
+        sys::RESTORE_STEP_FLASH_FW => "flashing firmware",
+        sys::RESTORE_STEP_FLASH_BB => "flashing baseband",
+        sys::RESTORE_STEP_FUD => "flashing firmware updater",
+        sys::RESTORE_STEP_UPLOAD_IMG => "uploading image",
         _ => "restoring",
     }
 }
 
-/// Locate the idevicerestore binary: explicit override, else PATH.
-pub fn find_idevicerestore(override_path: Option<&Path>) -> Result<PathBuf> {
-    if let Some(p) = override_path {
-        return if p.exists() {
-            Ok(p.to_path_buf())
-        } else {
-            Err(Error::IdevicerestoreNotFound)
-        };
+/// Bridges the C progress callback to the Rust closure. libidevicerestore is not
+/// re-entrant, so restores are serialized and the active callback lives here.
+struct ActiveProgress<'a> {
+    callback: &'a mut dyn FnMut(Event),
+}
+
+static RESTORE_LOCK: Mutex<()> = Mutex::new(());
+
+unsafe extern "C" fn progress_trampoline(step: i32, step_progress: f64, userdata: *mut c_void) {
+    if userdata.is_null() {
+        return;
     }
-    which("idevicerestore").ok_or(Error::IdevicerestoreNotFound)
+    let active = &mut *(userdata as *mut ActiveProgress);
+    (active.callback)(Event::RestoreStep {
+        step: step.max(0) as u32,
+        name: step_name(step).to_string(),
+        progress: step_progress as f32,
+    });
 }
 
-fn which(bin: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(bin))
-        .find(|candidate| candidate.is_file())
-}
-
-/// Run a restore, streaming progress. `ecid` targets a specific device (hex,
-/// e.g. "0x1234"); required when more than one device might be attached.
+/// Run a restore against the DFU device with the given ECID, streaming progress.
+///
+/// This links libidevicerestore statically; there is no external binary.
 pub fn restore(
-    idevicerestore: &Path,
     ipsw: &Path,
-    ecid: Option<&str>,
+    ecid: u64,
+    cache_dir: Option<&Path>,
     mode: Mode,
     progress: ProgressFn,
 ) -> Result<()> {
-    let mut cmd = Command::new(idevicerestore);
-    cmd.arg("-y") // non-interactive
-        .arg("-P"); // machine-parsable progress
-    if mode == Mode::Erase {
-        cmd.arg("-e");
-    }
-    if let Some(ecid) = ecid {
-        cmd.arg("-i").arg(ecid);
-    }
-    cmd.arg(ipsw);
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    let mut child = cmd.spawn().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            Error::IdevicerestoreNotFound
-        } else {
-            Error::Io(e)
-        }
-    })?;
+    let ipsw_c = CString::new(ipsw.as_os_str().to_string_lossy().as_bytes())
+        .map_err(|_| Error::Download("ipsw path contains a NUL byte".into()))?;
+    let cache_c = cache_dir
+        .map(|d| CString::new(d.as_os_str().to_string_lossy().as_bytes()))
+        .transpose()
+        .map_err(|_| Error::Download("cache path contains a NUL byte".into()))?;
 
-    let stdout = child.stdout.take().expect("piped stdout");
-    let stderr = child.stderr.take().expect("piped stderr");
+    let mut active = ActiveProgress { callback: progress };
 
-    // Keep the last N lines for a useful error message on failure.
-    let mut log_tail: VecDeque<String> = VecDeque::with_capacity(64);
-
-    // Drain stderr on a thread so it can't deadlock the pipe.
-    let stderr_handle = std::thread::spawn(move || {
-        let mut lines = Vec::new();
-        for line in BufReader::new(stderr)
-            .lines()
-            .map_while(std::result::Result::ok)
-        {
-            lines.push(line);
-        }
-        lines
-    });
-
-    for line in BufReader::new(stdout)
-        .lines()
-        .map_while(std::result::Result::ok)
-    {
-        if let Some((step, fraction)) = parse_progress(&line) {
-            progress(Event::RestoreStep {
-                step,
-                name: step_name(step).to_string(),
-                progress: fraction,
+    unsafe {
+        let client = sys::idevicerestore_client_new();
+        if client.is_null() {
+            return Err(Error::RestoreFailed {
+                status: -1,
+                log_tail: "idevicerestore_client_new returned null".into(),
             });
-        } else {
-            progress(Event::RestoreLog { line: line.clone() });
         }
-        push_tail(&mut log_tail, line);
-    }
+        // Ensure the client is always freed, even on early return.
+        #[allow(clippy::redundant_closure_call)]
+        let result = (|| {
+            sys::idevicerestore_set_ecid(client, ecid);
+            let flags = match mode {
+                Mode::Erase => sys::FLAG_ERASE,
+                Mode::Revive => 0,
+            };
+            sys::idevicerestore_set_flags(client, flags);
+            sys::idevicerestore_set_ipsw(client, ipsw_c.as_ptr());
+            if let Some(cache) = &cache_c {
+                sys::idevicerestore_set_cache_path(client, cache.as_ptr());
+            }
+            sys::idevicerestore_set_progress_callback(
+                client,
+                Some(progress_trampoline),
+                &mut active as *mut ActiveProgress as *mut c_void,
+            );
 
-    let status = child.wait()?;
-    for line in stderr_handle.join().unwrap_or_default() {
-        push_tail(&mut log_tail, line);
-    }
+            let rc = sys::idevicerestore_start(client);
+            if rc == 0 {
+                Ok(())
+            } else {
+                Err(Error::RestoreFailed {
+                    status: rc,
+                    log_tail: format!("idevicerestore_start returned {rc}"),
+                })
+            }
+        })();
 
-    if status.success() {
-        progress(Event::Done);
-        Ok(())
-    } else {
-        Err(Error::RestoreFailed {
-            status: status.code().unwrap_or(-1),
-            log_tail: log_tail.into_iter().collect::<Vec<_>>().join("\n"),
-        })
-    }
-}
+        sys::idevicerestore_client_free(client);
+        result
+    }?;
 
-fn push_tail(tail: &mut VecDeque<String>, line: String) {
-    if tail.len() == 64 {
-        tail.pop_front();
-    }
-    tail.push_back(line);
-}
-
-/// Parse an idevicerestore `-P` progress line: `progress: <step> <fraction>`.
-fn parse_progress(line: &str) -> Option<(u32, f32)> {
-    let rest = line.trim().strip_prefix("progress:")?;
-    let mut parts = rest.split_whitespace();
-    let step = parts.next()?.parse::<u32>().ok()?;
-    let fraction = parts.next()?.parse::<f32>().ok()?;
-    Some((step, fraction))
+    (active.callback)(Event::Done);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -151,20 +123,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_progress_line() {
-        assert_eq!(parse_progress("progress: 5 0.42"), Some((5, 0.42)));
-        assert_eq!(parse_progress("  progress: 0 0"), Some((0, 0.0)));
-    }
-
-    #[test]
-    fn ignores_non_progress_lines() {
-        assert_eq!(parse_progress("Restoring device..."), None);
-        assert_eq!(parse_progress("progress: notanumber"), None);
-    }
-
-    #[test]
     fn step_names_have_fallback() {
-        assert_eq!(step_name(5), "restoring image");
+        assert_eq!(
+            step_name(sys::RESTORE_STEP_UPLOAD_FS),
+            "uploading filesystem"
+        );
         assert_eq!(step_name(999), "restoring");
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/applerestore", "crates/applerestore-cli"]
+members = ["crates/applerestore", "crates/applerestore-sys", "crates/applerestore-cli"]
 
 [workspace.package]
 version = "0.1.0"
