@@ -5,7 +5,7 @@
 **Reformat an Apple Silicon Mac with one command.**
 
 Trigger DFU, detect the target, download the right firmware, and restore.
-A cross-platform CLI and desktop app for macOS and Linux.
+A cross-platform CLI and desktop app for macOS, Linux, and Windows.
 
 [![CI](https://github.com/fcjr/restorekit/actions/workflows/ci.yml/badge.svg)](https://github.com/fcjr/restorekit/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/restorekit-cli.svg)](https://crates.io/crates/restorekit-cli)
@@ -18,9 +18,9 @@ A cross-platform CLI and desktop app for macOS and Linux.
 
 `restorekit` replaces the Apple Configurator dance with a single tool. It puts
 a cabled Mac into DFU mode, identifies exactly which Mac it is, fetches the
-matching macOS IPSW, and restores it — start to finish. It runs on **macOS and
-Linux**, as a command-line tool or a **[desktop app](#desktop-app)** built on the
-same engine.
+matching macOS IPSW, and restores it — start to finish. It runs on **macOS,
+Linux, and Windows**, as a command-line tool or a **[desktop app](#desktop-app)**
+built on the same engine.
 
 > [!WARNING]
 > A restore **erases everything** on the target Mac. Double-check you have the
@@ -98,11 +98,15 @@ Use a data-capable USB-C (or Thunderbolt) cable and the target's **DFU port**:
 | **macOS** (Apple Silicon) | ✅ | ✅ | ✅ | ✅ |
 | **macOS** (Intel) | — | ✅ | ✅ | ✅ |
 | **Linux** | — | ✅ | ✅ | ✅ |
+| **Windows** | — | ✅ | ✅ | ✅ |
 
 Triggering DFU electronically needs an Apple Silicon Mac host and `sudo`;
 everywhere else, put the target into DFU by hand and `restorekit` takes it from
 there. On Linux the restore phase talks to the device through `usbmuxd` — make
-sure it's installed and running.
+sure it's installed and running. On Windows the target in DFU/recovery needs a
+libusb-compatible driver: bind **WinUSB** to it with [Zadig](https://zadig.akeo.ie/)
+(or install the [UsbDk](https://github.com/daynix/UsbDk) filter) so `restorekit`
+can talk to it.
 
 ## Desktop app
 
@@ -114,7 +118,7 @@ links the `restorekit` library directly, so it's the same code path as the CLI.
 brew install --cask restorekit          # macOS
 ```
 
-On Linux, grab the `.deb` or `.AppImage` from the
+On Linux, grab the `.deb` or `.AppImage`, and on Windows the installer, from the
 [releases page](https://github.com/fcjr/restorekit/releases). One-click *Enter
 DFU* needs an Apple Silicon Mac host; on other hosts the app shows the manual
 key-combo and takes over once the target is in DFU.
@@ -161,6 +165,31 @@ sudo apt-get install -y \
 Those `-dev` packages only satisfy the vendored libraries' `configure` checks —
 OpenSSL, libcurl, and zlib are still linked statically, so the finished binary
 depends only on `libc` and `libusb`.
+
+### Windows
+
+The C stack is built with autotools, which needs the GNU toolchain, so Windows
+builds target `x86_64-pc-windows-gnu` from an [MSYS2](https://www.msys2.org/)
+**MINGW64** shell. In that shell:
+
+```sh
+pacman -S --needed base-devel git make autoconf automake libtool \
+  autoconf-archive gettext-devel pkgconf perl \
+  mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-cmake \
+  mingw-w64-x86_64-libusb mingw-w64-x86_64-nasm
+rustup default stable-x86_64-pc-windows-gnu   # GNU host toolchain
+rustup target add x86_64-pc-windows-gnu
+```
+
+Then, with the Windows `cargo` on `PATH`, build from the repo root:
+
+```sh
+cargo build --release -p restorekit-cli --target x86_64-pc-windows-gnu
+```
+
+The `-gnu` host toolchain matters: build scripts link with `ld` instead of
+MSVC's `link.exe`, which MSYS2's coreutils `link` would otherwise shadow. As on
+Linux, OpenSSL/libcurl/zlib link statically; the binary needs only `libusb`.
 
 ## Releasing
 
