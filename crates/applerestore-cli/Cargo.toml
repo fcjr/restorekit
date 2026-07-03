@@ -5,14 +5,18 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 
 [[bin]]
 name = "applerestore"
 path = "src/main.rs"
 
 [dependencies]
-applerestore = { path = "../applerestore" }
+applerestore = { path = "../applerestore", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.17"
 serde_json = "1"

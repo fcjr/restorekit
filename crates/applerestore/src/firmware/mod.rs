@@ -1,8 +1,9 @@
 //! Firmware resolution, caching, and download.
 //!
-//! Split across submodules: [`resolve`] (ipsw.me + Apple mesu lookup),
-//! [`cache`] (cache dir, checksum sidecars), and [`download`] (resumable,
-//! verified fetch). The shared [`Firmware`] type and HTTP client live here.
+//! [`resolve`] looks up the correct IPSW for a model (ipsw.me, with Apple's mesu
+//! feed as a fallback); [`download`] fetches it resumably and verifies its
+//! checksum; and [`default_cache_dir`]/[`cached`] manage the on-disk cache with
+//! `.json` checksum sidecars. The shared [`Firmware`] type lives here.
 
 mod cache;
 mod download;

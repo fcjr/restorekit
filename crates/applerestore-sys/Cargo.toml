@@ -5,7 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+keywords = ["idevicerestore", "libimobiledevice", "dfu", "ffi", "apple"]
+categories = ["external-ffi-bindings"]
 # `links` lets downstream crates and build ordering see this owns the native libs.
 links = "idevicerestore"
 build = "build.rs"

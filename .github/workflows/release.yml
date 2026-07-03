@@ -8,6 +8,25 @@ permissions:
   contents: write
 
 jobs:
+  # Publish the crates to crates.io, in dependency order. Skipped with
+  # --no-verify: ci.yml is the build gate, and verifying here would rebuild the
+  # whole C stack three times. The vendored C sources ship inside the -sys
+  # package (2.2 MiB), so it builds on a consumer's machine without submodules.
+  crates:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish -p applerestore-sys --no-verify
+          cargo publish -p applerestore --no-verify
+          cargo publish -p applerestore-cli --no-verify
+
   build:
     strategy:
       fail-fast: true

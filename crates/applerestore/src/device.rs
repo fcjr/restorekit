@@ -14,7 +14,7 @@ pub struct MacModel {
     pub name: &'static str,
 }
 
-/// Generated from https://api.ipsw.me/v4/devices (cpid/bdid per board).
+/// Generated from <https://api.ipsw.me/v4/devices> (cpid/bdid per board).
 pub const MAC_MODELS: &[MacModel] = &[
     MacModel {
         cpid: 0x6000,

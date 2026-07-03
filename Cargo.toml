@@ -7,7 +7,10 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fcjr/applerestore"
+homepage = "https://github.com/fcjr/applerestore"
 authors = ["Frank Chiarulli Jr. <frank@frankchiarulli.com>"]
+keywords = ["macos", "dfu", "restore", "apple-silicon", "idevicerestore"]
+categories = ["command-line-utilities", "hardware-support"]
 
 [profile.release]
 lto = true
