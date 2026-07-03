@@ -4,8 +4,8 @@
 
 **Reformat an Apple Silicon Mac with one command.**
 
-Trigger DFU, detect the target, download the right firmware, and restore —
-in a single self-contained binary.
+Trigger DFU, detect the target, download the right firmware, and restore.
+A cross-platform CLI for macOS and Linux, plus a macOS desktop app.
 
 [![CI](https://github.com/fcjr/restorekit/actions/workflows/ci.yml/badge.svg)](https://github.com/fcjr/restorekit/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/restorekit-cli.svg)](https://crates.io/crates/restorekit-cli)
@@ -18,10 +18,9 @@ in a single self-contained binary.
 
 `restorekit` replaces the Apple Configurator dance with a single tool. It puts
 a cabled Mac into DFU mode, identifies exactly which Mac it is, fetches the
-matching macOS IPSW, and restores it — start to finish. It statically links the
-[idevicerestore](https://github.com/libimobiledevice/idevicerestore) stack, so
-there's nothing else to install: no Apple Configurator, no `brew install
-idevicerestore`, no loose libraries.
+matching macOS IPSW, and restores it — start to finish. It runs on **macOS and
+Linux** as a command-line tool, and ships a **macOS [desktop app](#desktop-app)**
+built on the same engine.
 
 > [!WARNING]
 > A restore **erases everything** on the target Mac. Double-check you have the
