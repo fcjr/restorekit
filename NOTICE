@@ -1,0 +1,9 @@
+applerestore is licensed under the MIT License (see LICENSE).
+
+The USB-PD VDM DFU-trigger implementation in
+crates/applerestore/src/dfu/vdm.rs is a Rust port of macvdmtool
+(https://github.com/AsahiLinux/macvdmtool), Copyright The Asahi Linux
+Contributors, which is itself based on ThunderboltPatcher,
+Copyright 2019 osy86. Both are licensed under the Apache License,
+Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0). That file
+retains its Apache-2.0 licensing and attribution.

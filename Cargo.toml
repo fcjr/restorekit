@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/applerestore", "crates/applerestore-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/fcjr/applerestore"
+authors = ["Frank Chiarulli Jr. <frank@frankchiarulli.com>"]
+
+[profile.release]
+lto = true
+strip = true
