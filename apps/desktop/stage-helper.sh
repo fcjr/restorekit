@@ -8,7 +8,12 @@ cd "$(dirname "$0")"
 triple="$(rustc -Vv | awk '/^host:/ {print $2}')"
 cargo build --release -p helper --manifest-path ../../Cargo.toml
 
+# Tauri names sidecars with the target triple and the host's executable
+# extension — `.exe` on Windows, none elsewhere.
+ext=""
+case "$triple" in *windows*) ext=".exe" ;; esac
+
 mkdir -p src-tauri/binaries
-cp "../../target/release/helper" \
-  "src-tauri/binaries/helper-${triple}"
-echo "staged helper-${triple}"
+cp "../../target/release/helper${ext}" \
+  "src-tauri/binaries/helper-${triple}${ext}"
+echo "staged helper-${triple}${ext}"
