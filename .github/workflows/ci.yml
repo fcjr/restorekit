@@ -80,9 +80,11 @@ jobs:
             mingw-w64-x86_64-libusb
             mingw-w64-x86_64-nasm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # GNU host toolchain: build scripts link with ld, not MSVC's link.exe
+      # (which MSYS2's coreutils `link` would shadow in the MINGW64 shell).
+      - uses: dtolnay/rust-toolchain@master
         with:
-          targets: x86_64-pc-windows-gnu
+          toolchain: stable-x86_64-pc-windows-gnu
 
       - uses: Swatinem/rust-cache@v2
 
