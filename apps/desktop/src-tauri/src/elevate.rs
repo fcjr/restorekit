@@ -33,7 +33,10 @@ pub fn status() -> &'static str {
 /// Register the daemon (idempotent) and open the approval UI so the user can
 /// enable it. Called when the app decides approval is needed.
 pub fn approve() -> Result<(), String> {
-    register()?;
+    // Registering is best-effort: the first call reports "Operation not
+    // permitted" as it moves the daemon into requiresApproval — expected, and no
+    // reason to skip opening the Settings pane the user needs.
+    let _ = register();
     unsafe { rk_open_login_items_settings() };
     Ok(())
 }

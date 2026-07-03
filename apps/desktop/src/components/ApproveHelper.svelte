@@ -37,12 +37,18 @@
     </p>
 
     <ol class="steps">
-      <li><span class="n mono">1</span> Click <b>Open System Settings</b> below.</li>
       <li>
-        <span class="n mono">2</span> Under <b>Allow in the Background</b>, turn
-        <b>RestoreKit</b> on.
+        <span class="n mono">1</span>
+        <span class="txt">Click <b>Open System Settings</b> below.</span>
       </li>
-      <li><span class="n mono">3</span> Come back here and choose <b>Try again</b>.</li>
+      <li>
+        <span class="n mono">2</span>
+        <span class="txt">Turn <b>RestoreKit</b> on under <b>Allow in the Background</b>.</span>
+      </li>
+      <li>
+        <span class="n mono">3</span>
+        <span class="txt">Come back here and choose <b>Try again</b>.</span>
+      </li>
     </ol>
 
     {#if note}
@@ -98,10 +104,14 @@
   }
   .steps li {
     display: flex;
-    align-items: baseline;
+    align-items: flex-start;
     gap: 10px;
     font-size: 14px;
     color: var(--ink);
+  }
+  .txt {
+    flex: 1;
+    line-height: 1.5;
   }
   .n {
     flex: none;
@@ -114,7 +124,6 @@
     color: var(--signal);
     font-size: 11px;
     font-weight: 600;
-    align-self: center;
   }
   .steps b {
     font-weight: 600;
