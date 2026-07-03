@@ -8,7 +8,7 @@ single tag push; everything below happens automatically in GitHub Actions.
 | Channel | What ships | Who it's for |
 | --- | --- | --- |
 | **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a cask | End users: `brew install fcjr/fcjr/restorekit-cli` (the `restorekit` cask token is reserved for the desktop app) |
-| **GitHub Releases** | `tar.gz` archives per platform + checksums | Direct downloads, scripts |
+| **GitHub Releases** | `tar.gz` archives (macOS/Linux) + `.zip` (Windows) + checksums; the desktop app's `.dmg`/`.deb`/`.AppImage`/NSIS installer | Direct downloads, scripts |
 | **crates.io** | Source crates (`restorekit-sys`, `restorekit`, `restorekit-cli`) | `cargo install restorekit-cli`, and Rust consumers of the library |
 
 ## Cutting a release
@@ -26,8 +26,9 @@ single tag push; everything below happens automatically in GitHub Actions.
 The `release` workflow (`.github/workflows/release.yml`) then runs three things
 in parallel:
 
-- **`build`** — compiles a self-contained binary natively on four runners
-  (macOS arm64/x64, Linux arm64/x64) and uploads each as an artifact.
+- **`build`** / **`build-windows`** — compiles a self-contained binary natively
+  per platform (macOS arm64/x64, Linux arm64/x64, Windows x64) and uploads each
+  as an artifact. Windows builds with the GNU toolchain inside MSYS2.
 - **`release`** — downloads those artifacts and runs GoReleaser to publish the
   GitHub Release (archives + checksums) and push the updated Homebrew cask.
 - **`crates`** — publishes the three crates to crates.io in dependency order.
@@ -47,9 +48,11 @@ The built-in `GITHUB_TOKEN` handles the GitHub Release itself (granted
 
 ## Desktop app (RestoreKit.app)
 
-`release-app.yml` builds, **signs, and notarizes** the macOS app with
-`tauri-apps/tauri-action` on the same `v*` tags. The privileged DFU helper is
-built and staged as a Tauri sidecar first (`apps/desktop/stage-helper.sh`).
+`release-app.yml` builds the app with `tauri-apps/tauri-action` on the same `v*`
+tags — macOS (**signed + notarized**), Linux (`.deb`/`.AppImage`), and Windows
+(NSIS installer, unsigned, built with the GNU toolchain under MSYS2). The
+privileged DFU helper is built and staged as a Tauri sidecar first
+(`apps/desktop/stage-helper.sh`); it is a no-op outside macOS.
 
 Signing + notarization secrets (Developer ID required — the app uses a signed
 privileged helper for the DFU trigger):
@@ -126,6 +129,10 @@ The binary statically links its C stack, so building needs a C toolchain:
   The `-dev` packages only satisfy the vendored libraries' `configure` checks;
   OpenSSL, libcurl, and zlib are still linked statically. The resulting binary
   depends only on `libc` and `libusb` (verified with `ldd`).
+- **Windows:** the autotools C stack needs the GNU toolchain, so builds target
+  `x86_64-pc-windows-gnu` from an [MSYS2](https://www.msys2.org/) MINGW64 shell
+  with the `-gnu` host toolchain (`rustup default stable-x86_64-pc-windows-gnu`).
+  See the README's "Building from source → Windows" for the `pacman` list.
 
 ## Verifying locally before a release
 

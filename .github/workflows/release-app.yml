@@ -1,8 +1,8 @@
 name: release-app
 
-# Builds and releases the desktop app for macOS and Linux. Runs on the same
-# version tags as the CLI release; the .dmg/.app (macOS) and .deb/.AppImage
-# (Linux) are attached to the GitHub Release.
+# Builds and releases the desktop app for macOS, Linux, and Windows. Runs on the
+# same version tags as the CLI release; the .dmg/.app (macOS), .deb/.AppImage
+# (Linux), and NSIS installer (Windows) are attached to the GitHub Release.
 on:
   push:
     tags: ["v*"]
@@ -15,7 +15,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-22.04]
+        include:
+          - os: macos-14
+            toolchain: stable
+          - os: ubuntu-22.04
+            toolchain: stable
+          # Windows uses the GNU host toolchain — the vendored C stack is built
+          # with autotools (no MSVC), and it's what the helper + app link against.
+          - os: windows-latest
+            toolchain: stable-x86_64-pc-windows-gnu
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +44,31 @@ jobs:
             build-essential autoconf automake libtool pkg-config cmake autoconf-archive \
             libusb-1.0-0-dev libssl-dev libcurl4-openssl-dev zlib1g-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Windows build deps (MSYS2)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel git make autoconf automake libtool autoconf-archive
+            gettext-devel pkgconf perl mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-libusb mingw-w64-x86_64-nasm
+
+      - name: Put the MSYS2 toolchain on PATH
+        # tauri-action runs cargo in the default shell, so the C stack's autotools
+        # (sh, gcc, autoreconf, make) must be reachable on the Windows PATH.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "${{ steps.msys2.outputs.msys2-location }}\mingw64\bin" | Out-File $env:GITHUB_PATH -Append
+          "${{ steps.msys2.outputs.msys2-location }}\usr\bin" | Out-File $env:GITHUB_PATH -Append
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
