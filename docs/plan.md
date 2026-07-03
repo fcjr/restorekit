@@ -19,17 +19,17 @@ Working checklist; check items off as they land.
 - [x] Unit tests: serial parser, table lookup
 
 ## 4. Firmware resolve + cache + download
-- [ ] ipsw.me `/v4/device/{identifier}?type=ipsw` resolver (latest signed, or pinned `--os-version`)
-- [ ] mesu.apple.com `com_apple_macOSIPSW.xml` fallback resolver (latest only)
-- [ ] Cache dir resolution: `${XDG_CONFIG_HOME:-~/.config}/applerestore/firmwares` (+ env/flag overrides)
-- [ ] Resumable download (`Range` into `.partial`, atomic rename), SHA-256/SHA-1 verification, cache hit short-circuit
-- [ ] Unit tests: resolver parsing (JSON + plist fixtures), cache-dir resolution
+- [x] ipsw.me `/v4/device/{identifier}?type=ipsw` resolver (latest signed, or pinned `--os-version`)
+- [x] mesu.apple.com `com_apple_macOSIPSW.xml` fallback resolver (latest only)
+- [x] Cache dir resolution: `${XDG_CONFIG_HOME:-~/.config}/applerestore/firmwares` (+ env/flag overrides)
+- [x] Resumable download (`Range` into `.partial`, atomic rename), SHA-256/SHA-1 verification, cache hit short-circuit
+- [x] Unit tests: resolver parsing (JSON + plist fixtures), cache-dir resolution
 
 ## 5. DFU trigger (macOS Apple Silicon only)
 - [x] `dfu/vdm.rs` — Rust port of macvdmtool: AppleHPM IOKit plug-in FFI (COM vtable), LOCK unlock w/ platform-name key, Gaid reset retry, DBMa enter/exit (RAII), VDMs send + reg 0x4d ack polling
 - [x] `enter_dfu()` (VDM `{0x5ac8012, 0x106, 0x80010000}`) and `reboot()` (VDM `{0x5ac8012, 0x105, 0x80000000}`)
 - [x] Root + Apple Silicon host guards with clear errors; manual DFU instructions helper for unsupported hosts
-- [ ] **Hardware-verify against the cabled target Mac (needs Frank)**
+- [x] **Hardware-verified**: an Apple Silicon host triggered DFU on a target Mac, which was then detected and identified correctly
 
 ## 6. Restore engine (idevicerestore wrapper)
 - [ ] Binary discovery (`--idevicerestore-path` → `$PATH`) with actionable install error

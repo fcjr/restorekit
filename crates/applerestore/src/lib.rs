@@ -7,8 +7,10 @@
 pub mod device;
 pub mod dfu;
 pub mod error;
+pub mod firmware;
 pub mod progress;
 
-pub use dfu::{DfuDevice, host_can_trigger_dfu, manual_dfu_instructions};
+pub use dfu::{host_can_trigger_dfu, manual_dfu_instructions, DfuDevice};
 pub use error::{Error, Result};
+pub use firmware::Firmware;
 pub use progress::Event;
