@@ -1,6 +1,11 @@
 mod commands;
 #[cfg(target_os = "macos")]
 mod elevate;
+#[cfg(target_os = "windows")]
+mod winusb;
+
+#[cfg(target_os = "windows")]
+pub use winusb::install_winusb_headless;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,6 +21,7 @@ pub fn run() {
             commands::reboot_target,
             commands::helper_status,
             commands::approve_helper,
+            commands::setup_driver,
             commands::focus_app,
             commands::resolve_firmware,
             commands::download_firmware,

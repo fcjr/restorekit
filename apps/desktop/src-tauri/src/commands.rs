@@ -24,6 +24,9 @@ pub struct DeviceView {
     pub serial: String,
     /// Whether restorekit can restore a device in this mode (DFU only).
     pub restorable: bool,
+    /// Whether the OS driver lets restorekit open this device. Always true on
+    /// macOS/Linux; on Windows, false until WinUSB is bound (see `setup_driver`).
+    pub driver_ready: bool,
 }
 
 fn mode_for(pid: u16) -> &'static str {
@@ -78,6 +81,7 @@ pub fn list_devices() -> Result<Vec<DeviceView>, String> {
 
         out.push(DeviceView {
             restorable: mode == "dfu",
+            driver_ready: driver_ready_for(&info, mode),
             mode: mode.to_string(),
             name,
             identifier,
@@ -89,6 +93,20 @@ pub fn list_devices() -> Result<Vec<DeviceView>, String> {
         });
     }
     Ok(out)
+}
+
+/// Whether the OS driver lets restorekit open a device in `mode`. Only the
+/// restore-family modes need WinUSB on Windows; never poke a normal device.
+#[cfg(target_os = "windows")]
+fn driver_ready_for(info: &nusb::DeviceInfo, mode: &str) -> bool {
+    match mode {
+        "dfu" | "recovery" | "wtf" | "restore" => crate::winusb::device_ready(info),
+        _ => true,
+    }
+}
+#[cfg(not(target_os = "windows"))]
+fn driver_ready_for(_info: &nusb::DeviceInfo, _mode: &str) -> bool {
+    true
 }
 
 #[tauri::command]
@@ -167,6 +185,22 @@ pub fn approve_helper() -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {
         Err("the privileged helper is only used on macOS".into())
+    }
+}
+
+/// Bind the WinUSB driver (Windows) so restorekit can open the cabled Mac. Shows
+/// a UAC prompt; blocks until it finishes.
+#[tauri::command]
+pub async fn setup_driver() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(crate::winusb::setup_driver)
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("WinUSB setup is only needed on Windows".into())
     }
 }
 

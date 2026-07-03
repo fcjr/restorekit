@@ -14,6 +14,8 @@ export interface Device {
   srtg: string | null;
   serial: string;
   restorable: boolean;
+  /** Windows: false until WinUSB is bound. Always true on macOS/Linux. */
+  driver_ready: boolean;
 }
 
 export interface Firmware {
@@ -66,6 +68,7 @@ export const api = {
   rebootTarget: () => call<void>("reboot_target"),
   helperStatus: () => call<string>("helper_status"),
   approveHelper: () => call<void>("approve_helper"),
+  setupDriver: () => call<void>("setup_driver"),
   focusApp: () => call<void>("focus_app"),
   resolveFirmware: (identifier: string, osVersion?: string) =>
     call<Firmware>("resolve_firmware", { identifier, osVersion: osVersion || null }),
@@ -78,9 +81,9 @@ export const api = {
 
 function browserMock(cmd: string): Promise<unknown> {
   const devices: Device[] = [
-    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", restorable: true },
-    { mode: "recovery", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", restorable: false },
-    { mode: "other", name: "Apple device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", restorable: false },
+    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", restorable: true, driver_ready: true },
+    { mode: "recovery", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", restorable: false, driver_ready: true },
+    { mode: "other", name: "Apple device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", restorable: false, driver_ready: true },
   ];
   const map: Record<string, unknown> = {
     host_can_trigger: true,

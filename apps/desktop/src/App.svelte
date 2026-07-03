@@ -19,6 +19,7 @@
   import ConfirmErase from "./components/ConfirmErase.svelte";
   import Confirm from "./components/Confirm.svelte";
   import ApproveHelper from "./components/ApproveHelper.svelte";
+  import SetupUsb from "./components/SetupUsb.svelte";
   import Logo from "./components/Logo.svelte";
 
   type Phase = "idle" | "resolving" | "downloading" | "restoring" | "done" | "error";
@@ -47,6 +48,11 @@
   let pendingTrigger = $state<"dfu" | "reboot" | null>(null);
   let helperState = $state(""); // "" until known; then enabled | requiresApproval | …
   let approved = $state(false); // brief success state inside the approval screen
+  // Windows WinUSB driver setup (mirrors the helper approval flow).
+  let settingUpDriver = $state(false);
+  let driverBusy = $state(false);
+  let driverDone = $state(false);
+  let driverError = $state("");
   let dl = $state({ received: 0, total: 0, cached: false, verifying: false });
   let rs = $state({ name: "starting", percent: 0 });
 
@@ -127,6 +133,31 @@
     firmware = null;
     error = "";
     confirming = false;
+  }
+
+  // Windows: bind WinUSB so restorekit can open the cabled Mac. Mirrors the
+  // macOS helper-approval flow — a one-time setup behind a single prompt.
+  function openDriverSetup() {
+    driverError = "";
+    driverDone = false;
+    settingUpDriver = true;
+  }
+  async function runDriverSetup() {
+    driverBusy = true;
+    driverError = "";
+    try {
+      await api.setupDriver();
+      driverDone = true;
+      await refresh(); // driver_ready should now flip to true
+      setTimeout(() => {
+        settingUpDriver = false;
+        driverDone = false;
+      }, 1400);
+    } catch (e) {
+      driverError = String(e);
+    } finally {
+      driverBusy = false;
+    }
   }
 
   async function enterDfu() {
@@ -417,6 +448,23 @@
           {#if busy}<p class="busy mono">{busy}</p>{/if}
 
           {#if selected.restorable}
+            {#if !selected.driver_ready}
+              <div class="usb-needed">
+                <p class="lede">
+                  One-time setup: RestoreKit needs USB access to this Mac before it
+                  can restore.
+                </p>
+                <div class="actions">
+                  <button class="btn primary" onclick={openDriverSetup}>
+                    Set up USB access
+                  </button>
+                </div>
+                <p class="hint">
+                  Binds the WinUSB driver behind a single Windows prompt — one time
+                  per PC, then every Mac just works.
+                </p>
+              </div>
+            {:else}
             <div class="options">
               <div class="opt-head">
                 Options <span class="faint">— defaults are fine; override only if you need to</span>
@@ -460,6 +508,7 @@
               </button>
               <button class="btn ghost" onclick={rebootTarget} disabled={!!busy}>Reboot out of DFU</button>
             </div>
+            {/if}
           {:else if canTrigger}
             <p class="lede">Restore needs DFU mode. Put this Mac into DFU to continue.</p>
             <div class="actions">
@@ -528,6 +577,16 @@
         needsApproval = false;
         pendingTrigger = null;
       }}
+    />
+  {/if}
+
+  {#if settingUpDriver}
+    <SetupUsb
+      busy={driverBusy}
+      done={driverDone}
+      error={driverError}
+      onSetup={runDriverSetup}
+      onClose={() => (settingUpDriver = false)}
     />
   {/if}
 </div>
