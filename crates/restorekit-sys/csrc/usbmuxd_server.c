@@ -214,18 +214,60 @@ void restorekit_usbmuxd_run(void)
 
         fdlist_reset(&pollfds);
         fdlist_add(&pollfds, FD_LISTEN, listenfd, POLLIN);
+#ifndef _WIN32
         usb_get_fds(&pollfds);
+#endif
         client_get_fds(&pollfds);
 
 #ifdef _WIN32
-        int cnt = WSAPoll((WSAPOLLFD *)pollfds.fds, pollfds.count, to);
+        /*
+         * libusb's Windows backend exposes no external pollable fds
+         * (libusb_get_pollfds is unsupported) and completes USB I/O on its own
+         * internal thread — so we can't fold USB into the wait. Poll only our
+         * listen/client sockets on a short, bounded timeout and pump libusb
+         * event completion via usb_process() every iteration. Bounding the
+         * timeout keeps the loop from busy-spinning while idle. Hotplug
+         * (registered in usb_init) fires inside usb_process(), so the
+         * restore-mode device is discovered as it appears.
+         *
+         * While a client is connected (pollfds has more than just the listen
+         * socket) a restore is actively streaming, so poll with a 0ms timeout —
+         * i.e. pump libusb as fast as possible — to avoid throttling the
+         * multi-GB Cryptex/BaseSystem bulk transfers. When idle, back off to
+         * 10ms so we don't spin a core waiting for the device.
+         */
+        (void)to; /* libusb's timeout hint is unusable on Windows */
+        int win_to = (pollfds.count > 1) ? 0 : 10;
+        int cnt = WSAPoll((WSAPOLLFD *)pollfds.fds, pollfds.count, win_to);
+
+        if (usb_process() < 0) {
+            usbmuxd_log(LL_FATAL, "usb_process() failed");
+            break;
+        }
+        device_check_timeouts();
+
+        if (cnt > 0) {
+            for (int i = 0; i < pollfds.count; i++) {
+                if (!pollfds.fds[i].revents)
+                    continue;
+                if (pollfds.owners[i] == FD_LISTEN) {
+                    if (client_accept(listenfd) < 0) {
+                        usbmuxd_log(LL_FATAL, "client_accept() failed");
+                        fdlist_free(&pollfds);
+                        return;
+                    }
+                }
+                if (pollfds.owners[i] == FD_CLIENT) {
+                    client_process(pollfds.fds[i].fd, pollfds.fds[i].revents);
+                }
+            }
+        }
 #else
         struct timespec tspec;
         tspec.tv_sec  = to / 1000;
         tspec.tv_nsec = (to % 1000) * 1000000;
 
         int cnt = ppoll(pollfds.fds, pollfds.count, &tspec, &empty_sigset);
-#endif
 
         if (cnt == -1) {
             if (errno == EINTR) {
@@ -267,6 +309,7 @@ void restorekit_usbmuxd_run(void)
                 }
             }
         }
+#endif
     }
 
     fdlist_free(&pollfds);
