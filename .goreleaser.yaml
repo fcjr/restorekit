@@ -71,6 +71,18 @@ homebrew_casks:
       needs root for that step (sudo restorekit dfu). Restores run on macOS
       and Linux.
 
+scoops:
+  # Same naming rationale as the cask: the plain `restorekit` name is reserved
+  # for the desktop app. The installed binary is still `restorekit`.
+  - name: restorekit-cli
+    repository:
+      owner: fcjr
+      name: scoop-fcjr
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/fcjr/restorekit"
+    description: "DFU-restore Apple Silicon Macs from the command line"
+    license: Apache-2.0
+
 release:
   github:
     owner: fcjr
