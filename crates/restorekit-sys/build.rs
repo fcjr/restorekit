@@ -412,9 +412,7 @@ fn compile_usbmuxd(src: &Path, deps: &Deps) {
     if deps.windows {
         // POSIX→Winsock compat shim headers first, plus the family's static
         // macros and 64-bit file offsets (see cflags()).
-        build.include(
-            PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc/win_shim"),
-        );
+        build.include(PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc/win_shim"));
         for def in WINDOWS_STATIC_DEFINES {
             build.define(def, None);
         }
