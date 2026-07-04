@@ -259,9 +259,12 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         // fail on MinGW. Add them to LIBS (autoconf appends objects before LIBS,
         // so this resolves the tools' undefined symbols): ws2_32/iphlpapi for
         // sockets, ole32 for CoTaskMemFree (libimobiledevice's userpref.c uses
-        // it via SHGetKnownFolderPath for the config dir). The static libraries
-        // we ultimately link are archives and unaffected.
-        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32");
+        // it via SHGetKnownFolderPath for the config dir), setupapi for
+        // libirecovery's native win32 device enumeration (its configure only
+        // adds -lsetupapi for host_os mingw32*, but under the MSYS2 shell the
+        // host detects as msys, so irecovery.exe fails to link SetupDi*). The
+        // static libraries we ultimately link are archives and unaffected.
+        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32 -lsetupapi");
     }
     run(&mut configure, &format!("{name} configure"));
 
