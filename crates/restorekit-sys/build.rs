@@ -244,11 +244,13 @@ fn build_autotools(src: &Path, name: &str, deps: &Deps) {
     if deps.windows {
         configure.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
         // Several of these projects also build command-line tools whose
-        // Makefiles don't link the Windows socket libraries, so they fail on
-        // MinGW. Add them to LIBS (autoconf appends objects before LIBS, so this
-        // resolves the tools' socket symbols); the static libraries we link are
-        // archives and unaffected.
-        configure.env("LIBS", "-lws2_32 -liphlpapi");
+        // Makefiles don't link the Windows system libraries they need, so they
+        // fail on MinGW. Add them to LIBS (autoconf appends objects before LIBS,
+        // so this resolves the tools' undefined symbols): ws2_32/iphlpapi for
+        // sockets, ole32 for CoTaskMemFree (libimobiledevice's userpref.c uses
+        // it via SHGetKnownFolderPath for the config dir). The static libraries
+        // we ultimately link are archives and unaffected.
+        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32");
     }
     run(&mut configure, &format!("{name} configure"));
 
