@@ -60,11 +60,15 @@ jobs:
       - name: Put the MSYS2 toolchain on PATH
         # tauri-action runs cargo in the default shell, so the C stack's autotools
         # (sh, gcc, autoreconf, make) must be reachable on the Windows PATH.
+        # GITHUB_PATH lines are prepended with the LAST-written line taking
+        # precedence, so write usr\bin first: mingw64\bin must end up ahead of it
+        # so `pkg-config` is the MinGW-prefix pkgconf — the one that searches
+        # /mingw64/lib/pkgconfig (libusb-1.0) and reports native library paths.
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          "${{ steps.msys2.outputs.msys2-location }}\mingw64\bin" | Out-File $env:GITHUB_PATH -Append
           "${{ steps.msys2.outputs.msys2-location }}\usr\bin" | Out-File $env:GITHUB_PATH -Append
+          "${{ steps.msys2.outputs.msys2-location }}\mingw64\bin" | Out-File $env:GITHUB_PATH -Append
 
       - uses: dtolnay/rust-toolchain@master
         with:
