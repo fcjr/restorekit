@@ -243,6 +243,12 @@ fn build_autotools(src: &Path, name: &str, deps: &Deps) {
     // configure/make, so keep the sanitized aclocal path in scope on Windows.
     if deps.windows {
         configure.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
+        // Several of these projects also build command-line tools whose
+        // Makefiles don't link the Windows socket libraries, so they fail on
+        // MinGW. Add them to LIBS (autoconf appends objects before LIBS, so this
+        // resolves the tools' socket symbols); the static libraries we link are
+        // archives and unaffected.
+        configure.env("LIBS", "-lws2_32 -liphlpapi");
     }
     run(&mut configure, &format!("{name} configure"));
 
