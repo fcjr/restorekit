@@ -136,21 +136,6 @@ jobs:
           xcrun stapler staple "$dmg"
           gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
 
-      # Bump the fcjr.RestoreKit winget manifests to this release's NSIS
-      # installer and submit the PR to microsoft/winget-pkgs. `update` requires
-      # the package to already exist upstream — the first version was
-      # bootstrapped manually with `wingetcreate new`.
-      - name: Publish to winget
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
-        run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart("v")
-          $url = "https://github.com/fcjr/restorekit/releases/download/v${version}/RestoreKit_${version}_x64-setup.exe"
-          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
-          .\wingetcreate.exe update fcjr.RestoreKit --version $version --urls $url --submit --token $env:WINGET_GITHUB_TOKEN
-
       # Fill the cask template with this release's version + .dmg sha256 and push
       # it to the tap, so `brew install --cask restorekit` tracks the release.
       - name: Publish the Homebrew cask

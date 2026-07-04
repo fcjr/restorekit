@@ -169,6 +169,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # One token for both the Homebrew tap and the Scoop bucket.
           TAP_GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
-          # Classic PAT (public_repo): pushes manifests to the fcjr/winget-pkgs
-          # fork and opens the PR against microsoft/winget-pkgs.
-          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}

@@ -9,9 +9,11 @@ single tag push; everything below happens automatically in GitHub Actions.
 | --- | --- | --- |
 | **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a cask | End users: `brew install fcjr/fcjr/restorekit-cli` (the `restorekit` cask token is reserved for the desktop app) |
 | **Scoop** (`fcjr/scoop-fcjr`) | Prebuilt Windows binary, as a manifest | Windows end users: `scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr && scoop install restorekit-cli` (plain `restorekit` reserved for the desktop app, matching the cask) |
-| **winget** (`microsoft/winget-pkgs`) | CLI zip as `fcjr.RestoreKit.CLI` (portable), NSIS installer as `fcjr.RestoreKit` | Windows end users: `winget install fcjr.RestoreKit.CLI` / `winget install fcjr.RestoreKit`. Each release opens PRs from the `fcjr/winget-pkgs` fork; new versions appear once Microsoft's bots merge them |
 | **GitHub Releases** | `tar.gz` archives (macOS/Linux) + `.zip` (Windows) + checksums; the desktop app's `.dmg`/`.deb`/`.AppImage`/NSIS installer | Direct downloads, scripts |
 | **crates.io** | Source crates (`restorekit-sys`, `restorekit`, `restorekit-cli`) | `cargo install restorekit-cli`, and Rust consumers of the library |
+
+winget is planned but shelved pending a publishing token — the full plan and
+ready-to-paste config live in [docs/WINGET.md](WINGET.md).
 
 ## Cutting a release
 
@@ -35,8 +37,8 @@ in parallel:
   per platform (macOS arm64/x64, Linux arm64/x64, Windows x64) and uploads each
   as an artifact. Windows builds with the GNU toolchain inside MSYS2.
 - **`release`** — downloads those artifacts and runs GoReleaser to publish the
-  GitHub Release (archives + checksums), push the updated Homebrew cask and
-  Scoop manifest, and open the `fcjr.RestoreKit.CLI` winget PR.
+  GitHub Release (archives + checksums) and push the updated Homebrew cask and
+  Scoop manifest.
 - **`crates`** — publishes the three crates to crates.io in dependency order.
 
 ## Required secrets
@@ -48,7 +50,6 @@ variables → Actions**:
 | --- | --- | --- |
 | `GORELEASER_GITHUB_TOKEN` | Pushing the Homebrew cask + Scoop bucket (CLI via goreleaser, app cask via `release-app.yml`) | PAT with **Contents: write** on `fcjr/homebrew-fcjr` (and the Scoop bucket repo) |
 | `CARGO_REGISTRY_TOKEN` | Publishing to crates.io | A crates.io API token with publish scope |
-| `WINGET_GITHUB_TOKEN` | winget PRs: `fcjr.RestoreKit.CLI` via goreleaser (`release.yml`) and `fcjr.RestoreKit` via wingetcreate (`release-app.yml`) | **Classic** PAT with `public_repo` — it pushes manifest branches to the `fcjr/winget-pkgs` fork and opens PRs against `microsoft/winget-pkgs`; a fine-grained PAT can't open PRs on repos you don't own |
 
 The built-in `GITHUB_TOKEN` handles the GitHub Release itself (granted
 `contents: write` in the workflow) — no setup needed.
