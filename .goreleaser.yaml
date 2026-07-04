@@ -4,20 +4,21 @@ project_name: restorekit
 
 # Binaries are built natively per-platform in CI (the self-contained static C
 # stack can't be zig cross-compiled) and downloaded into ./artifacts before
-# goreleaser runs. Here we only assemble/package them.
+# goreleaser runs. Here we only assemble/package them. The `prebuilt` builder
+# is GoReleaser Pro-only, so the OSS build stage is shimmed: gobinary points
+# at a script that copies artifacts/restorekit_<os>_<arch>/restorekit instead
+# of compiling.
 builds:
   - id: restorekit
-    builder: prebuilt
     binary: restorekit
+    tool: ./scripts/goreleaser-prebuilt.sh
+    no_main_check: true
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
     # Only amd64 is built for Windows (see build-windows in release.yml).
     ignore:
       - goos: windows
         goarch: arm64
-    prebuilt:
-      path: artifacts/restorekit_{{ .Os }}_{{ .Arch }}/restorekit{{ .Ext }}
-    hooks: {}
 
 archives:
   - id: restorekit
@@ -50,7 +51,7 @@ homebrew_casks:
   # The CLI ships as `restorekit-cli`; the plain `restorekit` cask token is
   # reserved for the desktop app. The installed binary is still `restorekit`.
   - name: restorekit-cli
-    binary: restorekit
+    binaries: [restorekit]
     repository:
       owner: fcjr
       name: homebrew-fcjr
