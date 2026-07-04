@@ -2792,6 +2792,7 @@ dependencies = [
  "sha1",
  "sha2",
  "thiserror 2.0.18",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2809,6 +2810,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
