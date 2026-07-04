@@ -1,5 +1,8 @@
 /target
 dist/
+# CI staging dir for prebuilt binaries consumed by goreleaser; must be
+# ignored or goreleaser's dirty-state check fails the release.
+/artifacts/
 *.ipsw
 .DS_Store
 # App Store Connect API keys — never commit.
