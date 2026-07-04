@@ -105,6 +105,22 @@ impl RestoreArgs {
 }
 
 fn main() {
+    // Internal: this copy was relaunched elevated to run the restore-mode driver
+    // watcher (see restorekit::driver). Handle it before clap and exit.
+    #[cfg(target_os = "windows")]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(i) = args
+            .iter()
+            .position(|a| a == restorekit::driver::RESTORE_WATCH_ARG)
+        {
+            if let Some(liveness) = args.get(i + 1) {
+                restorekit::driver::run_restore_mode_watch_worker(std::path::Path::new(liveness));
+            }
+            return;
+        }
+    }
+
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Status => commands::status::run(cli.json),

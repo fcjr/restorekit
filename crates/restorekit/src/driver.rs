@@ -241,19 +241,22 @@ fn write_file(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
 
 // ── Restore-mode driver watcher ──────────────────────────────────────────────
 
+/// Internal argument that reruns *this* binary as the elevated restore-mode
+/// driver watcher, followed by the liveness-file path. Both the CLI and the
+/// desktop app recognize it in `main`, so the library can relaunch whichever
+/// binary is running — and the UAC prompt then shows restorekit, not PowerShell.
+pub const RESTORE_WATCH_ARG: &str = "--rk-bind-restore-mode";
+
 /// RAII guard for the elevated restore-mode driver watcher. Dropping it removes
 /// the liveness file, which is the watcher's signal to exit.
 pub struct RestoreWatcherGuard {
     liveness: std::path::PathBuf,
-    script: std::path::PathBuf,
 }
 
 impl Drop for RestoreWatcherGuard {
     fn drop(&mut self) {
-        // Removing the liveness file tells the watcher to stop; it exits within
-        // a poll interval, after which the script file can go too.
+        // Removing the liveness file tells the watcher to stop.
         let _ = std::fs::remove_file(&self.liveness);
-        let _ = std::fs::remove_file(&self.script);
     }
 }
 
@@ -267,38 +270,98 @@ impl Drop for RestoreWatcherGuard {
 /// instead we *force* our plain `winusb.sys` onto that one device instance
 /// (`UpdateDriverForPlugAndPlayDevices` + `INSTALLFLAG_FORCE`), leaving
 /// `appleusb.inf` in the store for iPhones. That needs admin and can only happen
-/// while the device is in restore mode, so the restore spawns this watcher up
-/// front (one UAC) and it binds when the device shows up.
+/// while the device is in restore mode, so the restore relaunches this binary
+/// elevated (one UAC) to run [`run_restore_mode_watch_worker`], which binds when
+/// the device shows up.
 ///
 /// Returns `None` if the watcher couldn't be launched (e.g. UAC declined) — the
 /// restore still runs but will stall at "waiting for device to enter restore
 /// mode". The returned guard ties the watcher's lifetime to the restore.
 pub fn spawn_restore_mode_watcher() -> Option<RestoreWatcherGuard> {
-    let base = std::env::temp_dir();
-    let stamp = std::process::id();
-    let script = base.join(format!("restorekit-restore-watch-{stamp}.ps1"));
-    let liveness = base.join(format!("restorekit-restore-live-{stamp}.tmp"));
-
-    if write_file(&script, RESTORE_WATCH_PS1.as_bytes()).is_err() {
-        return None;
-    }
+    let liveness = std::env::temp_dir().join(format!(
+        "restorekit-restore-live-{}.tmp",
+        std::process::id()
+    ));
     if std::fs::write(&liveness, b"1").is_err() {
-        let _ = std::fs::remove_file(&script);
         return None;
     }
 
-    let params = format!(
-        "-NoProfile -ExecutionPolicy Bypass -File \"{}\" -LivenessFile \"{}\"",
-        script.display(),
-        liveness.display()
-    );
-    if launch_elevated_hidden("powershell", &params).is_err() {
-        let _ = std::fs::remove_file(&script);
+    // Already admin (e.g. launched from an elevated shell or the app already
+    // elevated)? Skip UAC entirely — run the watcher inline on a background
+    // thread. Otherwise relaunch this binary elevated (one prompt, shown as
+    // restorekit).
+    if is_elevated() {
+        let live = liveness.clone();
+        std::thread::spawn(move || run_restore_mode_watch_worker(&live));
+        return Some(RestoreWatcherGuard { liveness });
+    }
+
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => {
+            let _ = std::fs::remove_file(&liveness);
+            return None;
+        }
+    };
+    let params = format!("{RESTORE_WATCH_ARG} \"{}\"", liveness.display());
+    if launch_elevated_hidden(&exe.to_string_lossy(), &params).is_err() {
         let _ = std::fs::remove_file(&liveness);
         return None;
     }
 
-    Some(RestoreWatcherGuard { liveness, script })
+    Some(RestoreWatcherGuard { liveness })
+}
+
+/// Is this process running with an elevated (administrator) token?
+fn is_elevated() -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut ret_len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            &mut elevation as *mut _ as *mut core::ffi::c_void,
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut ret_len,
+        );
+        CloseHandle(token);
+        ok != 0 && elevation.TokenIsElevated != 0
+    }
+}
+
+/// The elevated watcher worker, invoked when this binary is rerun with
+/// [`RESTORE_WATCH_ARG`]. Runs the PowerShell force-bind helper as a child
+/// (inheriting this process's elevation) and returns when it exits — i.e. when
+/// the restore removes the liveness file or the device leaves after being bound.
+pub fn run_restore_mode_watch_worker(liveness: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let script = std::env::temp_dir().join(format!(
+        "restorekit-restore-watch-{}.ps1",
+        std::process::id()
+    ));
+    if write_file(&script, RESTORE_WATCH_PS1.as_bytes()).is_err() {
+        return;
+    }
+    let _ = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .arg("-LivenessFile")
+        .arg(liveness)
+        .status();
+    let _ = std::fs::remove_file(&script);
 }
 
 /// Launch `exe params` elevated (UAC) with no visible window, and return without
