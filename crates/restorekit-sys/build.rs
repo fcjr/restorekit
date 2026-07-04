@@ -44,16 +44,19 @@ fn main() {
     // libzip (needs zlib) — from source via CMake.
     build_libzip(&vendor.join("libzip"), &deps);
 
-    // The libimobiledevice family, in dependency order.
-    for lib in [
-        "libplist",
-        "libimobiledevice-glue",
-        "libusbmuxd",
-        "libirecovery",
-        "libtatsu",
-        "libimobiledevice",
+    // The libimobiledevice family, in dependency order. The version is the
+    // release tag each submodule is pinned at (see `git submodule status`); it
+    // seeds `.tarball-version` when building outside a git checkout and must
+    // satisfy the projects' inter-package `PKG_CHECK_MODULES` minimums.
+    for (lib, version) in [
+        ("libplist", "2.7.0"),
+        ("libimobiledevice-glue", "1.3.2"),
+        ("libusbmuxd", "2.1.1"),
+        ("libirecovery", "1.3.1"),
+        ("libtatsu", "1.0.5"),
+        ("libimobiledevice", "1.4.0"),
     ] {
-        build_autotools(&vendor.join(lib), lib, &deps);
+        build_autotools(&vendor.join(lib), lib, version, &deps);
     }
 
     // idevicerestore: compile its sources directly (no library upstream).
@@ -197,12 +200,20 @@ fn ensure_submodules(manifest: &Path, vendor: &Path) {
 const MSYS_ACLOCAL_PATH: &str = "/usr/share/aclocal:/mingw64/share/aclocal";
 
 /// Run autogen + configure + make + make install into the staging prefix.
-fn build_autotools(src: &Path, name: &str, deps: &Deps) {
+fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
     let marker = deps.prefix.join(format!(".built-{name}"));
     if marker.exists() {
         return;
     }
     println!("cargo:warning=building {name} from source");
+
+    // These projects derive PACKAGE_VERSION from `git describe`, falling back
+    // to a `.tarball-version` file. The published crate ships the vendored
+    // sources without their submodule `.git` links, so configure would abort
+    // with "PACKAGE_VERSION is not defined" — supply the fallback.
+    if !src.join(".git").exists() && !src.join(".tarball-version").exists() {
+        std::fs::write(src.join(".tarball-version"), version).unwrap();
+    }
 
     // Regenerate configure from the git checkout. On Windows we drive
     // `autoreconf` directly — the projects' hand-rolled autogen.sh runs a bare
