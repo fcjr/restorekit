@@ -72,6 +72,12 @@ pub fn restore(
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let _usbmuxd = crate::usbmuxd::UsbmuxdGuard::start(progress)?;
 
+    // On Windows the Mac's restore-mode interface is claimed by Apple's driver,
+    // which libusb can't open; spawn an elevated watcher (one UAC) that forces
+    // our WinUSB onto it when it appears. Held for the duration of the restore.
+    #[cfg(target_os = "windows")]
+    let _restore_watcher = crate::driver::spawn_restore_mode_watcher();
+
     // Route idevicerestore's logging through our capture sink (rather than its
     // default stdout dump) so it doesn't stomp on the progress UI and so we can
     // surface the real error text on failure. `verbose` also echoes to stderr.

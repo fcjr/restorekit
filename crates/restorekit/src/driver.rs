@@ -238,3 +238,146 @@ fn write_file(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
         .map_err(|e| Error::DriverInstall(e.to_string()))?;
     Ok(())
 }
+
+// ── Restore-mode driver watcher ──────────────────────────────────────────────
+
+/// RAII guard for the elevated restore-mode driver watcher. Dropping it removes
+/// the liveness file, which is the watcher's signal to exit.
+pub struct RestoreWatcherGuard {
+    liveness: std::path::PathBuf,
+    script: std::path::PathBuf,
+}
+
+impl Drop for RestoreWatcherGuard {
+    fn drop(&mut self) {
+        // Removing the liveness file tells the watcher to stop; it exits within
+        // a poll interval, after which the script file can go too.
+        let _ = std::fs::remove_file(&self.liveness);
+        let _ = std::fs::remove_file(&self.script);
+    }
+}
+
+/// Spawn an elevated background watcher that force-binds our WinUSB to the Mac's
+/// restore-mode interface the moment it appears.
+///
+/// In restore mode the Mac becomes a USB composite whose data interface
+/// (`…&RESTORE_MODE&MI_00`) is claimed by Apple's `appleusb.inf`, whose WinUSB
+/// variant libusb can't open (`winusbx_open` → ERROR_NOT_SUPPORTED). Apple's INF
+/// lists that exact hardware id and is WHQL-signed, so we can't win by ranking;
+/// instead we *force* our plain `winusb.sys` onto that one device instance
+/// (`UpdateDriverForPlugAndPlayDevices` + `INSTALLFLAG_FORCE`), leaving
+/// `appleusb.inf` in the store for iPhones. That needs admin and can only happen
+/// while the device is in restore mode, so the restore spawns this watcher up
+/// front (one UAC) and it binds when the device shows up.
+///
+/// Returns `None` if the watcher couldn't be launched (e.g. UAC declined) — the
+/// restore still runs but will stall at "waiting for device to enter restore
+/// mode". The returned guard ties the watcher's lifetime to the restore.
+pub fn spawn_restore_mode_watcher() -> Option<RestoreWatcherGuard> {
+    let base = std::env::temp_dir();
+    let stamp = std::process::id();
+    let script = base.join(format!("restorekit-restore-watch-{stamp}.ps1"));
+    let liveness = base.join(format!("restorekit-restore-live-{stamp}.tmp"));
+
+    if write_file(&script, RESTORE_WATCH_PS1.as_bytes()).is_err() {
+        return None;
+    }
+    if std::fs::write(&liveness, b"1").is_err() {
+        let _ = std::fs::remove_file(&script);
+        return None;
+    }
+
+    let params = format!(
+        "-NoProfile -ExecutionPolicy Bypass -File \"{}\" -LivenessFile \"{}\"",
+        script.display(),
+        liveness.display()
+    );
+    if launch_elevated_hidden("powershell", &params).is_err() {
+        let _ = std::fs::remove_file(&script);
+        let _ = std::fs::remove_file(&liveness);
+        return None;
+    }
+
+    Some(RestoreWatcherGuard { liveness, script })
+}
+
+/// Launch `exe params` elevated (UAC) with no visible window, and return without
+/// waiting — the caller manages the process's lifetime out of band.
+fn launch_elevated_hidden(exe: &str, params: &str) -> Result<()> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    fn wide(s: &str) -> Vec<u16> {
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+    let verb = wide("runas");
+    let file = wide(exe);
+    let par = wide(params);
+
+    unsafe {
+        let mut sei: SHELLEXECUTEINFOW = std::mem::zeroed();
+        sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        sei.lpVerb = verb.as_ptr();
+        sei.lpFile = file.as_ptr();
+        sei.lpParameters = par.as_ptr();
+        sei.nShow = SW_HIDE;
+        if ShellExecuteExW(&mut sei) == 0 {
+            return Err(Error::DriverInstall(
+                "could not start the restore-mode driver watcher (UAC declined?)".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// PowerShell watcher: find our staged INF, then poll for the restore-mode
+/// device and force our WinUSB onto it (keeping `appleusb.inf` in the store).
+/// Exits when the restore signals completion (liveness file gone), when the
+/// device leaves after being bound, or after a safety deadline.
+const RESTORE_WATCH_PS1: &str = r#"param([string]$LivenessFile)
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class RkNewDev {
+  [DllImport("newdev.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern bool UpdateDriverForPlugAndPlayDevices(
+      IntPtr hwnd, string HardwareId, string FullInfPath, uint InstallFlags, out bool bReboot);
+}
+"@
+# INSTALLFLAG_FORCE (0x1): install even though Apple's WHQL driver outranks ours.
+# INSTALLFLAG_NONINTERACTIVE (0x4): never prompt.
+$FLAGS = 0x1 -bor 0x4
+# Our staged WinUSB package (has the RESTORE_MODE interface entries).
+$inf = (Get-ChildItem C:\Windows\INF\oem*.inf -ErrorAction SilentlyContinue | Where-Object {
+    $c = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+    $c -match 'RestoreKit' -and $c -match 'RESTORE_MODE'
+} | Select-Object -First 1).FullName
+if (-not $inf) { exit 1 }
+$leaf = Split-Path $inf -Leaf
+$deadline = (Get-Date).AddMinutes(45)
+$bound = $false
+while ((Get-Date) -lt $deadline) {
+    if ($LivenessFile -and -not (Test-Path $LivenessFile)) { break }
+    $dev = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+        Where-Object { $_.InstanceId -match 'VID_05AC&PID_12[0-9A-Fa-f]{2}&RESTORE_MODE&MI_00' } |
+        Select-Object -First 1
+    if ($dev) {
+        $infNow = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName DEVPKEY_Device_DriverInfPath -ErrorAction SilentlyContinue).Data
+        if ($infNow -ne $leaf) {
+            $hwid = ($dev.InstanceId -replace '\\[^\\]+$', '')
+            $reboot = $false
+            [RkNewDev]::UpdateDriverForPlugAndPlayDevices([IntPtr]::Zero, $hwid, $inf, $FLAGS, [ref]$reboot) | Out-Null
+        }
+        $bound = $true
+    } elseif ($bound) {
+        break
+    }
+    Start-Sleep -Milliseconds 350
+}
+"#;

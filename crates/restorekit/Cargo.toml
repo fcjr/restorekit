@@ -26,6 +26,13 @@ sha2 = "0.10"
 libc = "0.2"
 core-foundation = "0.10"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [package.metadata.docs.rs]
 # The native C stack is skipped on docs.rs (restorekit-sys/build.rs no-ops
 # when DOCS_RS is set). Build docs for the linux host target.
