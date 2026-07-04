@@ -83,6 +83,33 @@ scoops:
     description: "DFU-restore Apple Silicon Macs from the command line"
     license: Apache-2.0
 
+winget:
+  # Same naming rationale as the cask/scoop: `fcjr.RestoreKit` is reserved for
+  # the desktop app (published from release-app.yml via wingetcreate). Each
+  # release pushes manifests to the fcjr/winget-pkgs fork and opens a PR
+  # against microsoft/winget-pkgs.
+  - name: RestoreKit CLI
+    publisher: Frank Chiarulli Jr.
+    package_identifier: fcjr.RestoreKit.CLI
+    short_description: "DFU-restore Apple Silicon Macs from the command line"
+    license: Apache-2.0
+    homepage: "https://github.com/fcjr/restorekit"
+    publisher_url: "https://github.com/fcjr"
+    publisher_support_url: "https://github.com/fcjr/restorekit/issues"
+    release_notes_url: "https://github.com/fcjr/restorekit/releases/tag/v{{ .Version }}"
+    tags: [dfu, macos, restore, apple-silicon]
+    repository:
+      owner: fcjr
+      name: winget-pkgs
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      branch: "fcjr.RestoreKit.CLI-{{ .Version }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
 release:
   github:
     owner: fcjr
