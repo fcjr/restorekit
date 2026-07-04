@@ -8,6 +8,7 @@ single tag push; everything below happens automatically in GitHub Actions.
 | Channel | What ships | Who it's for |
 | --- | --- | --- |
 | **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a cask | End users: `brew install fcjr/fcjr/restorekit-cli` (the `restorekit` cask token is reserved for the desktop app) |
+| **Scoop** (`fcjr/scoop-fcjr`) | Prebuilt Windows binary, as a manifest | Windows end users: `scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr && scoop install restorekit-cli` (plain `restorekit` reserved for the desktop app, matching the cask) |
 | **GitHub Releases** | `tar.gz` archives (macOS/Linux) + `.zip` (Windows) + checksums; the desktop app's `.dmg`/`.deb`/`.AppImage`/NSIS installer | Direct downloads, scripts |
 | **crates.io** | Source crates (`restorekit-sys`, `restorekit`, `restorekit-cli`) | `cargo install restorekit-cli`, and Rust consumers of the library |
 
@@ -33,7 +34,8 @@ in parallel:
   per platform (macOS arm64/x64, Linux arm64/x64, Windows x64) and uploads each
   as an artifact. Windows builds with the GNU toolchain inside MSYS2.
 - **`release`** — downloads those artifacts and runs GoReleaser to publish the
-  GitHub Release (archives + checksums) and push the updated Homebrew cask.
+  GitHub Release (archives + checksums) and push the updated Homebrew cask and
+  Scoop manifest.
 - **`crates`** — publishes the three crates to crates.io in dependency order.
 
 ## Required secrets

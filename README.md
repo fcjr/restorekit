@@ -33,6 +33,13 @@ brew install fcjr/fcjr/restorekit-cli   # Homebrew (macOS + Linux)
 cargo install restorekit-cli            # from crates.io
 ```
 
+On Windows, install with [Scoop](https://scoop.sh):
+
+```sh
+scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr
+scoop install restorekit-cli
+```
+
 Or grab a binary from the [releases page](https://github.com/fcjr/restorekit/releases).
 Prefer a GUI? The **[desktop app](#desktop-app)** wraps the same engine.
 
@@ -218,7 +225,7 @@ Linux, OpenSSL/libcurl/zlib link statically; the binary needs only `libusb`.
 ## Releasing
 
 Releases are automated: bump the version, push a `v*` tag, and CI publishes the
-GitHub Release, the Homebrew cask, and the crates. See
+GitHub Release, the Homebrew cask, the Scoop manifest, and the crates. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## License
