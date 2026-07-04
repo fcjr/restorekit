@@ -48,12 +48,20 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
    device instance with `UpdateDriverForPlugAndPlayDevices(..., INSTALLFLAG_FORCE)`
    — verified live, after which libusb opens it and the restore proceeds.
 
-### Remaining productization
+### Done since
 
-- **Automate the restore-mode force-bind.** It's currently a manual elevated
-  script (validated) — needs to move into restorekit: at restore start, spawn an
-  elevated watcher that force-binds our WinUSB to the restore-mode device when it
-  appears (per-restore, since Apple's driver reclaims it each time). Mirror the
-  `setup-driver` self-elevation; keep `appleusb.inf` in the store.
-- Confirm throughput after the 0ms-while-connected event-loop change (the first
-  successful run was slow at the old 10ms cap).
+- **Restore-mode force-bind is automated.** At restore start restorekit spawns an
+  elevated watcher (one UAC, branded restorekit, skipped when already admin) that
+  force-binds our WinUSB to the restore-mode device when it appears — per-restore,
+  since Apple's driver reclaims it each time. `appleusb.inf` stays in the store.
+- **Throughput confirmed.** With the 0ms-while-connected event loop, the CLI
+  streams `Cryptex1,systemOS` at ~35 MB/s (near USB-2.0 line rate) — the embedded
+  usbmuxd + WinUSB bulk path is not a bottleneck.
+
+### Known issues
+
+- **Desktop app throughput.** The same restore that runs at ~35 MB/s from the CLI
+  is much slower in the desktop app (the muxer gets fed at only tens of
+  packets/sec). The C/USB stack is identical, so the throttle is somewhere in the
+  desktop-specific integration, not usbmux/libusb. Restores still complete, so
+  this is a performance issue, not a correctness one. Not yet root-caused.
