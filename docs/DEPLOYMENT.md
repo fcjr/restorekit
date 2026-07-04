@@ -13,9 +13,12 @@ single tag push; everything below happens automatically in GitHub Actions.
 
 ## Cutting a release
 
-1. Bump the version in the root `Cargo.toml` (`[workspace.package] version`) and
-   the internal dependency versions in `crates/restorekit/Cargo.toml` and
-   `crates/restorekit-cli/Cargo.toml` (they pin `version = "x.y.z"`).
+1. Bump the version everywhere it is pinned (workspace + internal dep pins +
+   the desktop app's Cargo.toml/tauri.conf.json/package.json + lockfiles):
+
+   ```sh
+   scripts/bump-version.sh          # patch (default), or: minor | major
+   ```
 2. Commit, then tag and push:
 
    ```sh
