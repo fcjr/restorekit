@@ -1,8 +1,6 @@
 # restorekit
 
-**Reformat an Apple Silicon mac from any platform.**
-
-Reformat any T2 or M series mac from macOS, linux or windows with a single command.
+**Reformat an Apple Silicon mac from any platform in one command.**
 
 [![CI](https://github.com/fcjr/restorekit/actions/workflows/ci.yml/badge.svg)](https://github.com/fcjr/restorekit/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/restorekit-cli.svg)](https://crates.io/crates/restorekit-cli)
@@ -13,7 +11,7 @@ Reformat any T2 or M series mac from macOS, linux or windows with a single comma
 
 ---
 
-`restorekit` is a standalone rust library, cli tool, and tauri gui that lets you fully wipe or restore a T2 or M series macbook without using any apple tools.  It works on a completely cross platform* stack thanks to rust and [libirecovery](https://github.com/libimobiledevice/libirecovery).
+`restorekit` is a standalone rust library, cli tool, and tauri gui that lets you fully wipe or restore a T2 or M series macbook without using any apple tools.  It works on a completely cross platform* stack thanks to rust and [libirecovery](https://github.com/libimobiledevice/libirecovery) and does not require any additional software.
 
 * Automatic DFU is currently only supported on macOS due to hardware limitations.
 
