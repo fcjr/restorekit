@@ -1,5 +1,3 @@
-<div align="center">
-
 # restorekit
 
 **Reformat an Apple Silicon mac from any platform.**
