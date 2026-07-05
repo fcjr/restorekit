@@ -47,25 +47,24 @@ changelog:
       - "^test:"
       - "^chore:"
 
-homebrew_casks:
-  # The CLI ships as `restorekit-cli`; the plain `restorekit` cask token is
-  # reserved for the desktop app. The installed binary is still `restorekit`.
+brews:
+  # The CLI ships as the `restorekit-cli` formula; the plain `restorekit` token
+  # is reserved for the desktop app cask. The installed binary is still
+  # `restorekit`. A formula (not a cask) is the right fit for a bare CLI binary:
+  # `brew install fcjr/fcjr/restorekit-cli` needs no `--cask`, and Homebrew does
+  # not quarantine formula downloads, so no Gatekeeper-strip hook is needed.
   - name: restorekit-cli
-    binaries: [restorekit]
     repository:
       owner: fcjr
       name: homebrew-fcjr
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/fcjr/restorekit"
     description: "DFU-restore Apple Silicon Macs from the command line"
-    # Unsigned binary: strip the quarantine bit so Gatekeeper doesn't block it.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr",
-                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/restorekit"]
-          end
+    license: Apache-2.0
+    install: |
+      bin.install "restorekit"
+    test: |
+      system "#{bin}/restorekit", "--version"
     caveats: |
       restorekit triggers DFU mode only from an Apple Silicon Mac host, and
       needs root for that step (sudo restorekit dfu). Restores run on macOS

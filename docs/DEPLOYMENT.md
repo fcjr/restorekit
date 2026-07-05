@@ -7,7 +7,7 @@ single tag push; everything below happens automatically in GitHub Actions.
 
 | Channel | What ships | Who it's for |
 | --- | --- | --- |
-| **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a cask | End users: `brew install fcjr/fcjr/restorekit-cli` (the `restorekit` cask token is reserved for the desktop app) |
+| **Homebrew** (`fcjr/homebrew-fcjr`) | Prebuilt binaries, as a formula | End users: `brew install fcjr/fcjr/restorekit-cli` (the `restorekit` cask token is reserved for the desktop app) |
 | **Scoop** (`fcjr/scoop-fcjr`) | Prebuilt Windows binary, as a manifest | Windows end users: `scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr && scoop install restorekit-cli` (plain `restorekit` reserved for the desktop app, matching the cask) |
 | **GitHub Releases** | `tar.gz` archives (macOS/Linux) + `.zip` (Windows) + checksums; the desktop app's `.dmg`/`.deb`/`.AppImage`/NSIS installer | Direct downloads, scripts |
 | **crates.io** | Source crates (`restorekit-sys`, `restorekit`, `restorekit-cli`) | `cargo install restorekit-cli`, and Rust consumers of the library |
@@ -48,7 +48,7 @@ variables → Actions**:
 
 | Secret | Used for | Scope |
 | --- | --- | --- |
-| `GORELEASER_GITHUB_TOKEN` | Pushing the Homebrew cask + Scoop bucket (CLI via goreleaser, app cask via `release-app.yml`) | PAT with **Contents: write** on `fcjr/homebrew-fcjr` (and the Scoop bucket repo) |
+| `GORELEASER_GITHUB_TOKEN` | Pushing the Homebrew formula + Scoop bucket (CLI via goreleaser, app cask via `release-app.yml`) | PAT with **Contents: write** on `fcjr/homebrew-fcjr` (and the Scoop bucket repo) |
 | `CARGO_REGISTRY_TOKEN` | Publishing to crates.io | A crates.io API token with publish scope |
 
 The built-in `GITHUB_TOKEN` handles the GitHub Release itself (granted
