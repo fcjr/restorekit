@@ -138,5 +138,5 @@ instrument output, not a generic dashboard.
 ## Distribution
 
 `brew install --cask restorekit` (the plain cask token is the app; the CLI is
-the `restorekit-cli` formula, `brew install restorekit-cli`). Built and released by `tauri-apps/tauri-action` on a
+`--cask restorekit-cli`). Built and released by `tauri-apps/tauri-action` on a
 version tag. See [DEPLOYMENT.md](DEPLOYMENT.md).
