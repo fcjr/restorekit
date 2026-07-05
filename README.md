@@ -13,7 +13,7 @@
 
 `restorekit` is a standalone rust library, cli tool, and tauri gui that lets you fully wipe or restore a T2 or M series macbook without using any apple tools.  It works on a completely cross platform* stack thanks to rust and [libirecovery](https://github.com/libimobiledevice/libirecovery) and does not require any additional software or configuration.
 
-* Automatic DFU is currently only supported on macOS due to hardware limitations.
+\* Automatic DFU is currently only supported on macOS due to hardware limitations.
 
 ## Why?
 
