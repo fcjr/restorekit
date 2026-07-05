@@ -62,25 +62,19 @@ The cli plays nice with automation by exposing a `--json` flag on most commands.
 
 ## DFU port
 
-Use a data-capable USB-C (or Thunderbolt) cable and the target's **DFU port**:
+Unfortunately apple wasn't consistent when choosing what usb port to make the DFU (device firmware upgrade) port...  Below is a list of where you can find it on some of the most common macs. For a full list see
+Apple's [official documentation](https://support.apple.com/en-us/120694).
 
 | Target | DFU port |
 | --- | --- |
-| MacBook Air / 13" Pro | Left side, port nearest the screen |
-| 14" / 16" MacBook Pro | Left side, port next to MagSafe |
-| Mac mini / Studio | Port nearest the power button |
-| iMac | Port nearest the edge |
+| 14" / 16" MacBook Pro | Left side, port next to macsafe |
+| Mac mini / Studio | Port closest to the power button |
+| MacBook Air / 13" Pro | Left side, port closest to the hinge |
+| iMac | Port closest to the edge |
 
 ## Platform support
 
-| | Trigger DFU | Detect | Download | Restore |
-| --- | :---: | :---: | :---: | :---: |
-| **macOS** (Apple Silicon) | ✅ | ✅ | ✅ | ✅ |
-| **macOS** (Intel) | — | ✅ | ✅ | ✅ |
-| **Linux** | — | ✅ | ✅ | ✅ |
-| **Windows** | — | ✅ | ✅ | ✅ |
-
-Triggering DFU mode automatically requires the host machine to be a T2 or M series mac. Other devices lack the hardware to do so automatically so you need to set the mac into DFU mode manually.
+All features except for automatic DFU mode are available on all platform. Entering DFU mode automatically requires the host machine to be a T2 or M series mac. Other devices lack the hardware to do so automatically so you need to set the mac into DFU mode manually.
 
 ## Linux USB permissions
 
