@@ -17,6 +17,8 @@ Reformat any T2 or M series mac from macOS, linux or windows with a single comma
 
 `restorekit` is a standalone rust library, cli tool, and tauri gui that lets you fully wipe or restore a T2 or M series macbook without using any apple tools.  It works on a completely cross platform* stack thanks to rust and [libirecovery](https://github.com/libimobiledevice/libirecovery).
 
+* Automatic DFU is currently only supported on macOS due to hardware limitations.
+
 ## Why?
 
 I've worked at a few places where windows was the default machine (including for IT) and macs were only issued when requested or required.  A lot of times the IT folks are forced to use a macbook simply because they need one to recover and reset their fleet of macbooks.  I've also seen companies forced to ship a whole new mac out to employees in locations without an apple store when a simple reset would have solved the problem.  I think this sucks.  People should be able to repair their mac without needing to own another one!
