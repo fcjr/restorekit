@@ -72,6 +72,9 @@ Apple's [official documentation](https://support.apple.com/en-us/120694).
 | MacBook Air / 13" Pro | Left side, port closest to the hinge |
 | iMac | Port closest to the edge |
 
+If you are recovering from a linux or windows machine you must enter DFU mode on the target device manually.
+The unofficial [apple wiki](https://theapplewiki.com/wiki/DFU_Mode#Mac_with_Apple_Silicon) has a great guide for every machine [here](https://theapplewiki.com/wiki/DFU_Mode#Mac_with_Apple_Silicon).
+
 ## Platform support
 
 All features except for automatic DFU mode are available on all platform. Entering DFU mode automatically requires the host machine to be a T2 or M series mac. Other devices lack the hardware to do so automatically so you need to set the mac into DFU mode manually.
