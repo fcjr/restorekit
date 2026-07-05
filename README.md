@@ -22,12 +22,13 @@ I've worked at a few places where windows was the default machine (including for
 ## Install the CLI
 
 ```sh
-brew install fcjr/fcjr/restorekit-cli   # Homebrew (macOS + Linux)
-# or on any platform
-cargo install restorekit-cli            # from crates.io
-# or on windows
+# on macOS or linux, via homebrew
+brew install fcjr/fcjr/restorekit-cli
+# or on windows via scoop
 scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr
 scoop install restorekit-cli
+# or on any platform via crates.io
+cargo install restorekit-cli
 ```
 
 Or grab a binary from the [releases](https://github.com/fcjr/restorekit/releases).
