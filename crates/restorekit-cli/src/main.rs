@@ -125,21 +125,6 @@ impl RestoreArgs {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse_ecid;
-
-    #[test]
-    fn parses_ecid_forms() {
-        assert_eq!(parse_ecid("0xC60A812345678").unwrap(), 0xc60a812345678);
-        assert_eq!(parse_ecid("0Xc60a812345678").unwrap(), 0xc60a812345678);
-        assert_eq!(parse_ecid("12345").unwrap(), 12345);
-        assert_eq!(parse_ecid("c60a812345678").unwrap(), 0xc60a812345678);
-        assert!(parse_ecid("nope!").is_err());
-        assert!(parse_ecid("").is_err());
-    }
-}
-
 fn main() {
     // Internal: this copy was relaunched elevated to run the restore-mode driver
     // watcher (see restorekit::driver). Handle it before clap and exit.
@@ -188,5 +173,20 @@ fn main() {
             eprintln!("error: {e}");
         }
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_ecid;
+
+    #[test]
+    fn parses_ecid_forms() {
+        assert_eq!(parse_ecid("0xC60A812345678").unwrap(), 0xc60a812345678);
+        assert_eq!(parse_ecid("0Xc60a812345678").unwrap(), 0xc60a812345678);
+        assert_eq!(parse_ecid("12345").unwrap(), 12345);
+        assert_eq!(parse_ecid("c60a812345678").unwrap(), 0xc60a812345678);
+        assert!(parse_ecid("nope!").is_err());
+        assert!(parse_ecid("").is_err());
     }
 }

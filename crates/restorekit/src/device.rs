@@ -834,12 +834,21 @@ fn parse_config_code_name(body: &str) -> Option<String> {
 }
 
 /// Apple's platform-capability UUID whose payload is the device's ECID.
+// Only reached via the BOS reader (skipped on Windows) and the parser test.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 const APPLE_ECID_UUID: [u8; 16] = [
     0x0a, 0x37, 0x4c, 0xe4, 0x76, 0x23, 0x47, 0xc9, 0x88, 0x0e, 0x1a, 0xc3, 0x15, 0x13, 0x47, 0x6f,
 ];
 
 /// Read the device's BOS descriptor and extract the ECID from Apple's platform
-/// capability. Cross-platform: a standard `GET_DESCRIPTOR(BOS)` control request.
+/// capability, via a standard `GET_DESCRIPTOR(BOS)` control request.
+///
+/// `nusb` exposes device-level control transfers only on Linux and macOS; the
+/// Windows WinUSB backend routes them through a claimed interface. The
+/// booted-Mac ECID is a best-effort nicety — it's resolved for free the moment
+/// the Mac enters DFU — so on Windows we skip it rather than claim an interface
+/// just to read a descriptor.
+#[cfg(not(target_os = "windows"))]
 fn read_bos_ecid(dev: &nusb::Device) -> Option<u64> {
     let bos = dev
         .control_in(
@@ -858,9 +867,16 @@ fn read_bos_ecid(dev: &nusb::Device) -> Option<u64> {
     ecid_from_bos(&bos)
 }
 
+#[cfg(target_os = "windows")]
+fn read_bos_ecid(_dev: &nusb::Device) -> Option<u64> {
+    None
+}
+
 /// Parse a BOS descriptor and return the ECID from Apple's platform-capability
 /// descriptor (`bDevCapabilityType` = 5 PLATFORM, matching [`APPLE_ECID_UUID`],
 /// with an 8-byte little-endian ECID payload).
+// Only reached via the BOS reader (skipped on Windows) and the parser test.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn ecid_from_bos(bos: &[u8]) -> Option<u64> {
     // 5-byte BOS header, then a sequence of capability descriptors.
     let mut i = 5;

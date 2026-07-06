@@ -284,23 +284,6 @@ fn locations_by_serial() -> HashMap<String, u32> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    /// Prints the host's USB-C port topology — no target needed.
-    /// `cargo test -p restorekit port_topology -- --ignored --nocapture`
-    #[test]
-    #[ignore = "reads live host IORegistry"]
-    fn port_topology() {
-        eprintln!("dfu_capable_rids: {:?}", super::dfu_capable_rids());
-        for p in super::host_ports() {
-            eprintln!(
-                "port: base={:#010x} location={:?} dfu={}",
-                p.base, p.location, p.dfu
-            );
-        }
-    }
-}
-
 /// Set each device's [`Port`](crate::device::Port) from its `locationID`.
 pub(crate) fn mark_ports(devices: &mut [super::super::device::Device]) {
     use crate::device::Port;
@@ -317,6 +300,23 @@ pub(crate) fn mark_ports(devices: &mut [super::super::device::Device]) {
                     location: p.location.clone(),
                 });
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Prints the host's USB-C port topology — no target needed.
+    /// `cargo test -p restorekit port_topology -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads live host IORegistry"]
+    fn port_topology() {
+        eprintln!("dfu_capable_rids: {:?}", super::dfu_capable_rids());
+        for p in super::host_ports() {
+            eprintln!(
+                "port: base={:#010x} location={:?} dfu={}",
+                p.base, p.location, p.dfu
+            );
         }
     }
 }
