@@ -11,26 +11,23 @@
     type Firmware,
     type ProgressEvent,
     type CacheInfo,
+    type Mode,
   } from "./lib/api";
   import { checkForUpdates } from "./lib/updater";
-  import DeviceCard from "./components/DeviceCard.svelte";
-  import DeviceRow from "./components/DeviceRow.svelte";
-  import Progress from "./components/Progress.svelte";
-  import ConfirmErase from "./components/ConfirmErase.svelte";
-  import Confirm from "./components/Confirm.svelte";
-  import ApproveHelper from "./components/ApproveHelper.svelte";
-  import SetupUsb from "./components/SetupUsb.svelte";
-  import Logo from "./components/Logo.svelte";
 
   type Phase = "idle" | "resolving" | "downloading" | "restoring" | "done" | "error";
 
+  const isWindows =
+    typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+
+  // ---- device / host state ----
   let devices = $state<Device[]>([]);
   let selectedSerial = $state<string | null>(null);
   let canTrigger = $state(false);
   let manual = $state("");
   let cache = $state<CacheInfo | null>(null);
 
-  // Per-action state.
+  // ---- per-action state ----
   let phase = $state<Phase>("idle");
   let active = $state<Device | null>(null); // frozen device an action runs against
   let firmware = $state<Firmware | null>(null);
@@ -45,6 +42,7 @@
   let needsApproval = $state(false);
   let approvalNote = $state("");
   let approvalChecking = $state(false);
+  let openedSettings = $state(false); // "waiting…" hint after opening Login Items
   let pendingTrigger = $state<"dfu" | "reboot" | null>(null);
   let helperState = $state(""); // "" until known; then enabled | requiresApproval | …
   let approved = $state(false); // brief success state inside the approval screen
@@ -59,6 +57,75 @@
   const selected = $derived(devices.find((d) => d.serial === selectedSerial) ?? null);
   const dlPercent = $derived(dl.total > 0 ? (dl.received / dl.total) * 100 : 0);
   const running = $derived(phase !== "idle");
+
+  const hostLabel = $derived(
+    isWindows ? "Windows host" : canTrigger ? "DFU-capable host" : "Detect-only host",
+  );
+
+  const showBanner = $derived(
+    canTrigger && helperState !== "" && helperState !== "enabled" && phase === "idle",
+  );
+
+  // Which action panel the selected device gets.
+  const mMode = $derived.by<"restore" | "usb" | "dfu" | "manual">(() => {
+    const d = selected;
+    if (!d) return "restore";
+    if (d.restorable) return d.driver_ready ? "restore" : "usb";
+    return canTrigger ? "dfu" : "manual";
+  });
+
+  const progress = $derived.by(() => {
+    if (phase === "resolving")
+      return {
+        title: "Resolving firmware",
+        label: "Contacting Apple",
+        pct: 6,
+        sub: "Matching the latest signed build for this model.",
+      };
+    if (phase === "downloading") {
+      return {
+        title: dl.verifying
+          ? "Verifying download"
+          : dl.cached
+            ? "Using cached firmware"
+            : "Downloading firmware",
+        label: dl.verifying ? "Verifying checksum" : "Downloading",
+        pct: dl.verifying ? 100 : dlPercent,
+        sub: dl.total > 0 ? `${gib(dl.received)} / ${gib(dl.total)}` : "",
+      };
+    }
+    if (phase === "restoring")
+      return {
+        title: rs.name,
+        label: "Restoring",
+        pct: rs.percent,
+        sub: "Do not disconnect the target.",
+      };
+    return { title: "", label: "", pct: 0, sub: "" };
+  });
+
+  const MODE_TAG: Record<Mode, string> = {
+    dfu: "DFU",
+    recovery: "RCVRY",
+    restore: "RSTR",
+    wtf: "WTF",
+    booted: "BOOT",
+    other: "CONN",
+  };
+  const MODE_COLOR: Record<Mode, string> = {
+    dfu: "var(--acc)",
+    recovery: "var(--alt)",
+    restore: "var(--ok)",
+    wtf: "var(--danger)",
+    booted: "var(--acc)",
+    other: "var(--fnt)",
+  };
+
+  function firmwareLine(): string {
+    if (ipswPath) return ipswPath.split("/").pop() ?? "local IPSW";
+    if (firmware) return `macOS ${firmware.version} · ${gib(firmware.size)}`;
+    return "resolved automatically";
+  }
 
   function handleProgress(e: ProgressEvent) {
     switch (e.event) {
@@ -192,6 +259,7 @@
   function requestApproval(which: "dfu" | "reboot") {
     pendingTrigger = which;
     approvalNote = "";
+    openedSettings = false;
     needsApproval = true;
   }
 
@@ -201,12 +269,13 @@
     pendingTrigger = null;
     approvalNote = "";
     approved = false;
+    openedSettings = false;
     needsApproval = true;
   }
 
   // While the approval screen is open, watch for the helper flipping to enabled
   // (the user toggled it in System Settings) and celebrate without them having
-  // to click Try again.
+  // to click anything.
   $effect(() => {
     if (!needsApproval || approved) return;
     const iv = setInterval(async () => {
@@ -240,6 +309,7 @@
     setTimeout(async () => {
       needsApproval = false;
       approved = false;
+      openedSettings = false;
       if (which === "dfu") await enterDfu();
       else if (which === "reboot") await rebootTarget();
     }, 1500);
@@ -247,6 +317,7 @@
 
   async function openHelperSettings() {
     approvalNote = "";
+    openedSettings = true;
     try {
       await api.approveHelper();
     } catch (e) {
@@ -254,24 +325,10 @@
     }
   }
 
-  async function retryApproval() {
-    approvalChecking = true;
-    approvalNote = "";
-    try {
-      const status = await api.helperStatus();
-      helperState = status;
-      if (status !== "enabled") {
-        approvalNote = "Not enabled yet — turn RestoreKit on under Login Items, then try again.";
-        return;
-      }
-      needsApproval = false;
-      const which = pendingTrigger;
-      pendingTrigger = null;
-      if (which === "dfu") await enterDfu();
-      else if (which === "reboot") await rebootTarget();
-    } finally {
-      approvalChecking = false;
-    }
+  function closeApproval() {
+    needsApproval = false;
+    pendingTrigger = null;
+    openedSettings = false;
   }
 
   async function beginRestore() {
@@ -353,66 +410,73 @@
 </script>
 
 <div class="app">
-  <header>
-    <Logo />
-    <div class="host mono">{canTrigger ? "DFU-capable host" : "detect-only host"}</div>
-  </header>
+  <!-- titlebar -->
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="15" height="15" aria-hidden="true">
+        <rect x="7" y="7" width="18" height="18" rx="3" fill="none" stroke="var(--ink)" stroke-width="1.8" />
+        <path d="M4 16 H10 L12.2 11 L16 21 L19 16 H28" fill="none" stroke="var(--acc)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <span class="name">restorekit</span>
+    </div>
+    <div class="grow"></div>
+    <span class="host">
+      <span class="hostdot" style="background:{canTrigger ? 'var(--acc)' : 'var(--fnt)'}"></span>
+      {hostLabel}
+    </span>
+  </div>
 
-  {#if canTrigger && helperState && helperState !== "enabled"}
-    <div class="setup-banner">
-      <span class="dot"></span>
-      <div class="msg">
-        <b>One-time setup:</b> approve the DFU helper so triggering works without a
-        password.
-      </div>
+  <!-- setup banner -->
+  {#if showBanner}
+    <div class="banner">
+      <span class="bandot"></span>
+      <div class="banmsg"><b>One-time setup.</b> Approve the DFU helper so triggering works without a password.</div>
       <button class="btn primary sm" onclick={setupHelper}>Set up helper</button>
     </div>
   {/if}
 
   <div class="body">
-    <aside class="sidebar">
-      <div class="list-head">
-        <span>Devices</span><span class="count">{devices.length}</span>
-      </div>
-      <div class="list">
-        {#if devices.length === 0}
-          <div class="empty">
-            <div class="pulse"></div>
-            <p>No Apple devices connected.</p>
-            <span>Cable a Mac to this host's DFU port.</span>
-          </div>
-        {:else}
-          {#each devices as d (d.serial)}
-            <DeviceRow
-              device={d}
-              selected={d.serial === selectedSerial && !running}
-              onselect={() => select(d.serial)}
-            />
-          {/each}
-        {/if}
-      </div>
+    <!-- roster -->
+    <aside class="roster">
+      <div class="roster-head"><span>Targets</span><span class="count">{devices.length}</span></div>
+      {#if devices.length}
+        {#each devices as d (d.serial)}
+          <button
+            class="row"
+            class:sel={d.serial === selectedSerial && !running}
+            onclick={() => select(d.serial)}
+          >
+            <span class="mode" style="color:{MODE_COLOR[d.mode]}">{MODE_TAG[d.mode]}</span>
+            <span class="rowmeta">
+              <span class="rowname">{d.name}</span>
+              <span class="rowecid">{d.ecid || "—"}</span>
+            </span>
+          </button>
+        {/each}
+      {:else}
+        <div class="roster-empty"><span class="pulse"></span><span>No devices</span></div>
+      {/if}
     </aside>
 
+    <!-- detail -->
     <section class="detail">
-      {#if phase === "downloading"}
-        <div class="stage">
-          <span class="eyebrow">{active?.name}</span>
-          <h2>{dl.verifying ? "Verifying download" : dl.cached ? "Using cached firmware" : "Downloading firmware"}</h2>
-          <Progress
-            label={dl.verifying ? "Verifying checksum" : "Downloading"}
-            percent={dl.verifying ? 100 : dlPercent}
-            sub={dl.total > 0 ? `${gib(dl.received)} / ${gib(dl.total)}` : ""}
-          />
-        </div>
-      {:else if phase === "restoring"}
-        <div class="stage">
-          <span class="eyebrow">{active?.name}</span>
-          <h2>{rs.name}</h2>
-          <Progress label="Restoring" percent={rs.percent} sub="Do not disconnect the target." />
+      {#if phase === "resolving" || phase === "downloading" || phase === "restoring"}
+        <div class="pane">
+          <div class="eyebrow">{active?.name ?? selected?.name ?? ""}</div>
+          <h2>{progress.title}</h2>
+          <div class="prow">
+            <span class="plabel">{progress.label}</span>
+            <span class="ppct">{Math.round(progress.pct)}%</span>
+          </div>
+          <div class="pbar"><div class="pfill" style="width:{Math.max(2, Math.min(100, progress.pct))}%"></div></div>
+          {#if progress.sub}<div class="psub">{progress.sub}</div>{/if}
         </div>
       {:else if phase === "done"}
-        <div class="stage center">
-          <span class="eyebrow alive">{doneKind === "restore" ? "Restored" : "Downloaded"}</span>
+        <div class="hero">
+          <div class="eyebrow ok">{doneKind === "restore" ? "Restored" : "Downloaded"}</div>
+          <div class="badge ok">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5 L10 17.5 L19 6.5" /></svg>
+          </div>
           <h1>{doneKind === "restore" ? "Restored." : "Firmware ready."}</h1>
           <p class="lede">
             {doneKind === "restore"
@@ -422,171 +486,204 @@
           <button class="btn" onclick={resetAction}>Back to devices</button>
         </div>
       {:else if phase === "error"}
-        <div class="stage center">
-          <span class="eyebrow danger">Failed</span>
-          <pre class="log mono">{error}</pre>
+        <div class="pane">
+          <div class="eyebrow danger">Failed</div>
+          <pre class="log danger">{error}</pre>
           <button class="btn" onclick={resetAction}>Back</button>
         </div>
-      {:else if !selected}
-        <div class="stage center muted">
-          <span class="eyebrow">No selection</span>
-          <p class="lede">Select a device to see its details and actions.</p>
+      {:else if devices.length === 0}
+        <div class="hero">
+          <div class="badge"><span class="pulse"></span></div>
+          <div class="empty-title">No Apple devices connected</div>
+          <p class="lede">Cable a Mac to this host's DFU port. RestoreKit detects it the moment it enumerates.</p>
         </div>
-      {:else}
-        <div class="stage">
-          <div class="detail-head">
-            <div>
-              <span class="eyebrow" style="color: var(--mode-{selected.mode})">
-                {MODES[selected.mode].label} · {MODES[selected.mode].hint}
-              </span>
-            </div>
+      {:else if selected}
+        <div class="pane">
+          <div class="eyebrow" style="color:{MODE_COLOR[selected.mode]}">
+            {MODES[selected.mode].label} · {MODES[selected.mode].hint}
           </div>
-          <DeviceCard device={selected} />
+          <h1 class="dtitle">
+            {selected.name}
+            {#if selected.identifier}<span class="dparen">({selected.identifier})</span>{/if}
+          </h1>
+
+          <div class="spec">
+            <div class="k">Identifier</div><div class="v">{selected.identifier ?? "—"}</div>
+            <div class="k">Chip · board</div><div class="v">{selected.chip || "—"} · {selected.board || "—"}</div>
+            <div class="k">ECID</div><div class="v">{selected.ecid || "—"}</div>
+            <div class="k">iBoot</div><div class="v">{selected.srtg ?? "—"}</div>
+            {#if selected.port}
+              <div class="k">Port</div>
+              <div class="v">
+                {selected.port.location ?? "unknown"}
+                {#if selected.port.dfu}<span class="tag ok">DFU port</span>{:else}<span class="tag">not DFU</span>{/if}
+              </div>
+            {/if}
+          </div>
 
           {#if error}<p class="err">{error}</p>{/if}
-          {#if busy}<p class="busy mono">{busy}</p>{/if}
+          {#if busy}<p class="busy">{busy}</p>{/if}
 
-          {#if selected.restorable}
-            {#if !selected.driver_ready}
-              <div class="usb-needed">
-                <p class="lede">
-                  One-time setup: RestoreKit needs USB access to this Mac before it
-                  can restore.
-                </p>
-                <div class="actions">
-                  <button class="btn primary" onclick={openDriverSetup}>
-                    Set up USB access
-                  </button>
-                </div>
-                <p class="hint">
-                  Binds the WinUSB driver behind a single Windows prompt — one time
-                  per PC, then every Mac just works.
-                </p>
-              </div>
-            {:else}
-            <div class="options">
-              <div class="opt-head">
-                Options <span class="faint">— defaults are fine; override only if you need to</span>
+          {#if mMode === "restore"}
+            <div class="opts">
+              <div class="opt">
+                <span class="ok-label">macOS ver.</span>
+                <input class="field" placeholder="latest signed" bind:value={osVersion} />
               </div>
               <div class="opt">
-                <label for="osv">macOS version <span class="faint">optional</span></label>
-                <input id="osv" class="mono" placeholder="latest signed" bind:value={osVersion} />
-              </div>
-              <div class="opt">
-                <label for="ipsw">Local IPSW <span class="faint">optional</span></label>
-                <div class="picker-wrap">
-                  <button id="ipsw" class="picker mono" class:set={ipswPath} onclick={chooseIpsw}>
-                    {ipswPath ? ipswPath.split("/").pop() : "Choose a .ipsw file…"}
+                <span class="ok-label">Local IPSW</span>
+                <span class="field pick">
+                  <button class="pickbtn" class:set={ipswPath} onclick={chooseIpsw}>
+                    {ipswPath ? ipswPath.split("/").pop() : "— none —"}
                   </button>
                   {#if ipswPath}
-                    <button
-                      class="clearx"
-                      title="Use downloaded firmware instead"
-                      onclick={() => (ipswPath = null)}>×</button
-                    >
+                    <button class="browse" title="Use downloaded firmware instead" onclick={() => (ipswPath = null)}>clear ×</button>
+                  {:else}
+                    <button class="browse" onclick={chooseIpsw}>browse</button>
                   {/if}
-                </div>
+                </span>
               </div>
-              <p class="opt-hint">
-                {ipswPath
-                  ? "Restoring from your chosen file — nothing will be downloaded."
-                  : "Leave empty to download the matching firmware automatically."}
-              </p>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={revive} />
-                Revive <span class="faint">— reinstall firmware, keep data (no erase)</span>
-              </label>
+              <div class="opt">
+                <span class="ok-label">Mode</span>
+                <span class="seg">
+                  <button class="segbtn" class:on={!revive} onclick={() => (revive = false)}>Erase &amp; restore</button>
+                  <button class="segbtn" class:on={revive} onclick={() => (revive = true)}>Revive</button>
+                </span>
+              </div>
             </div>
 
             <div class="actions">
-              <button class="btn primary" onclick={beginRestore}>
-                {revive ? "Revive" : "Erase & restore"}
-              </button>
-              <button class="btn" onclick={downloadOnly} disabled={!selected.identifier || !!ipswPath}>
-                Download only
-              </button>
-              <button class="btn ghost" onclick={rebootTarget} disabled={!!busy}>Reboot out of DFU</button>
-            </div>
-            {/if}
-          {:else if canTrigger}
-            <p class="lede">Restore needs DFU mode. Put this Mac into DFU to continue.</p>
-            <div class="actions">
-              <button class="btn primary" onclick={enterDfu} disabled={!!busy}>
-                {busy ? "Authorizing…" : "Enter DFU mode"}
-              </button>
+              <button class="btn primary" onclick={beginRestore}>{revive ? "Revive" : "Erase & restore"}</button>
+              <button class="btn" onclick={downloadOnly} disabled={!selected.identifier || !!ipswPath}>Download only</button>
               <button class="btn ghost" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
             </div>
-            <p class="hint">The trigger asks for permission (Touch ID) — only that step runs as root.</p>
+          {:else if mMode === "usb"}
+            <div class="notice">
+              <div class="notice-body">
+                One-time setup: RestoreKit needs USB access to this Mac before it can restore. Binds the WinUSB driver behind a single Windows prompt.
+              </div>
+              <button class="btn primary" onclick={openDriverSetup}>Set up USB access</button>
+            </div>
+          {:else if mMode === "dfu"}
+            <div class="block">
+              <p class="lede">Restore needs DFU mode. Put this Mac into DFU to continue — the trigger asks for permission once; only that step runs as root.</p>
+              <div class="actions">
+                <button class="btn primary" onclick={enterDfu} disabled={!!busy}>{busy ? "Authorizing…" : "Enter DFU mode"}</button>
+                <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
+              </div>
+            </div>
           {:else}
-            <p class="lede">This host can't trigger DFU. Put the target into DFU by hand:</p>
-            <pre class="log mono manual">{manual}</pre>
+            <div class="block">
+              <p class="lede">This host can't trigger DFU. Put the target into DFU by hand:</p>
+              <pre class="log">{manual}</pre>
+            </div>
           {/if}
         </div>
       {/if}
     </section>
   </div>
 
-  <footer>
+  <!-- footer -->
+  <footer class="footer">
     {#if cache}
-      <span class="mono">
-        Cache · {cache.count} firmware · {gib(cache.bytes)}
+      <span>
+        cache · {cache.count} firmware · {gib(cache.bytes)}
         <span class="faint">{cache.path}</span>
       </span>
-      <button
-        class="btn ghost sm"
-        onclick={() => (confirmingClear = true)}
-        disabled={cache.count === 0}>Clear</button
-      >
+      <button class="linkbtn" onclick={() => (confirmingClear = true)} disabled={cache.count === 0}>Clear</button>
     {/if}
   </footer>
 
+  <!-- ===== MODALS ===== -->
   {#if confirming && active}
-    <ConfirmErase
-      device={active}
-      {firmware}
-      localIpsw={ipswPath}
-      {revive}
-      onConfirm={runRestore}
-      onCancel={() => {
-        confirming = false;
-        active = null;
-      }}
-    />
-  {/if}
-
-  {#if confirmingClear && cache}
-    <Confirm
-      title="Clear firmware cache?"
-      body={`This deletes ${cache.count} cached firmware (${gib(cache.bytes)}). You'll re-download next time.`}
-      confirmLabel="Clear cache"
-      danger
-      onConfirm={clearCache}
-      onCancel={() => (confirmingClear = false)}
-    />
+    <div class="scrim">
+      <div class="modal">
+        <div class="eyebrow" style="color:{revive ? 'var(--acc)' : 'var(--danger)'}">{revive ? "Revive" : "Erase & restore"}</div>
+        <h3>{revive ? "Revive this Mac?" : "Erase & restore this Mac?"}</h3>
+        <div class="spec tight">
+          <div class="k">Target</div><div class="v">{active.name}</div>
+          <div class="k">Firmware</div><div class="v">{firmwareLine()}</div>
+        </div>
+        <p class="modal-body">
+          {revive
+            ? "Revive reinstalls firmware and keeps existing data — no erase. The target reboots when done."
+            : "This erases all data on the target and installs a fresh copy of macOS. It cannot be undone."}
+        </p>
+        <div class="modal-actions">
+          <button class="btn" onclick={() => { confirming = false; active = null; }}>Cancel</button>
+          <button class="btn {revive ? 'primary' : 'danger'}" onclick={runRestore}>{revive ? "Revive target" : "Erase & restore"}</button>
+        </div>
+      </div>
+    </div>
   {/if}
 
   {#if needsApproval}
-    <ApproveHelper
-      {approved}
-      note={approvalNote}
-      checking={approvalChecking}
-      onOpenSettings={openHelperSettings}
-      onRetry={retryApproval}
-      onClose={() => {
-        needsApproval = false;
-        pendingTrigger = null;
-      }}
-    />
+    <div class="scrim">
+      <div class="modal">
+        <div class="eyebrow" style="color:var(--acc)">DFU Helper</div>
+        {#if approved}
+          <div class="modal-success">
+            <div class="badge ok"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5 L10 17.5 L19 6.5" /></svg></div>
+            <h3>Helper enabled</h3>
+            <div class="modal-note">Triggering now works without a password.</div>
+          </div>
+        {:else}
+          <h3>Approve the DFU helper</h3>
+          <p class="modal-body">
+            RestoreKit installs a small privileged helper so it can trigger DFU over USB-PD. Enable
+            <b>restorekit</b> under Login Items → Allow in the Background, then come back — this window detects it automatically.
+          </p>
+          {#if approvalNote}<p class="err">{approvalNote}</p>{/if}
+          <div class="modal-actions start">
+            <button class="btn primary" onclick={openHelperSettings}>Open Login Items</button>
+            <button class="btn ghost" onclick={closeApproval}>Not now</button>
+            <div class="grow"></div>
+            {#if openedSettings || approvalChecking}
+              <span class="waiting"><span class="spin"></span>waiting…</span>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    </div>
   {/if}
 
   {#if settingUpDriver}
-    <SetupUsb
-      busy={driverBusy}
-      done={driverDone}
-      error={driverError}
-      onSetup={runDriverSetup}
-      onClose={() => (settingUpDriver = false)}
-    />
+    <div class="scrim">
+      <div class="modal">
+        <div class="eyebrow" style="color:var(--acc)">USB Access</div>
+        {#if driverDone}
+          <div class="modal-success">
+            <div class="badge ok"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5 L10 17.5 L19 6.5" /></svg></div>
+            <h3>Driver bound</h3>
+            <div class="modal-note">Every Mac cabled to this PC will just work.</div>
+          </div>
+        {:else}
+          <h3>Set up USB access</h3>
+          <p class="modal-body">This binds the WinUSB driver to the target behind a single Windows prompt — one time per PC.</p>
+          {#if driverError}<p class="err">{driverError}</p>{/if}
+          <div class="modal-actions start">
+            <button class="btn primary" onclick={runDriverSetup} disabled={driverBusy}>{driverBusy ? "Binding…" : "Bind WinUSB driver"}</button>
+            <button class="btn ghost" onclick={() => (settingUpDriver = false)}>Cancel</button>
+            <div class="grow"></div>
+            {#if driverBusy}<span class="waiting"><span class="spin"></span>binding…</span>{/if}
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  {#if confirmingClear && cache}
+    <div class="scrim">
+      <div class="modal">
+        <div class="eyebrow" style="color:var(--danger)">Cache</div>
+        <h3>Clear firmware cache?</h3>
+        <p class="modal-body">This deletes {cache.count} cached firmware ({gib(cache.bytes)}). You'll re-download it next time.</p>
+        <div class="modal-actions">
+          <button class="btn" onclick={() => (confirmingClear = false)}>Cancel</button>
+          <button class="btn danger" onclick={clearCache}>Clear cache</button>
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -595,309 +692,598 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    background: var(--bg);
+    color: var(--ink2);
   }
-  header {
+  .grow {
+    flex: 1;
+  }
+
+  /* titlebar */
+  .titlebar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 13px 20px;
-    background: var(--panel);
+    gap: 13px;
+    height: 42px;
+    padding: 0 15px;
+    background: var(--bar);
     border-bottom: 1px solid var(--line);
-    -webkit-app-region: drag;
+    flex: none;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .name {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
   }
   .host {
-    font-size: 11px;
-    color: var(--faint);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10.5px;
+    letter-spacing: 0.13em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    color: var(--mut);
   }
-  .setup-banner {
+  .hostdot {
+    width: 7px;
+    height: 7px;
+    display: block;
+  }
+
+  /* banner */
+  .banner {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 9px 20px;
-    background: var(--signal-soft);
-    border-bottom: 1px solid var(--signal-line);
-    font-size: 13px;
-    color: var(--ink);
-  }
-  .setup-banner .dot {
+    padding: 10px 16px;
+    background: var(--accsoft);
+    border-bottom: 1px solid var(--line);
     flex: none;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--signal);
   }
-  .setup-banner .msg {
+  .bandot {
+    width: 7px;
+    height: 7px;
+    background: var(--acc);
+    display: block;
+    flex: none;
+  }
+  .banmsg {
     flex: 1;
+    font-size: 12px;
+    color: var(--ink2);
   }
-  .setup-banner b {
+  .banmsg b {
+    color: var(--ink);
     font-weight: 600;
   }
-  .btn.sm {
-    padding: 6px 12px;
-    font-size: 12.5px;
-  }
+
+  /* body */
   .body {
     flex: 1;
     display: grid;
-    grid-template-columns: 268px 1fr;
+    grid-template-columns: 250px 1fr;
     min-height: 0;
   }
-  .sidebar {
-    background: var(--panel);
+
+  /* roster */
+  .roster {
     border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    background: var(--bar);
+    overflow-y: auto;
   }
-  .list-head {
+  .roster-head {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    padding: 14px 16px 8px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.14em;
+    padding: 15px 16px 12px;
+    font-size: 10px;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: var(--faint);
+    color: var(--fnt);
   }
   .count {
-    color: var(--muted);
+    color: var(--dim);
   }
-  .list {
-    padding: 4px 8px 12px;
-    overflow-y: auto;
+  .row {
+    display: flex;
+    gap: 12px;
+    padding: 13px 16px 13px 14px;
+    border-top: 1px solid var(--line);
+    border-left: 2px solid transparent;
+    background: transparent;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+  }
+  .row:last-child {
+    border-bottom: 1px solid var(--line);
+  }
+  .row:hover {
+    background: color-mix(in srgb, var(--acc) 4%, transparent);
+  }
+  .row.sel {
+    border-left-color: var(--acc);
+    background: var(--accsoft);
+  }
+  .row .mode {
+    flex: none;
+    width: 50px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding-top: 1px;
+  }
+  .rowmeta {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
+    min-width: 0;
   }
-  .empty {
+  .rowname {
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .rowecid {
+    font-size: 10.5px;
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .roster-empty {
+    border-top: 1px solid var(--line);
+    padding: 34px 18px;
     text-align: center;
-    color: var(--faint);
-    padding: 40px 16px;
     display: flex;
     flex-direction: column;
+    gap: 8px;
     align-items: center;
-    gap: 6px;
-  }
-  .empty p {
-    margin: 6px 0 0;
-    color: var(--muted);
-    font-size: 13px;
-  }
-  .empty span {
-    font-size: 12px;
+    font-size: 11.5px;
+    color: var(--mut);
   }
   .pulse {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
-    background: var(--line-2);
-    animation: pulse 1.8s ease-in-out infinite;
+    background: var(--fnt);
+    animation: rk-live 1.8s ease-in-out infinite;
   }
-  @keyframes pulse {
-    50% {
-      background: var(--muted);
-      transform: scale(1.25);
-    }
-  }
+
+  /* detail */
   .detail {
-    padding: 30px 34px;
+    padding: 24px 28px 22px;
     overflow-y: auto;
-    display: grid;
-    place-items: start start;
+    min-height: 0;
   }
-  .stage {
-    width: 100%;
-    max-width: 440px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+  .pane {
+    max-width: 520px;
   }
-  .stage.center {
-    place-self: center;
-    align-items: center;
-    text-align: center;
-  }
-  .stage.muted {
-    color: var(--muted);
-  }
-  h1 {
-    font-size: 26px;
-    letter-spacing: -0.03em;
-    margin: 4px 0 0;
-    text-wrap: balance;
-  }
-  h2 {
-    font-size: 18px;
-    letter-spacing: -0.02em;
-    margin: 0;
-  }
-  .lede {
-    color: var(--muted);
-    margin: 0;
-    max-width: 40ch;
-  }
-  .hint {
-    color: var(--faint);
-    font-size: 12px;
-    margin: 0;
-  }
-  .options {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 16px;
-  }
-  .opt {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .opt label {
-    width: 108px;
-    font-size: 12px;
-    color: var(--faint);
+  .eyebrow {
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    flex: none;
+    color: var(--mut);
+    margin-bottom: 12px;
   }
-  .opt input,
-  .picker {
-    flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--line-2);
-    border-radius: 8px;
-    padding: 8px 11px;
-    color: var(--ink);
-    font-size: 13px;
-    text-align: left;
-  }
-  .opt input:focus,
-  .picker:hover {
-    border-color: var(--signal-line);
-    outline: none;
-  }
-  .clearx {
-    background: transparent;
-    border: 0;
-    color: var(--faint);
-    font-size: 18px;
-    line-height: 1;
-    padding: 0 4px;
-  }
-  .clearx:hover {
-    color: var(--danger);
-  }
-  .opt-head {
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 2px;
-  }
-  .opt-head .faint {
-    color: var(--faint);
-  }
-  .opt label .faint {
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 10px;
-    margin-left: 5px;
-    color: var(--faint);
-  }
-  .picker-wrap {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .picker.set {
-    color: var(--ink);
-  }
-  .picker:not(.set) {
-    color: var(--faint);
-  }
-  .opt-hint {
-    margin: -4px 0 0 118px;
-    font-size: 11px;
-    color: var(--faint);
-  }
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    font-size: 13px;
-    color: var(--muted);
-  }
-  .toggle .faint {
-    color: var(--faint);
-  }
-  .actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .err {
-    color: var(--danger);
-    font-size: 13px;
-    margin: 0;
-  }
-  .busy {
-    color: var(--signal);
-    font-size: 13px;
-    margin: 0;
-  }
-  .eyebrow.alive {
-    color: var(--alive);
+  .eyebrow.ok {
+    color: var(--ok);
   }
   .eyebrow.danger {
     color: var(--danger);
   }
-  .log {
-    white-space: pre-wrap;
-    text-align: left;
-    background: var(--panel);
+  h1 {
+    margin: 0 0 20px;
+    font-size: 23px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .dtitle {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .dparen {
+    color: var(--mut);
+    font-weight: 400;
+    font-size: 15px;
+  }
+  h2 {
+    margin: 0 0 24px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  h3 {
+    margin: 0 0 12px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  /* spec table */
+  .spec {
+    max-width: 520px;
     border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 14px;
+    display: grid;
+    grid-template-columns: 128px 1fr;
+  }
+  .spec.tight {
+    grid-template-columns: 96px 1fr;
+    margin-bottom: 14px;
+  }
+  .spec .k,
+  .spec .v {
+    padding: 10px 14px;
+    border-top: 1px solid var(--line);
+  }
+  .spec .k:first-child,
+  .spec .v:nth-child(2) {
+    border-top: 0;
+  }
+  .spec .k {
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--fnt);
+    border-right: 1px solid var(--line);
+  }
+  .spec .v {
+    font-size: 12.5px;
+    color: var(--ink2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tag {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 1px 6px;
+    background: var(--line2);
+    color: var(--fnt);
+  }
+  .tag.ok {
+    background: var(--accsoft);
+    color: var(--acc);
+  }
+
+  /* options */
+  .opts {
+    max-width: 520px;
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .opt {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .ok-label {
+    width: 96px;
+    flex: none;
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--fnt);
+  }
+  .field {
+    flex: 1;
+    border: 1px solid var(--line);
+    background: transparent;
+    padding: 8px 11px;
+    font-family: inherit;
     font-size: 12px;
+    color: var(--ink2);
+  }
+  input.field::placeholder {
+    color: var(--dim);
+  }
+  input.field:focus {
+    outline: none;
+    border-color: var(--line2);
+  }
+  .field.pick {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0;
+  }
+  .pickbtn {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    padding: 8px 11px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--dim);
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pickbtn.set {
+    color: var(--ink2);
+  }
+  .browse {
+    flex: none;
+    color: var(--ink2);
+    border: 1px solid var(--line2);
+    background: transparent;
+    padding: 2px 9px;
+    margin-right: 6px;
+    font: inherit;
+    font-size: 10.5px;
+  }
+  .browse:hover {
+    border-color: var(--fnt);
+  }
+
+  /* segmented */
+  .seg {
+    display: inline-flex;
+  }
+  .segbtn {
+    font-size: 11px;
+    padding: 6px 13px;
+    font-weight: 600;
+    border: 1px solid var(--line2);
+    background: transparent;
+    color: var(--mut);
+    font-family: inherit;
+  }
+  .segbtn + .segbtn {
+    border-left: 0;
+  }
+  .segbtn.on {
+    background: var(--acc);
+    color: var(--accink);
+    border-color: var(--acc);
+  }
+
+  .actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 22px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .block {
+    max-width: 520px;
+    margin-top: 20px;
+  }
+
+  .notice {
+    max-width: 520px;
+    margin-top: 20px;
+    border: 1px solid var(--line);
+    padding: 16px 18px;
+  }
+  .notice-body {
+    font-size: 12.5px;
+    color: var(--ink2);
     line-height: 1.6;
-    color: var(--muted);
-    width: 100%;
-    max-height: 240px;
+    margin-bottom: 14px;
+  }
+
+  .lede {
+    font-size: 12.5px;
+    color: var(--mut);
+    line-height: 1.6;
+    margin: 0 0 16px;
+    max-width: 46ch;
+  }
+  .err {
+    color: var(--danger);
+    font-size: 12px;
+    margin: 14px 0 0;
+  }
+  .busy {
+    color: var(--acc);
+    font-size: 12px;
+    margin: 12px 0 0;
+  }
+
+  /* progress */
+  .prow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 9px;
+  }
+  .plabel {
+    font-size: 12.5px;
+    color: var(--ink2);
+  }
+  .ppct {
+    font-size: 12px;
+    color: var(--mut);
+  }
+  .pbar {
+    height: 6px;
+    background: var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .pfill {
+    height: 100%;
+    background: var(--acc);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  .psub {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--fnt);
+  }
+
+  /* hero (empty / done) */
+  .hero {
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 14px;
+  }
+  .badge {
+    width: 46px;
+    height: 46px;
+    border: 1px solid var(--line2);
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+  }
+  .badge.ok {
+    border-color: var(--ok);
+    border-radius: 50%;
+    color: var(--ok);
+  }
+  .empty-title {
+    font-size: 15px;
+    color: var(--ink);
+  }
+  .hero .lede {
+    max-width: 36ch;
+    margin: 0;
+  }
+
+  /* log / pre */
+  .log {
+    margin: 0 0 16px;
+    border: 1px solid var(--line);
+    background: var(--bar);
+    padding: 14px 16px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--ink2);
+    line-height: 1.9;
+    white-space: pre-wrap;
+    max-height: 260px;
     overflow-y: auto;
   }
-  .log.mono.manual {
-    color: var(--muted);
-  }
-  pre.log {
+  .log.danger {
+    border-color: var(--danger);
+    background: var(--dangersoft);
     color: var(--danger);
-    border-color: rgba(239, 106, 106, 0.35);
+    line-height: 1.7;
   }
-  pre.log.manual {
-    color: var(--muted);
-    border-color: var(--line);
-  }
-  footer {
+
+  /* footer */
+  .footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 10px 20px;
-    background: var(--panel);
+    height: 36px;
+    padding: 0 15px;
+    background: var(--bar);
     border-top: 1px solid var(--line);
-    font-size: 12px;
-    color: var(--muted);
+    font-size: 10.5px;
+    color: var(--fnt);
+    flex: none;
   }
-  footer .faint {
-    color: var(--faint);
+  .footer .faint {
+    color: var(--dim);
     margin-left: 8px;
   }
-  .btn.sm {
-    padding: 6px 12px;
+  .linkbtn {
+    border: 0;
+    background: transparent;
+    color: var(--mut);
+    font: inherit;
+    font-size: 10.5px;
+  }
+  .linkbtn:hover {
+    color: var(--ink2);
+  }
+  .linkbtn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  /* modals */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    padding: 20px;
+  }
+  .modal {
+    width: 430px;
+    max-width: 100%;
+    background: var(--raise);
+    border: 1px solid var(--line2);
+    border-radius: 9px;
+    padding: 22px 24px;
+  }
+  .modal .eyebrow {
+    margin-bottom: 12px;
+  }
+  .modal-body {
     font-size: 12px;
+    color: var(--mut);
+    line-height: 1.7;
+    margin: 0 0 18px;
+  }
+  .modal-body b {
+    color: var(--ink2);
+  }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .modal-actions.start {
+    justify-content: flex-start;
+  }
+  .modal-actions .grow {
+    flex: 1;
+  }
+  .modal-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 12px;
+    padding: 14px 0;
+  }
+  .modal-note {
+    font-size: 12px;
+    color: var(--mut);
+  }
+  .waiting {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--mut);
+  }
+  .spin {
+    width: 11px;
+    height: 11px;
+    border: 1.6px solid var(--line2);
+    border-top-color: var(--acc);
+    border-radius: 50%;
+    animation: rk-spin 0.7s linear infinite;
+    display: block;
   }
 </style>

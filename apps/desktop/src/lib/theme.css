@@ -1,35 +1,63 @@
 /* RestoreKit — "service instrument" identity.
-   Light engineering datasheet · ink on cool paper · electric-indigo signal ·
-   a pulse-of-life motif. Token names are kept stable so components re-skin
-   through the tokens. */
+   Warm near-black terminal · ink on toasted paper · amber signal · mono voice.
+   Dark and light are the same instrument under two lamps; the app follows the
+   system color scheme (prefers-color-scheme). Token names drive every component. */
+
+@font-face {
+  font-family: "Spline Sans Mono";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/spline-sans-mono.woff2") format("woff2");
+}
+
 :root {
-  --paper: #e9edf3;
-  --panel: #ffffff;
-  --panel-2: #f4f7fb;
-  --bg: #e9edf3;
-  --line: #dbe1ea;
-  --line-2: #cbd3de;
-  --ink: #121722;
-  --muted: #5c6675;
-  --faint: #97a1b0;
-  --signal: #4b3af0;
-  --signal-ink: #ffffff;
-  --signal-soft: rgba(75, 58, 240, 0.09);
-  --signal-line: rgba(75, 58, 240, 0.4);
-  --alive: #10b981;
-  --alive-soft: rgba(16, 185, 129, 0.12);
-  --danger: #e5484d;
-  --danger-soft: rgba(229, 72, 77, 0.1);
-  --mode-dfu: #4b3af0;
-  --mode-recovery: #0c96c4;
-  --mode-restore: #10b981;
-  --mode-wtf: #e5484d;
-  --mode-booted: #b08942;
-  --mode-other: #8b95a4;
-  --shadow-sm: 0 1px 2px rgba(18, 23, 34, 0.05);
-  --shadow: 0 1px 2px rgba(18, 23, 34, 0.05), 0 16px 34px -18px rgba(18, 23, 34, 0.22);
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", monospace;
+  --page: #050505;
+  --bg: #0a0a08;
+  --bar: #0d0d0a;
+  --line: #232219;
+  --line2: #33322a;
+  --raise: #101009;
+  --ink: #e6e2d6;
+  --ink2: #d7d2c4;
+  --mut: #8f8f7a;
+  --fnt: #77766a;
+  --dim: #5c5c50;
+  --acc: #e8a33d;
+  --accink: #17130a;
+  --acchov: #f0b255;
+  --ok: #7ba86a;
+  --alt: #6a93a8;
+  --danger: #e0715f;
+  --dangersoft: rgba(224, 113, 95, 0.13);
+  --accsoft: rgba(232, 163, 61, 0.06);
+  --overlay: rgba(4, 4, 3, 0.66);
+  --font-mono: "Spline Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --page: #d9d4c8;
+    --bg: #efebe1;
+    --bar: #e6e1d5;
+    --line: #d4cebd;
+    --line2: #c3bba6;
+    --raise: #f5f2ea;
+    --ink: #191712;
+    --ink2: #33302a;
+    --mut: #6f6a5b;
+    --fnt: #948d7b;
+    --dim: #a69f8c;
+    --acc: #bd7d14;
+    --accink: #fff8ea;
+    --acchov: #a86d0e;
+    --ok: #3d7a4c;
+    --alt: #2f6f92;
+    --danger: #b23a2c;
+    --dangersoft: rgba(178, 58, 44, 0.09);
+    --accsoft: rgba(189, 125, 20, 0.09);
+    --overlay: rgba(60, 54, 42, 0.34);
+  }
 }
 
 * {
@@ -41,12 +69,11 @@ body {
   height: 100%;
 }
 body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-ui);
-  font-size: 15px;
+  background: var(--page);
+  color: var(--ink2);
+  font-family: var(--font-mono);
+  font-size: 13px;
   line-height: 1.5;
-  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;
@@ -55,82 +82,83 @@ body {
   height: 100vh;
 }
 
-/* Instrument label voice: mono, tracked, uppercase. */
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--signal);
+@keyframes rk-live {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
 }
-.mono {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+@keyframes rk-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 button {
-  font-family: var(--font-ui);
+  font-family: inherit;
   cursor: pointer;
 }
 
+/* Shared button voice — square-ish, mono, terminal. */
 .btn {
-  border: 1px solid var(--line-2);
-  background: var(--panel);
-  color: var(--ink);
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 13.5px;
-  font-weight: 550;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--ink2);
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 11px 18px;
+  border-radius: 6px;
   transition:
-    border-color 0.14s,
     background 0.14s,
-    box-shadow 0.14s,
-    transform 0.05s;
+    border-color 0.14s,
+    color 0.14s;
 }
 .btn:hover {
-  border-color: var(--line-2);
-  background: var(--panel-2);
-}
-.btn:active {
-  transform: translateY(1px);
-}
-.btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-  box-shadow: none;
+  border-color: var(--fnt);
 }
 .btn.primary {
-  background: var(--signal);
-  border-color: var(--signal);
-  color: var(--signal-ink);
-  box-shadow: 0 1px 2px rgba(75, 58, 240, 0.25), 0 8px 18px -8px rgba(75, 58, 240, 0.5);
+  border: 0;
+  background: var(--acc);
+  color: var(--accink);
+  font-weight: 600;
 }
 .btn.primary:hover {
-  background: #3c2ce0;
-  border-color: #3c2ce0;
+  background: var(--acchov);
 }
 .btn.danger {
+  border: 0;
   background: var(--danger);
-  border-color: var(--danger);
   color: #fff;
-  box-shadow: 0 1px 2px rgba(229, 72, 77, 0.25), 0 8px 18px -8px rgba(229, 72, 77, 0.5);
+  font-weight: 600;
 }
 .btn.ghost {
+  border: 0;
   background: transparent;
-  box-shadow: none;
+  color: var(--fnt);
+  padding: 11px 12px;
 }
 .btn.ghost:hover {
-  background: var(--panel-2);
+  color: var(--ink2);
+}
+.btn.sm {
+  padding: 7px 13px;
+  font-size: 11.5px;
+  border-radius: 5px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 :focus-visible {
-  outline: 2px solid var(--signal);
+  outline: 1px solid var(--acc);
   outline-offset: 2px;
 }
 ::selection {
-  background: var(--signal-soft);
+  background: var(--accsoft);
 }
 
 @media (prefers-reduced-motion: reduce) {
