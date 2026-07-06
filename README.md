@@ -27,13 +27,21 @@ brew install fcjr/fcjr/restorekit-cli
 # or on windows via scoop
 scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr
 scoop install restorekit-cli
-# or on any platform via crates.io
-cargo install restorekit-cli
 ```
 
 Or grab a binary from the [releases](https://github.com/fcjr/restorekit/releases).
 
-## Desktop app
+Building from source (`cargo install` or `cargo build`) compiles a vendored c stack, so it needs autotools, cmake and a c compiler (even more stuf like MSYS2 on windows).  All binaries above are statically linked so
+do not require any prerequisites.
+If you still prefer buliding from source, first setup your env via the [build guide](docs/building.md).
+Then you can insatll via cargo:
+
+```sh
+# (needs a c toolchain; see above)
+cargo install restorekit-cli
+```
+
+## Install the Desktop app
 
 There is also a WIP tauri + svelte gui that wraps the `restorekit` library for an easier one-click
 restore.  It has the same functionality and can currently be installd on macOS via homebrew.
