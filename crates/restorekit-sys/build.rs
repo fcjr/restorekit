@@ -207,6 +207,15 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
     }
     println!("cargo:warning=building {name} from source");
 
+    // Build out-of-tree in a per-OUT_DIR directory rather than in the vendored
+    // source. libtool bakes the absolute install `libdir` into each `.la` file
+    // at link time; an in-place build in the shared vendor tree lets one build
+    // unit's OUT_DIR leak into another's `.la`, and since `cargo clean` only
+    // wipes `target/`, stale paths survive there. A private build dir keeps
+    // every unit (profile, workspace) self-contained and reproducible.
+    let build_dir = deps.prefix.parent().unwrap().join("build").join(name);
+    std::fs::create_dir_all(&build_dir).unwrap();
+
     // These projects derive PACKAGE_VERSION from `git describe`, falling back
     // to a `.tarball-version` file. The published crate ships the vendored
     // sources without their submodule `.git` links, so configure would abort
@@ -239,9 +248,9 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         }
     }
 
-    let mut configure = shell(deps.windows, "./configure");
+    let mut configure = shell(deps.windows, &deps.path(&src.join("configure")));
     configure
-        .current_dir(src)
+        .current_dir(&build_dir)
         .arg(format!("--prefix={}", deps.path(&deps.prefix)))
         .arg("--enable-static")
         .arg("--disable-shared")
@@ -270,7 +279,7 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
 
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "4".into());
     let mut make = Command::new("make");
-    make.current_dir(src).arg(format!("-j{jobs}"));
+    make.current_dir(&build_dir).arg(format!("-j{jobs}"));
     if deps.windows {
         make.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
     }
@@ -281,7 +290,7 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
     std::fs::create_dir_all(&udevdir).ok();
     let mut make_install = Command::new("make");
     make_install
-        .current_dir(src)
+        .current_dir(&build_dir)
         .arg("install")
         .arg(format!("udevrulesdir={}", udevdir.display()));
     if deps.windows {
