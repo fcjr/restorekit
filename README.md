@@ -31,16 +31,6 @@ scoop install restorekit-cli
 
 Or grab a binary from the [releases](https://github.com/fcjr/restorekit/releases).
 
-Building from source (`cargo install` or `cargo build`) compiles a vendored c stack, so it needs autotools, cmake and a c compiler (even more stuf like MSYS2 on windows).  All binaries above are statically linked so
-do not require any prerequisites.
-If you still prefer buliding from source, first setup your env via the [build guide](docs/building.md).
-Then you can insatll via cargo:
-
-```sh
-# (needs a c toolchain; see above)
-cargo install restorekit-cli
-```
-
 ## Install the Desktop app
 
 There is also a WIP tauri + svelte gui that wraps the `restorekit` library for an easier one-click
@@ -75,6 +65,18 @@ sudo restorekit restore --yes
 Follow the instructions and bam! restorekit will detect the mac, download the approprate firmware, and restore the machine to factory settings.
 
 On linux, you can avoid `sudo` by installing a [udev rule](#linux-usb-permissions) first.
+
+## Building from source
+
+Building from source (`cargo install` or `cargo build`) compiles a vendored c stack, so it needs autotools, cmake and a c compiler (even more stuf like MSYS2 on windows).  All binaries above are statically linked so
+do not require any prerequisites.
+
+If you still prefer buliding from source, first setup your env via the [build guide](docs/building.md).
+Then you can install via cargo:
+
+```sh
+cargo install restorekit-cli
+```
 
 ## More commands
 
