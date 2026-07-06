@@ -72,7 +72,8 @@ into DFU manually (restorekit prints the key-combo instructions), then
 | `dfu` | Reboot the cabled target into DFU (macOS AS host, root). |
 | `reboot` | Reboot the cabled target normally (undo a DFU trigger). |
 | `download` | Resolve firmware for the detected DFU device (or `--identifier`), download to cache. |
-| `restore` | One-shot: trigger DFU entry if needed → wait → download → full erase-restore (`--revive` keeps data; `--yes` skips confirmation; `--ipsw`/`--os-version` pin firmware; `--ecid` picks a target when several are in DFU, otherwise an interactive picker). |
+| `restore` | One-shot erase-restore: trigger DFU entry if needed → wait → download → full erase-restore (`--yes` skips confirmation; `--ipsw`/`--os-version` pin firmware; `--ecid` picks a target when several are in DFU, otherwise an interactive picker). |
+| `revive` | Reinstall firmware without erasing user data (un-brick after a failed update). Same target/firmware flags as `restore`; no erase, so no `--yes`. |
 | `cache` | Show or clear the firmware cache (`--path`, `--clear`). |
 | `setup-driver` | Bind the WinUSB driver so restorekit can reach the target (Windows only). |
 
@@ -104,9 +105,10 @@ Global flags: `--cache-dir`, `--json`, `-v`.
 2. **The AppleHPM user client is private Apple API** and could change in a
    macOS update. Mitigation: behavior pinned to macvdmtool upstream; failures
    degrade to manual DFU instructions.
-3. **Restores are destructive.** Mitigation: explicit model+ECID confirmation
-   prompt, `--yes` required for non-interactive erase, `revive` mode default
-   prompts distinctly.
+3. **Restores are destructive.** Mitigation: the erasing `restore` command
+   requires an explicit model+ECID confirmation prompt (`--yes` for
+   non-interactive erase); the non-destructive path is a separate `revive`
+   command that never erases, so the two intents can't be confused.
 4. **ipsw.me is community-run.** Mitigation: mesu fallback + `--ipsw` for
    fully offline operation.
 

@@ -44,9 +44,12 @@ enum Command {
         #[arg(long, value_parser = parse_ecid)]
         ecid: Option<u64>,
     },
-    /// Restore (erase) the target Mac: triggers DFU entry if needed, then
-    /// downloads firmware and restores.
+    /// Erase and restore the target Mac: triggers DFU entry if needed, then
+    /// downloads firmware and restores. This wipes all data on the target.
     Restore(RestoreArgs),
+    /// Revive the target Mac: reinstall firmware without erasing user data —
+    /// use this to recover a Mac bricked by a failed update.
+    Revive(ReviveArgs),
     /// Show or manage the firmware cache.
     Cache {
         /// Delete all cached firmware.
@@ -68,11 +71,9 @@ enum Command {
     },
 }
 
+/// Firmware selection and target arguments shared by `restore` and `revive`.
 #[derive(clap::Args)]
-struct RestoreArgs {
-    /// Update-style restore that keeps user data instead of erasing.
-    #[arg(long)]
-    revive: bool,
+struct FirmwareArgs {
     /// Restore from a local IPSW instead of downloading.
     #[arg(long)]
     ipsw: Option<PathBuf>,
@@ -86,9 +87,21 @@ struct RestoreArgs {
     /// when several are in DFU mode. See `restorekit list`.
     #[arg(long, value_parser = parse_ecid)]
     ecid: Option<u64>,
+}
+
+#[derive(clap::Args)]
+struct RestoreArgs {
+    #[command(flatten)]
+    firmware: FirmwareArgs,
     /// Skip the erase confirmation prompt.
     #[arg(long)]
     yes: bool,
+}
+
+#[derive(clap::Args)]
+struct ReviveArgs {
+    #[command(flatten)]
+    firmware: FirmwareArgs,
 }
 
 /// Parse an ECID: `0x`-prefixed or bare hex, or decimal.
@@ -104,20 +117,22 @@ fn parse_ecid(s: &str) -> Result<u64, String> {
     parsed.map_err(|_| format!("invalid ECID '{s}': expected hex (0x…) or decimal"))
 }
 
-impl RestoreArgs {
+impl FirmwareArgs {
     fn into_opts(
         self,
+        revive: bool,
+        yes: bool,
         cache_dir: Option<PathBuf>,
         json: bool,
         verbose: bool,
     ) -> commands::restore::Opts {
         commands::restore::Opts {
-            revive: self.revive,
+            revive,
             ipsw: self.ipsw,
             os_version: self.os_version,
             identifier: self.identifier,
             ecid: self.ecid,
-            yes: self.yes,
+            yes,
             cache_dir,
             json,
             verbose,
@@ -152,9 +167,20 @@ fn main() {
             os_version,
             ecid,
         } => commands::download::run(identifier, os_version, ecid, cli.cache_dir, cli.json),
-        Command::Restore(args) => {
-            commands::restore::run(args.into_opts(cli.cache_dir, cli.json, cli.verbose))
-        }
+        Command::Restore(args) => commands::restore::run(args.firmware.into_opts(
+            false,
+            args.yes,
+            cli.cache_dir,
+            cli.json,
+            cli.verbose,
+        )),
+        Command::Revive(args) => commands::restore::run(args.firmware.into_opts(
+            true,
+            false,
+            cli.cache_dir,
+            cli.json,
+            cli.verbose,
+        )),
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
         #[cfg(target_os = "windows")]
         Command::SetupDriver {
