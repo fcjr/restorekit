@@ -346,6 +346,15 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
         // Function-detection defines normally emitted into autotools' config.h.
         // strcspn is standard C and present everywhere (incl. mingw).
         .define("HAVE_STRCSPN", None)
+        // Feature checks configure.ac runs against libimobiledevice; our
+        // vendored copy (1.4.0) has all of them. Without HAVE_IDEVICE_E_TIMEOUT
+        // a quiet FDR channel returns IDEVICE_E_TIMEOUT (-7) which fdr.c then
+        // treats as fatal, killing restores mid-transfer; HAVE_REVERSE_PROXY
+        // selects libimobiledevice's reverse proxy over the legacy FDR path.
+        .define("HAVE_IDEVICE_E_TIMEOUT", None)
+        .define("HAVE_RESTORE_E_RECEIVE_TIMEOUT", None)
+        .define("HAVE_ENUM_IDEVICE_CONNECTION_TYPE", None)
+        .define("HAVE_REVERSE_PROXY", None)
         .define("PACKAGE_NAME", "\"idevicerestore\"")
         .define("PACKAGE_VERSION", "\"restorekit-vendored\"")
         .define("PACKAGE_STRING", "\"idevicerestore (restorekit)\"")
