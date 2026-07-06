@@ -68,7 +68,7 @@ On linux, you can avoid `sudo` by installing a [udev rule](#linux-usb-permission
 
 ## Building from source
 
-Building from source (`cargo install` or `cargo build`) compiles a vendored c stack, so it needs autotools, cmake and a c compiler (even more stuf like MSYS2 on windows).  All binaries above are statically linked so
+Building from source (`cargo install` or `cargo build`) compiles a vendored c stack, so it needs autotools, cmake and a c compiler (even more stuff like MSYS2 on windows).  All binaries above are statically linked so
 do not require any prerequisites.
 
 If you still prefer buliding from source, first setup your env via the [build guide](docs/building.md).
