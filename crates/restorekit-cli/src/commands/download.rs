@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use indicatif::ProgressBar;
 use restorekit::progress::Event;
-use restorekit::{dfu, firmware, Error, Result};
+use restorekit::{firmware, Error, Result};
 
 use super::render;
 
@@ -11,22 +11,31 @@ use super::render;
 pub fn run(
     identifier: Option<String>,
     os_version: Option<String>,
+    ecid: Option<u64>,
     cache_dir: Option<PathBuf>,
     json: bool,
 ) -> Result<()> {
     let identifier = match identifier {
         Some(id) => id,
         None => {
-            let device = dfu::find_one()?;
+            let device = super::dfu::select_device(ecid, json)?;
+            let identity = device
+                .identity
+                .as_ref()
+                .expect("selected device carries an identity");
             let id = device
                 .identifier()
                 .ok_or(Error::UnknownModel {
-                    cpid: device.cpid,
-                    bdid: device.bdid,
+                    cpid: identity.cpid,
+                    bdid: identity.bdid,
                 })?
                 .to_string();
             if !json {
-                println!("Detected {} in DFU mode.", device.display_name());
+                println!(
+                    "Detected {} in {} mode.",
+                    device.display_name(),
+                    device.mode
+                );
             }
             id
         }

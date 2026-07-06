@@ -18,6 +18,13 @@
       <dt>iBoot</dt>
       <dd class="mono">{device.srtg}</dd>
     {/if}
+    {#if device.port}
+      <dt>port</dt>
+      <dd>
+        {device.port.location ?? "unknown"}
+        {#if device.port.dfu}<span class="tag ok">DFU port</span>{:else}<span class="tag">not DFU</span>{/if}
+      </dd>
+    {/if}
   </dl>
 </div>
 
@@ -64,5 +71,19 @@
     margin: 0;
     color: var(--ink);
     font-size: 13px;
+  }
+  .tag {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: var(--line-2);
+    color: var(--faint);
+    margin-left: 6px;
+  }
+  .tag.ok {
+    background: color-mix(in srgb, var(--signal) 20%, transparent);
+    color: var(--signal);
   }
 </style>

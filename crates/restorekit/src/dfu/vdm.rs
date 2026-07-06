@@ -354,8 +354,12 @@ fn unlock_key() -> Result<(u32, String)> {
     }
 }
 
-/// Find the DFU port controller (the AppleHPM node with RID == 0) and open it.
+/// Find a DFU-capable port controller and open it. The device tree declares
+/// which AppleHPM `RID`s carry the DFU/debug VDM path in `uart-hpm-rids`
+/// (see [`super::port`]); we pick the first matching controller, falling back
+/// to `RID == 0` when that property is absent.
 fn find_device() -> Result<Hpm> {
+    let dfu_rids = super::port::dfu_capable_rids();
     unsafe {
         let class = CString::new("AppleHPM").unwrap();
         let matching = IOServiceMatching(class.as_ptr());
@@ -397,12 +401,13 @@ fn find_device() -> Result<Hpm> {
             );
             CFRelease(prop);
 
-            if rid != 0 {
+            // Skip non-DFU controllers, and stop once we've opened one.
+            if chosen.is_some() || !dfu_rids.contains(&rid) {
                 IOObjectRelease(device);
                 continue;
             }
 
-            // RID == 0: this is the DFU port. Open the plug-in.
+            // A DFU-capable port: open its plug-in.
             let mut plugin: *mut *mut IOCFPlugInInterface = std::ptr::null_mut();
             let mut score: i32 = 0;
             let kr = IOCreatePlugInInterfaceForService(

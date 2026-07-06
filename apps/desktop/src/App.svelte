@@ -164,9 +164,8 @@
     error = "";
     busy = "Triggering DFU…";
     try {
-      await api.triggerDfu();
+      const dfuDev = await api.triggerDfu();
       await refresh();
-      const dfuDev = devices.find((d) => d.mode === "dfu");
       if (dfuDev) selectedSerial = dfuDev.serial;
     } catch (e) {
       if (String(e).includes(APPROVAL_REQUIRED)) requestApproval("dfu");

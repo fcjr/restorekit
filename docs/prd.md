@@ -21,8 +21,8 @@ without touching the core.
 
 ## Goals
 
-- One-command restore: `restorekit run` takes a cabled, powered-on target Mac
-  from any state to a fresh macOS install.
+- One-command restore: `restorekit restore` takes a cabled, powered-on target
+  Mac from any state to a fresh macOS install.
 - DFU triggering from an Apple Silicon macOS host via USB-PD VDM (requires
   root; DFU-capable port on both ends).
 - DFU detection and model identification on macOS and Linux, with no daemons
@@ -53,27 +53,28 @@ without touching the core.
 ## Users & flows
 
 **IT technician / refurbisher** — bench setup with a host Mac:
-`sudo restorekit run` → target reboots into DFU, firmware resolves from
-cache, restore runs to 100%, target boots to Setup Assistant.
+`sudo restorekit restore` → target reboots into DFU, firmware resolves from
+cache, restore runs to 100%, target boots to Setup Assistant. With several
+targets in DFU, an interactive picker (or `--ecid` for scripting) selects one.
 
 **Developer / tinkerer with a bricked Mac and a Linux box:** puts the target
 into DFU manually (restorekit prints the key-combo instructions), then
-`restorekit run` detects, downloads, and restores.
+`restorekit restore` detects, downloads, and restores.
 
-**Cautious user:** `restorekit status` → `restorekit download` →
+**Cautious user:** `restorekit list` → `restorekit download` →
 `restorekit restore` as separate, inspectable steps.
 
 ## CLI surface
 
 | Command | Behavior |
 |---|---|
-| `status` | List Macs in DFU mode (model, board, ECID). |
+| `list` | List every connected Apple device with its mode and ECID (booted Macs' ECID on macOS hosts). |
 | `dfu` | Reboot the cabled target into DFU (macOS AS host, root). |
 | `reboot` | Reboot the cabled target normally (undo a DFU trigger). |
 | `download` | Resolve firmware for the detected DFU device (or `--identifier`), download to cache. |
-| `restore` | Full erase-restore of the detected DFU device (`--revive` keeps data; `--yes` skips confirmation; `--ipsw`/`--os-version` pin firmware). |
-| `run` | One-shot: trigger DFU (if possible) → wait → download → restore. |
+| `restore` | One-shot: trigger DFU entry if needed → wait → download → full erase-restore (`--revive` keeps data; `--yes` skips confirmation; `--ipsw`/`--os-version` pin firmware; `--ecid` picks a target when several are in DFU, otherwise an interactive picker). |
 | `cache` | Show or clear the firmware cache (`--path`, `--clear`). |
+| `setup-driver` | Bind the WinUSB driver so restorekit can reach the target (Windows only). |
 
 Global flags: `--cache-dir`, `--json`, `-v`.
 
@@ -88,9 +89,9 @@ Global flags: `--cache-dir`, `--json`, `-v`.
 
 ## External dependencies
 
-- **idevicerestore** binary on `$PATH` (brew/apt); the Homebrew cask points
-  users at it. Recent versions required (the M1 macOS ≥15.4 restore-loop bug
-  was fixed upstream; distro packages may lag).
+- **idevicerestore** is statically linked into the binary from pinned vendored
+  sources (`restorekit-sys`) — no external tools required. (Originally planned
+  as a `$PATH` dependency; superseded by the FFI build in plan §6.)
 - **ipsw.me v4 API** for firmware metadata (no auth), with Apple's official
   `mesu.apple.com` macOS IPSW plist feed as fallback resolver.
 - Firmware payloads download directly from Apple's CDN.

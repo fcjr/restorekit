@@ -66,6 +66,24 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 - [x] Hardware: `sudo restorekit dfu` + `status` verified against the cabled target Mac (detection + model ID confirmed)
 - [x] **Full restore hardware-verified**: end-to-end erase-restore of an M1 Pro over the FFI succeeded; target booted to Setup Assistant
 
+## 10. Multi-device support & the Device primitive
+- [x] `dfu::Target` selector (`One` / `Ecid`) unifying discovery: `dfu::find(target)` / `dfu::wait(target, timeout)` replace `find_one` / `wait_for_dfu`; ambiguity is an explicit `MultipleDevices` error
+- [x] `dfu::watch()` — OS hotplug arrival watch (nusb `watch_devices`), subscribed *before* the DFU trigger so the entering Mac can't be missed; polling `list()` diff kept as backstop
+- [x] CLI: `--ecid` (hex or decimal) on `restore`/`download`; interactive picker when several Macs are in DFU (TTY only — `--json`/non-TTY errors with an `--ecid` hint)
+- [x] `run` merged into `restore` — one flagship command: triggers DFU entry if needed, then downloads and restores
+- [x] Desktop app: already listed all devices and restored the selected one by serial/ECID; its `trigger_dfu` command now uses `dfu::watch()` and returns the Mac that newly entered DFU (the UI selects it), instead of grabbing the first DFU device after a refresh
+- [x] Booted-Mac identity (cross-platform), via `device::identify`, matching what Apple Configurator shows:
+  - **Model**: the USB `bcdDevice` release number BCD-encodes the model identifier's numeric part (`0x1701` → "17,1" → MacBookPro17,1; `0x1606` → Mac16,6), resolved against `MAC_MODELS` by unique numeric suffix. Available from enumeration alone — no open, fully cross-platform.
+  - **ECID**: advertised in an Apple platform-capability descriptor inside the USB **BOS descriptor** (UUID `0a374ce4-…`, 8-byte little-endian payload — the same value macOS surfaces as `UsbAppleDeviceECID`, which is how Configurator reads it). Read with a standard `GET_DESCRIPTOR(BOS)` request via nusb (macOS/Linux/Windows); best-effort — a device we can't open keeps `ecid == None`, resolved for free at DFU.
+  - Found by probing the device's descriptors directly (traced `cfgutil`/MobileDeviceKit → `MobileDevice.framework`) after two dead ends: reading identity over RemoteXPC is trust-gated at the RSD layer (proven with pymobiledevice3 on real hardware — needs a CoreDevice pairing+tunnel a third party can't reproduce), and the `UsbAppleDeviceECID` IORegistry property is macOS-only.
+- [x] `device::Device` as the core primitive: `device::list()` enumerates every Apple USB device with its `UsbMode` (dfu/recovery/wtf/restore/booted/other — booted Macs enumerate as the RemoteXPC/NCM gadget, PID 0x1902, carrying the Apple serial; ECID filled in by `identify`) and restore-family identity; `Device::enter_dfu()` / `Device::reboot()` change modes (no-op if already in DFU; `UnsupportedHost` off Apple Silicon macOS — the VDM trigger acts on the host's DFU port, not an addressed device); `Target::Ecid` matches any mode, `Target::One` = the sole restorable (DFU) Mac; `dfu::` shrinks to the trigger, `list()` (restorable subset), and `watch`; desktop `list_devices` now maps `device::list()` (incl. Windows `driver_ready`) instead of enumerating USB itself
+- [ ] Hardware-verify with two targets in DFU: picker, `--ecid`, and hotplug arrival on macOS/Linux/Windows
+
+## 11. DFU-capable port detection (macOS)
+- [x] `dfu/port.rs`: read-only IORegistry topology. `uart-hpm-rids` (device-tree bitmask of the HPM `RID`s carrying the UART/SWD/DFU debug harness — the same VMD path, per Asahi) declares which port controller(s) can trigger DFU; `vdm::find_device` now selects by that set (fallback `RID==0`) instead of hardcoding, hardening the trigger itself. Correlation: DFU controller's `port-number` → matching `usb-drd` USB controller → its `locationID` base → a device is on the DFU port iff `locationID & 0xff000000` matches. `port-location` gives the human name ("left-back").
+- [x] `Device.port: Option<Port { dfu: bool, location: Option<String> }>` — the device's actual host port and whether it's DFU-capable — populated by `identify()` on macOS. Surfaced in CLI `list` ("left-front — move the cable to left-back to restore"), CLI `--json` (Device serializes), and the desktop (`DeviceView.port` + a card badge). `None` off macOS or when topology is unreadable — never a confidently-wrong answer. `dfu::dfu_port_label()` gives the DFU port's name.
+- Verified live: `uart-hpm-rids` → RID 0 → "left-back" (base 0x00000000); a booted Mac on another port correctly reported "not the DFU port (move the cable to left-back)".
+
 ## Post-v1 follow-ups (not in this pass)
 - [ ] Create github.com/fcjr/restorekit and push; add `TAP_GITHUB_TOKEN` secret (PAT with write access to fcjr/homebrew-fcjr)
 - [ ] Code signing + notarization for the macOS binaries

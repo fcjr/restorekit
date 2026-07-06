@@ -46,7 +46,11 @@ If you are on windows, next run `restorekit setup-driver` to install our custom 
 Then run:
 
 ```sh
-sudo restorekit run
+sudo restorekit restore
+# or by eid
+sudo restorekit restore --ecid 0xc60a812345678 
+# or with no prompts
+sudo restorekit restore --yes
 ```
 
 Follow the instructions and bam! restorekit will detect the mac, download the approprate firmware, and restore the machine to factory settings.
@@ -115,11 +119,14 @@ Both the CLI and the desktop app are thin shells over the [`restorekit`](https:/
 rust crate, which exposes the same workflow using a callback based system:
 
 ```rust
-use restorekit::{dfu, firmware};
+use restorekit::{device, firmware};
 use std::time::Duration;
 
-let device = dfu::wait_for_dfu(Duration::from_secs(60))?;
-let fw = firmware::resolve(device.identifier().unwrap(), None)?;
+// The sole Mac in DFU mode. device::list() shows everything connected (in any
+// mode), Target::Ecid(..) picks one of several, and dev.enter_dfu(..) puts a
+// cabled target into DFU on hosts that support it.
+let dev = device::wait(device::Target::One, Duration::from_secs(60))?;
+let fw = firmware::resolve(dev.identifier().unwrap(), None)?;
 let cache = firmware::default_cache_dir()?;
 let ipsw = firmware::download(&cache, &fw, &mut |event| {
     // render progress however you like

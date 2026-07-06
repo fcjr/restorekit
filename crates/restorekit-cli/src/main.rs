@@ -25,8 +25,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// List Macs currently in DFU mode.
-    Status,
+    /// List every connected Apple device, with its mode and ECID.
+    List,
     /// Reboot the cabled target Mac into DFU mode (Apple Silicon macOS host, root).
     Dfu,
     /// Reboot the cabled target Mac back into normal mode.
@@ -39,11 +39,14 @@ enum Command {
         /// Pin a macOS version (e.g. 26.5.2). Defaults to the latest signed build.
         #[arg(long)]
         os_version: Option<String>,
+        /// Detect the model from a specific Mac by ECID (hex like 0xc60a812345678,
+        /// or decimal) when several are in DFU mode. See `restorekit list`.
+        #[arg(long, value_parser = parse_ecid)]
+        ecid: Option<u64>,
     },
-    /// Restore (erase) the Mac in DFU mode.
+    /// Restore (erase) the target Mac: triggers DFU entry if needed, then
+    /// downloads firmware and restores.
     Restore(RestoreArgs),
-    /// One-shot: trigger DFU, wait, download, and restore.
-    Run(RestoreArgs),
     /// Show or manage the firmware cache.
     Cache {
         /// Delete all cached firmware.
@@ -79,9 +82,26 @@ struct RestoreArgs {
     /// Override the detected model identifier.
     #[arg(long)]
     identifier: Option<String>,
+    /// Target a specific Mac by ECID (hex like 0xc60a812345678, or decimal)
+    /// when several are in DFU mode. See `restorekit list`.
+    #[arg(long, value_parser = parse_ecid)]
+    ecid: Option<u64>,
     /// Skip the erase confirmation prompt.
     #[arg(long)]
     yes: bool,
+}
+
+/// Parse an ECID: `0x`-prefixed or bare hex, or decimal.
+fn parse_ecid(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    let parsed = if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16)
+    } else if s.bytes().all(|b| b.is_ascii_digit()) {
+        s.parse()
+    } else {
+        u64::from_str_radix(s, 16)
+    };
+    parsed.map_err(|_| format!("invalid ECID '{s}': expected hex (0x…) or decimal"))
 }
 
 impl RestoreArgs {
@@ -96,11 +116,27 @@ impl RestoreArgs {
             ipsw: self.ipsw,
             os_version: self.os_version,
             identifier: self.identifier,
+            ecid: self.ecid,
             yes: self.yes,
             cache_dir,
             json,
             verbose,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_ecid;
+
+    #[test]
+    fn parses_ecid_forms() {
+        assert_eq!(parse_ecid("0xC60A812345678").unwrap(), 0xc60a812345678);
+        assert_eq!(parse_ecid("0Xc60a812345678").unwrap(), 0xc60a812345678);
+        assert_eq!(parse_ecid("12345").unwrap(), 12345);
+        assert_eq!(parse_ecid("c60a812345678").unwrap(), 0xc60a812345678);
+        assert!(parse_ecid("nope!").is_err());
+        assert!(parse_ecid("").is_err());
     }
 }
 
@@ -123,18 +159,16 @@ fn main() {
 
     let cli = Cli::parse();
     let result = match cli.command {
-        Command::Status => commands::status::run(cli.json),
+        Command::List => commands::list::run(cli.json),
         Command::Dfu => commands::dfu::enter(cli.json),
         Command::Reboot => commands::dfu::reboot(cli.json),
         Command::Download {
             identifier,
             os_version,
-        } => commands::download::run(identifier, os_version, cli.cache_dir, cli.json),
+            ecid,
+        } => commands::download::run(identifier, os_version, ecid, cli.cache_dir, cli.json),
         Command::Restore(args) => {
             commands::restore::run(args.into_opts(cli.cache_dir, cli.json, cli.verbose))
-        }
-        Command::Run(args) => {
-            commands::restore::run_oneshot(args.into_opts(cli.cache_dir, cli.json, cli.verbose))
         }
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
         #[cfg(target_os = "windows")]

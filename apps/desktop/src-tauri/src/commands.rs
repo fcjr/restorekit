@@ -1,12 +1,8 @@
-use nusb::MaybeFuture;
-use restorekit::device;
-use restorekit::dfu::{self, parse_serial};
+use restorekit::device::{self, parse_serial, Device};
 use restorekit::restore::Mode;
-use restorekit::{firmware, restore, Firmware};
+use restorekit::{dfu, firmware, restore, Firmware};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-
-const APPLE_VID: u16 = 0x05ac;
 
 /// One connected Apple device and the USB mode it's in. ECID is a hex string
 /// (a u64 as a JSON number would lose precision in JS); `serial` is the raw DFU
@@ -24,18 +20,35 @@ pub struct DeviceView {
     pub serial: String,
     /// Whether restorekit can restore a device in this mode (DFU only).
     pub restorable: bool,
+    /// The host port this device is on (macOS): its firmware location name and
+    /// whether it's the DFU-capable port. `None` when undeterminable.
+    pub port: Option<restorekit::Port>,
     /// Whether the OS driver lets restorekit open this device. Always true on
     /// macOS/Linux; on Windows, false until WinUSB is bound (see `setup_driver`).
     pub driver_ready: bool,
 }
 
-fn mode_for(pid: u16) -> &'static str {
-    match pid {
-        0x1227 => "dfu",
-        0x1280 | 0x1281 => "recovery",
-        0x1222 => "wtf",
-        0x1338 | 0x1339 => "restore",
-        _ => "other",
+fn view(d: Device) -> DeviceView {
+    DeviceView {
+        restorable: d.restorable(),
+        driver_ready: d.driver_ready,
+        mode: d.mode.to_string(),
+        name: d.display_name(),
+        identifier: d.identifier().map(str::to_string),
+        chip: d
+            .identity
+            .as_ref()
+            .map(|i| format!("CPID:{:04x}", i.cpid))
+            .unwrap_or_default(),
+        board: d
+            .identity
+            .as_ref()
+            .map(|i| format!("BDID:{:02x}", i.bdid))
+            .unwrap_or_default(),
+        ecid: d.ecid_hex().unwrap_or_default(),
+        srtg: d.identity.as_ref().and_then(|i| i.srtg.clone()),
+        serial: d.serial,
+        port: d.port,
     }
 }
 
@@ -44,69 +57,11 @@ fn mode_for(pid: u16) -> &'static str {
 /// shown by its USB product name so the user still sees what's connected.
 #[tauri::command]
 pub fn list_devices() -> Result<Vec<DeviceView>, String> {
-    let devices = nusb::list_devices().wait().map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-
-    for info in devices {
-        if info.vendor_id() != APPLE_VID {
-            continue;
-        }
-        let serial = info.serial_number().unwrap_or("");
-        let parsed = parse_serial(serial);
-        let mode = mode_for(info.product_id());
-
-        let (name, identifier, chip, board, ecid, srtg) = match parsed {
-            Some((cpid, bdid, ecid, srtg)) => {
-                let model = device::lookup(cpid, bdid);
-                (
-                    model
-                        .map(|m| m.name.to_string())
-                        .unwrap_or_else(|| format!("Unknown Mac (CPID:{cpid:04x})")),
-                    model.map(|m| m.identifier.to_string()),
-                    format!("CPID:{cpid:04x}"),
-                    format!("BDID:{bdid:02x}"),
-                    format!("0x{ecid:x}"),
-                    srtg,
-                )
-            }
-            None => (
-                info.product_string().unwrap_or("Apple device").to_string(),
-                None,
-                String::new(),
-                String::new(),
-                String::new(),
-                None,
-            ),
-        };
-
-        out.push(DeviceView {
-            restorable: mode == "dfu",
-            driver_ready: driver_ready_for(&info, mode),
-            mode: mode.to_string(),
-            name,
-            identifier,
-            chip,
-            board,
-            ecid,
-            srtg,
-            serial: serial.to_string(),
-        });
-    }
-    Ok(out)
-}
-
-/// Whether the OS driver lets restorekit open a device in `mode`. Only the
-/// restore-family modes need WinUSB on Windows; never poke a normal device.
-#[cfg(target_os = "windows")]
-fn driver_ready_for(info: &nusb::DeviceInfo, mode: &str) -> bool {
-    match mode {
-        "dfu" | "recovery" | "wtf" | "restore" => crate::winusb::device_ready(info),
-        _ => true,
-    }
-}
-#[cfg(not(target_os = "windows"))]
-fn driver_ready_for(_info: &nusb::DeviceInfo, _mode: &str) -> bool {
-    true
+    let mut devices = device::list().map_err(|e| e.to_string())?;
+    // Fill in booted Macs' model/ECID/name (cached per serial, so the poll
+    // only pays for the network name lookup once per machine).
+    device::identify(&mut devices);
+    Ok(devices.into_iter().map(view).collect())
 }
 
 #[tauri::command]
@@ -119,18 +74,28 @@ pub fn manual_instructions() -> String {
     dfu::manual_dfu_instructions().to_string()
 }
 
-/// Trigger DFU on the cabled target via the elevated helper (Touch ID prompt).
-/// macOS-only: electronic DFU entry needs an Apple Silicon Mac host.
+/// Trigger DFU on the cabled target via the elevated helper (Touch ID prompt)
+/// and return the Mac that newly entered DFU. macOS-only: electronic DFU entry
+/// needs an Apple Silicon Mac host.
 #[tauri::command]
-pub async fn trigger_dfu() -> Result<(), String> {
+pub async fn trigger_dfu() -> Result<DeviceView, String> {
     #[cfg(not(target_os = "macos"))]
     return Err(NO_TRIGGER.into());
 
     #[cfg(target_os = "macos")]
     {
-        tauri::async_runtime::spawn_blocking(|| crate::elevate::run_helper("dfu"))
-            .await
-            .map_err(|e| e.to_string())?
+        tauri::async_runtime::spawn_blocking(|| {
+            // Subscribe before triggering so a Mac already sitting in DFU is
+            // never mistaken for the one the trigger just rebooted.
+            let watch = dfu::watch().map_err(|e| e.to_string())?;
+            crate::elevate::run_helper("dfu")?;
+            let device = watch
+                .wait(std::time::Duration::from_secs(20))
+                .map_err(|e| e.to_string())?;
+            Ok(view(device))
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 }
 

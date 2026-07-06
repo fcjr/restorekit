@@ -101,6 +101,8 @@ must not run as root, so:
 ## Functional requirements
 
 - Poll for a DFU device (~2s) and reflect connect/disconnect live.
+- List every connected Apple device (any mode); with several connected, the
+  user selects one and all actions target the selection only.
 - Map every library `Event` (`DfuTriggerStage`, `DownloadProgress`, `Verifying`,
   `RestoreStep`, `Done`) to a UI update via a single Tauri event channel.
 - Elevate only the trigger; surface a clear error if the admin prompt is denied.

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::dfu::DfuDevice;
+use crate::device::Device;
 
 /// Progress events emitted by long-running library operations.
 ///
@@ -14,7 +14,7 @@ pub enum Event {
     },
     /// A Mac in DFU mode was detected.
     DeviceDetected {
-        device: DfuDevice,
+        device: Device,
     },
     /// Firmware metadata was resolved for the target.
     FirmwareResolved {

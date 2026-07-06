@@ -5,8 +5,11 @@ pub enum Error {
     #[error("no Mac in DFU mode found")]
     NoDeviceFound,
 
-    #[error("multiple Macs in DFU mode found ({0}); disconnect all but one")]
+    #[error("multiple Macs in DFU mode found ({0}); select one with --ecid (see `restorekit status`) or disconnect the others")]
     MultipleDevices(usize),
+
+    #[error("no Mac in DFU mode with ECID {0:#x}")]
+    EcidNotFound(u64),
 
     #[error("timed out waiting for a Mac to appear in DFU mode")]
     WaitTimeout,

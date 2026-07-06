@@ -1,9 +1,26 @@
 pub mod discovery;
 
-pub use discovery::{find_one, list, parse_serial, wait_for_dfu, DfuDevice, APPLE_VID, DFU_PID};
+pub use discovery::{watch, Watch};
 
 #[cfg(target_os = "macos")]
 pub mod vdm;
+
+#[cfg(target_os = "macos")]
+pub(crate) mod port;
+
+/// Human label of the host's DFU-capable port (e.g. "left-back"), if the host
+/// can trigger DFU and the port topology is known. `None` on hosts that can't
+/// trigger DFU or where the label couldn't be read.
+pub fn dfu_port_label() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        port::dfu_port_location()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
 
 /// Whether this host can trigger DFU mode on a target over USB-PD.
 ///

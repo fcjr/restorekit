@@ -3,15 +3,18 @@
 //!
 //! The workflow has four stages, each a module:
 //!
-//! - [`dfu`] — put a cabled target into DFU mode ([`dfu::vdm`], macOS on Apple
-//!   Silicon only) and detect a Mac already in DFU ([`dfu::list`],
-//!   [`dfu::wait_for_dfu`]).
-//! - [`device`] — identify a detected device's exact model from its chip and
-//!   board IDs.
+//! - [`device`] — the [`device::Device`] primitive: every connected Apple USB
+//!   device with its [`device::UsbMode`] and identity (chip/board/ECID/model).
+//!   Enumerate with [`device::list`], select with [`device::find`] /
+//!   [`device::wait`] and a [`device::Target`], and fill in booted Macs' ECIDs
+//!   with [`device::identify`].
+//! - [`dfu`] — put a cabled target into DFU mode with the USB-PD trigger
+//!   ([`dfu::vdm`], Apple Silicon macOS hosts only), and catch the Mac a trigger
+//!   just put *into* DFU with [`dfu::watch`] (subscribe before triggering).
 //! - [`firmware`] — resolve the correct IPSW for a model, download it resumably,
 //!   verify its checksum, and cache it.
 //! - [`restore`] — restore or revive the device via the statically-linked
-//!   `idevicerestore` engine.
+//!   `idevicerestore` engine (DFU mode only).
 //!
 //! # Design
 //!
@@ -27,13 +30,16 @@
 //!
 //! ```no_run
 //! use std::time::Duration;
-//! use restorekit::{dfu, firmware, restore, Event, Mode, Result};
+//! use restorekit::{device, firmware, restore, Event, Mode, Result};
 //!
 //! fn main() -> Result<()> {
-//!     // Wait for a target to appear in DFU mode (trigger it first with
-//!     // `dfu::vdm::enter_dfu` on an Apple Silicon macOS host).
-//!     let device = dfu::wait_for_dfu(Duration::from_secs(60))?;
-//!     let identifier = device.identifier().expect("known model");
+//!     // Pick a target: the sole Mac in DFU mode (Target::Ecid picks one of
+//!     // several; device::list shows everything connected, in any mode — put a
+//!     // cabled target into DFU first with dfu::vdm::enter_dfu).
+//!     let dev = device::find(device::Target::One)?;
+//!
+//!     let identifier = dev.identifier().expect("known model");
+//!     let ecid = dev.ecid.expect("DFU devices always carry an ECID");
 //!
 //!     // Resolve and download the latest signed firmware into the cache.
 //!     let fw = firmware::resolve(identifier, None)?;
@@ -45,7 +51,7 @@
 //!     })?;
 //!
 //!     // Erase-restore the device, printing each step.
-//!     restore::restore(&ipsw, device.ecid, Some(&cache), Mode::Erase, false, &mut |event| {
+//!     restore::restore(&ipsw, ecid, Some(&cache), Mode::Erase, false, &mut |event| {
 //!         if let Event::RestoreStep { name, progress, .. } = event {
 //!             eprintln!("{name}: {:.0}%", progress * 100.0);
 //!         }
@@ -65,7 +71,8 @@ pub mod restore;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod usbmuxd;
 
-pub use dfu::{host_can_trigger_dfu, manual_dfu_instructions, DfuDevice};
+pub use device::{Device, Port, Target, UsbMode};
+pub use dfu::{host_can_trigger_dfu, manual_dfu_instructions};
 pub use error::{Error, Result};
 pub use firmware::Firmware;
 pub use progress::Event;

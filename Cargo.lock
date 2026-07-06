@@ -1019,6 +1019,7 @@ name = "restorekit"
 version = "0.1.6"
 dependencies = [
  "core-foundation",
+ "futures-core",
  "libc",
  "nusb",
  "plist",

@@ -5,7 +5,7 @@ use std::time::Duration;
 use indicatif::{ProgressBar, ProgressStyle};
 use restorekit::progress::Event;
 use restorekit::restore::Mode;
-use restorekit::{dfu, firmware, restore, DfuDevice, Error, Result};
+use restorekit::{firmware, restore, Device, Error, Result};
 
 use super::render;
 
@@ -14,26 +14,29 @@ pub struct Opts {
     pub ipsw: Option<PathBuf>,
     pub os_version: Option<String>,
     pub identifier: Option<String>,
+    pub ecid: Option<u64>,
     pub yes: bool,
     pub cache_dir: Option<PathBuf>,
     pub json: bool,
     pub verbose: bool,
 }
 
-/// Detect → resolve → download → restore the DFU device.
+/// Ensure a target is in DFU mode (triggering entry if the host can), then
+/// resolve → download → restore it.
 pub fn run(opts: Opts) -> Result<()> {
-    let device = dfu::find_one()?;
+    let device = super::dfu::ensure_present(opts.json, Duration::from_secs(120), opts.ecid)?;
     restore_device(&device, opts)
 }
 
-/// One-shot: trigger DFU (if the host can), wait for it, then restore.
-pub fn run_oneshot(opts: Opts) -> Result<()> {
-    let device = super::dfu::ensure_present(opts.json, Duration::from_secs(120))?;
-    restore_device(&device, opts)
-}
-
-fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
+fn restore_device(device: &Device, opts: Opts) -> Result<()> {
     let json = opts.json;
+    // Every path into here (ensure_present, the picker, --ecid) selects a
+    // DFU-mode device with a parsed serial, so the ECID and identity are set.
+    let identity = device
+        .identity
+        .as_ref()
+        .expect("restore target carries an identity");
+    let ecid = device.ecid.expect("restore target carries an ECID");
     let cache = match &opts.cache_dir {
         Some(d) => d.clone(),
         None => firmware::default_cache_dir()?,
@@ -48,8 +51,8 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
             .clone()
             .or_else(|| device.identifier().map(str::to_string))
             .ok_or(Error::UnknownModel {
-                cpid: device.cpid,
-                bdid: device.bdid,
+                cpid: identity.cpid,
+                bdid: identity.bdid,
             })?;
         say(json, &format!("Resolving firmware for {identifier}..."));
         let fw = firmware::resolve(&identifier, opts.os_version.as_deref())?;
@@ -103,7 +106,7 @@ fn restore_device(device: &DfuDevice, opts: Opts) -> Result<()> {
     };
     restore::restore(
         &ipsw_path,
-        device.ecid,
+        ecid,
         Some(&cache),
         mode,
         opts.verbose,
@@ -124,7 +127,7 @@ fn say(json: bool, msg: &str) {
     }
 }
 
-fn confirm(device: &DfuDevice, mode: Mode, yes: bool, json: bool) -> Result<bool> {
+fn confirm(device: &Device, mode: Mode, yes: bool, json: bool) -> Result<bool> {
     if mode == Mode::Revive || yes {
         return Ok(true);
     }
@@ -139,7 +142,7 @@ fn confirm(device: &DfuDevice, mode: Mode, yes: bool, json: bool) -> Result<bool
     println!(
         "  WARNING: this will ERASE ALL DATA on {} (ECID {}).",
         device.display_name(),
-        device.ecid_hex()
+        device.ecid_hex().unwrap_or_default()
     );
     print!("  Type ERASE to continue: ");
     std::io::stdout().flush()?;
