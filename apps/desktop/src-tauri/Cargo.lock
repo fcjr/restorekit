@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "restorekit"
-version = "0.1.6"
+version = "0.2.0"
 dependencies = [
  "core-foundation",
  "futures-core",
@@ -2798,7 +2798,7 @@ dependencies = [
 
 [[package]]
 name = "restorekit-desktop"
-version = "0.1.6"
+version = "0.2.0"
 dependencies = [
  "cc",
  "libc",
@@ -2816,7 +2816,7 @@ dependencies = [
 
 [[package]]
 name = "restorekit-sys"
-version = "0.1.6"
+version = "0.2.0"
 dependencies = [
  "cc",
  "cmake",
