@@ -33,9 +33,20 @@ cargo install restorekit-cli
 
 Or grab a binary from the [releases](https://github.com/fcjr/restorekit/releases).
 
-## Prefer a GUI?
+## Desktop app
 
-There is a very WIP tauri **[desktop app](#desktop-app)** that wraps the same library.
+There is also a WIP tauri + svelte gui that wraps the `restorekit` library for an easier one-click
+restore.  It has the same functionality and can currently be installd on macOS via homebrew.
+
+```sh
+brew install --cask fcjr/fcjr/restorekit   # macOS
+```
+
+For linux (.deb, .AppImage) or windows, you can download the gui directly from the
+[releases page](https://github.com/fcjr/restorekit/releases). Once installed it has full
+automatic updates via tauri's auto-updater.
+
+Winget support coming when I figure out how to automate the process better.
 
 ## Quickstart
 
@@ -97,21 +108,6 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 After installing the udev rule, you may have to unplug and replug your device to get the permmissions to apply.
 
 The `.deb` package _should_ this rule automatically.
-
-## Desktop app
-
-There is also a WIP tauri + svelte gui that wraps the `restorekit` library for an easier one-click
-restore.  It has the same functionality and can currently be installd on macOS via homebrew. 
-
-For linux (.deb, .AppImage) or windows, you can download the gui directly from the
-[releases page](https://github.com/fcjr/restorekit/releases). Once installed it has full
-automatic updates via tauri's auto-updater.
-
-```sh
-brew install --cask fcjr/fcjr/restorekit   # macOS
-```
-
-Winget support coming when I figure out how to automate the process better.
 
 ## As a library
 
