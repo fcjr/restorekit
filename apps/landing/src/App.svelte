@@ -628,12 +628,12 @@ $ restorekit -h`,
         current terms.
       </p>
       <p class="mt-3 max-w-3xl text-[11.5px] leading-6 text-fnt">
-        ³ It's already a bit ridiculous that Acroname
+        ³ It's already a bit ridiculous that Acroname hubs
         <a
-          href="https://acroname.com/store/programmable-industrial-power-delivery-hub-s99-usbhub-3c-pro"
-          class="text-amber hover:text-amber-hov">sells hub features à la carte</a
-        > ($100 to $400 per licensed feature). Cambrionix goes a step further and puts DFU itself
-        behind a license:
+          href="https://acroname.com/store/s106-usbhub-3c-kit"
+          class="text-amber hover:text-amber-hov">need a $400 PD-logging license</a
+        > before they'll put a Mac into DFU. Cambrionix goes a step further and makes the license
+        renewing:
         <a
           href="https://www.cambrionix.com/products/thundersync5-c16-pd"
           class="text-amber hover:text-amber-hov">their DFU-capable hub</a
