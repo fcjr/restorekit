@@ -1424,6 +1424,7 @@
 
   /* titlebar */
   .titlebar {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 13px;
@@ -1432,6 +1433,14 @@
     background: var(--bar);
     border-bottom: 1px solid var(--line);
     flex: none;
+  }
+  /* Keep the tabs centered against the whole bar, not the space between the
+     brand and the (variable-width) right-side controls. */
+  .titlebar .tabs {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
   }
   .brand {
     display: flex;
