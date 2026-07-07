@@ -60,6 +60,13 @@ sudo restorekit restore
 sudo restorekit restore --ecid 0xc60a812345678 
 # or with no prompts
 sudo restorekit restore --yes
+
+# or use it to just enable dfu (macOS Only):
+sudo restorekit dfu
+# or reboot it
+sudo restorekit reboot
+# or learn about other commands
+restorekit -h
 ```
 
 Follow the instructions and bam! restorekit will detect the mac, download the approprate firmware, and restore the machine to factory settings.
