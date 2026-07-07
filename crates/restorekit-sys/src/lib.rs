@@ -134,6 +134,22 @@ extern "C" {
     /// Register a progress bar (or, with a NULL label, just run the one-time
     /// init of idevicerestore's global progress mutex).
     pub fn register_progress(tag: u32, label: *const c_char);
+    /// Override the sink for idevicerestore's tagged progress bars. With a NULL
+    /// handler it prints them straight to stdout via `print_progress_bar`.
+    fn set_update_progress_func(
+        func: Option<unsafe extern "C" fn(list: *mut *mut c_void, count: c_int)>,
+    );
+}
+
+/// No-op sink for the tagged progress-bar system: swallow the update.
+unsafe extern "C" fn discard_progress(_list: *mut *mut c_void, _count: c_int) {}
+
+/// Stop idevicerestore's tagged progress bars (the `dfu.c`/`recovery.c`
+/// "Uploading" bars) from being dumped straight to stdout, where they corrupt
+/// `--json` output and interleave with our own progress UI. Step-level progress
+/// still flows through the progress callback. Call before starting a restore.
+pub fn suppress_tagged_progress() {
+    unsafe { set_update_progress_func(Some(discard_progress)) };
 }
 
 /// Initialize idevicerestore's progress subsystem before a restore.

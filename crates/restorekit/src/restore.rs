@@ -93,6 +93,12 @@ pub fn restore(
     // Windows (a CRITICAL_SECTION) if hit before the first `set_progress`.
     sys::init_progress();
 
+    // idevicerestore's tagged progress bars (the "Uploading [====]" bars from
+    // dfu.c/recovery.c) print straight to stdout unless we override their sink.
+    // That raw output corrupts --json and interleaves with our progress UI, so
+    // discard them; step-level progress still comes through the step callback.
+    sys::suppress_tagged_progress();
+
     // Owned copies to hand to the worker thread.
     let ipsw = ipsw.to_path_buf();
     let cache_dir = cache_dir.map(Path::to_path_buf);
