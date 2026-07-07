@@ -1,6 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // Restore-worker mode: a self-exec that runs one device's restore in an
+    // isolated process and streams NDJSON to stdout. Handle it before the GUI
+    // (and WebView2) ever start.
+    if restorekit_desktop_lib::maybe_run_restore_worker() {
+        return;
+    }
+
     // Windows: when the app self-elevates to install the WinUSB driver it
     // relaunches itself with this flag. Do that headless work and exit before
     // the GUI (and WebView2) ever start.

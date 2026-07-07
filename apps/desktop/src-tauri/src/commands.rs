@@ -18,6 +18,9 @@ pub struct DeviceView {
     pub ecid: String,
     pub srtg: Option<String>,
     pub serial: String,
+    /// The captured hardware serial number (recovery/booted), if any. Distinct
+    /// from the raw `serial` DFU string above.
+    pub serial_number: Option<String>,
     /// Whether restorekit can restore a device in this mode (DFU only).
     pub restorable: bool,
     /// The host port this device is on (macOS): its firmware location name and
@@ -47,6 +50,7 @@ fn view(d: Device) -> DeviceView {
             .unwrap_or_default(),
         ecid: d.ecid_hex().unwrap_or_default(),
         srtg: d.identity.as_ref().and_then(|i| i.srtg.clone()),
+        serial_number: d.srnm.clone(),
         serial: d.serial,
         port: d.port,
     }
@@ -67,6 +71,33 @@ pub fn list_devices() -> Result<Vec<DeviceView>, String> {
 #[tauri::command]
 pub fn host_can_trigger() -> bool {
     dfu::host_can_trigger_dfu()
+}
+
+/// Whether this build includes the serial-capture history feature.
+#[tauri::command]
+pub fn history_enabled() -> bool {
+    cfg!(feature = "history")
+}
+
+/// Launch Apple Configurator (macOS only). Errors if it isn't installed.
+#[tauri::command]
+pub fn open_apple_configurator() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .args(["-a", "Apple Configurator"])
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("Apple Configurator isn't installed — get it free from the App Store.".into())
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Apple Configurator is only available on macOS".into())
+    }
 }
 
 #[tauri::command]
@@ -206,7 +237,7 @@ pub async fn restore(
     revive: bool,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let (_, _, ecid, _) =
+        let (_, _, ecid, _, _) =
             parse_serial(&serial).ok_or_else(|| "could not parse device serial".to_string())?;
         let cache = firmware::default_cache_dir().ok();
         let mode = if revive { Mode::Revive } else { Mode::Erase };
@@ -224,6 +255,44 @@ pub async fn restore(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Quote a CSV field when it contains a comma, quote, or newline.
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Write the currently connected devices to `path` as CSV.
+#[tauri::command]
+pub fn export_devices_csv(path: String) -> Result<(), String> {
+    let mut devices = device::list().map_err(|e| e.to_string())?;
+    device::identify(&mut devices);
+    let mut out = String::from("Serial,Model,Identifier,ECID,Mode,iBoot,Port,DFUPort\n");
+    for d in &devices {
+        let cols = [
+            d.srnm.clone().unwrap_or_default(),
+            d.display_name(),
+            d.identifier().unwrap_or_default().to_string(),
+            d.ecid_hex().unwrap_or_default(),
+            d.mode.to_string(),
+            d.srtg().unwrap_or_default().to_string(),
+            d.port
+                .as_ref()
+                .and_then(|p| p.location.clone())
+                .unwrap_or_default(),
+            d.port
+                .as_ref()
+                .map(|p| if p.dfu { "yes" } else { "no" }.to_string())
+                .unwrap_or_default(),
+        ];
+        out.push_str(&cols.iter().map(|c| csv_field(c)).collect::<Vec<_>>().join(","));
+        out.push('\n');
+    }
+    std::fs::write(&path, out).map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
