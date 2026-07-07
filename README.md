@@ -23,6 +23,7 @@ I've worked at a few places where windows was the default machine (including for
 
 ```sh
 # on macOS or linux, via homebrew
+brew trust fcjr/fcjr   # required since homebrew 6
 brew install fcjr/fcjr/restorekit-cli
 # or on windows via scoop
 scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr
@@ -37,6 +38,7 @@ There is also a WIP tauri + svelte gui that wraps the `restorekit` library for a
 restore.  It has the same functionality and can currently be installd on macOS via homebrew.
 
 ```sh
+brew trust fcjr/fcjr                       # required since homebrew 6
 brew install --cask fcjr/fcjr/restorekit   # macOS
 ```
 
