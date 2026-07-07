@@ -1,5 +1,21 @@
 use restorekit::{device, Result};
 
+/// Print the host's USB-C port topology, so users can see which `--port` RIDs
+/// exist. No-op on hosts whose topology can't be read (non-macOS, etc.).
+fn print_ports() {
+    let ports = restorekit::dfu::ports();
+    if ports.is_empty() {
+        return;
+    }
+    println!("Host USB-C ports:\n");
+    for p in &ports {
+        let loc = p.location.as_deref().unwrap_or("(unlabeled)");
+        let dfu = if p.dfu { " — DFU-capable" } else { "" };
+        println!("  [rid {}] {loc}{dfu}", p.rid);
+    }
+    println!();
+}
+
 pub fn run(json: bool) -> Result<()> {
     let mut devices = device::list()?;
     // Fill in booted Macs' ECIDs on macOS hosts (best-effort, no-op elsewhere).
@@ -17,6 +33,7 @@ pub fn run(json: bool) -> Result<()> {
         } else {
             println!("Cable a target Mac to the DFU port and run `restorekit dfu`.");
         }
+        print_ports();
         return Ok(());
     }
 
@@ -46,18 +63,21 @@ pub fn run(json: bool) -> Result<()> {
         if let Some(port) = &d.port {
             let here = port.location.as_deref().unwrap_or("this port");
             if port.dfu {
-                println!("    port: {here} (the DFU port)");
+                println!("    port: {here} [rid {}] (the DFU port)", port.rid);
             } else {
                 match dfu_port.as_deref() {
-                    Some(name) => {
-                        println!("    port: {here} — move the cable to {name} to restore")
-                    }
-                    None => println!("    port: {here} — not the DFU port"),
+                    Some(name) => println!(
+                        "    port: {here} [rid {}] — move the cable to {name} to restore",
+                        port.rid
+                    ),
+                    None => println!("    port: {here} [rid {}] — not the DFU port", port.rid),
                 }
             }
         }
         println!();
     }
+
+    print_ports();
 
     if !devices.iter().any(|d| d.restorable()) {
         println!("None are in DFU mode; only a Mac in DFU mode can be restored.");

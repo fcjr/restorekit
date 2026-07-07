@@ -72,7 +72,7 @@ pub mod restore;
 pub mod usbmuxd;
 
 pub use device::{Device, Port, Target, UsbMode};
-pub use dfu::{host_can_trigger_dfu, manual_dfu_instructions};
+pub use dfu::{host_can_trigger_dfu, manual_dfu_instructions, DfuTarget, HostPortInfo};
 pub use error::{Error, Result};
 pub use firmware::Firmware;
 pub use progress::Event;

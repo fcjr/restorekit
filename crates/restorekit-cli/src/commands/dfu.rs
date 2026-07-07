@@ -2,7 +2,7 @@ use std::io::{IsTerminal, Write};
 use std::time::Duration;
 
 use restorekit::progress::Event;
-use restorekit::{device, dfu, Device, Error, Result, Target};
+use restorekit::{device, dfu, Device, DfuTarget, Error, Result, Target};
 
 use super::render;
 
@@ -17,12 +17,14 @@ pub(crate) fn emit_stage(json: bool, event: Event) {
 
 /// Send the DFU-trigger VDM sequence, emitting stages. The caller must have
 /// already confirmed this host can trigger DFU.
-fn trigger_dfu(json: bool) -> Result<()> {
+fn trigger_dfu(json: bool, target: &DfuTarget) -> Result<()> {
     if !json {
         println!("Triggering DFU mode on the target...");
     }
     #[cfg(target_os = "macos")]
-    dfu::vdm::enter_dfu(&mut |e| emit_stage(json, e))?;
+    dfu::vdm::enter_dfu(target, &mut |e| emit_stage(json, e))?;
+    #[cfg(not(target_os = "macos"))]
+    let _ = target;
     Ok(())
 }
 
@@ -80,9 +82,9 @@ fn select_from(mut devices: Vec<Device>, json: bool) -> Result<Device> {
 
 /// Trigger DFU electronically if the host can, else print the manual key-combo
 /// instructions so the user can put the target into DFU by hand.
-fn trigger_or_instruct(json: bool) -> Result<()> {
+fn trigger_or_instruct(json: bool, target: &DfuTarget) -> Result<()> {
     if restorekit::host_can_trigger_dfu() {
-        trigger_dfu(json)
+        trigger_dfu(json, target)
     } else {
         if !json {
             eprintln!("{}\n", restorekit::manual_dfu_instructions());
@@ -112,7 +114,7 @@ pub(crate) fn ensure_present(json: bool, timeout: Duration, ecid: Option<u64>) -
             }
             _ => {}
         }
-        trigger_or_instruct(json)?;
+        trigger_or_instruct(json, &DfuTarget::Auto)?;
         if !json {
             println!("Waiting for the Mac with ECID {e:#x} in DFU mode...");
         }
@@ -135,7 +137,7 @@ pub(crate) fn ensure_present(json: bool, timeout: Duration, ecid: Option<u64>) -
             println!("Detected {} ({} mode).", d.display_name(), d.mode);
         }
     }
-    trigger_or_instruct(json)?;
+    trigger_or_instruct(json, &DfuTarget::Auto)?;
     if !json {
         println!("Waiting for a Mac in DFU mode...");
     }
@@ -143,7 +145,7 @@ pub(crate) fn ensure_present(json: bool, timeout: Duration, ecid: Option<u64>) -
 }
 
 /// `restorekit dfu` — trigger DFU on the cabled target, then wait for it.
-pub fn enter(json: bool) -> Result<()> {
+pub fn enter(json: bool, target: DfuTarget) -> Result<()> {
     if !restorekit::host_can_trigger_dfu() {
         if !json {
             eprintln!("{}", restorekit::manual_dfu_instructions());
@@ -157,7 +159,7 @@ pub fn enter(json: bool) -> Result<()> {
     // not one that was connected all along.
     let watch = dfu::watch()?;
 
-    trigger_dfu(json)?;
+    trigger_dfu(json, &target)?;
 
     if !json {
         println!("Waiting for the target to enter DFU mode...");
@@ -174,7 +176,7 @@ pub fn enter(json: bool) -> Result<()> {
 }
 
 /// `restorekit reboot` — reboot the cabled target out of DFU / back to normal.
-pub fn reboot(json: bool) -> Result<()> {
+pub fn reboot(json: bool, target: DfuTarget) -> Result<()> {
     if !restorekit::host_can_trigger_dfu() {
         if !json {
             eprintln!("{}", restorekit::manual_dfu_instructions());
@@ -188,7 +190,9 @@ pub fn reboot(json: bool) -> Result<()> {
         println!("Rebooting the target...");
     }
     #[cfg(target_os = "macos")]
-    dfu::vdm::reboot(&mut |e| emit_stage(json, e))?;
+    dfu::vdm::reboot(&target, &mut |e| emit_stage(json, e))?;
+    #[cfg(not(target_os = "macos"))]
+    let _ = target;
 
     if json {
         emit_stage(true, Event::Done);

@@ -543,6 +543,9 @@ pub struct Port {
     /// The port's physical location label from the firmware, e.g. "left-back",
     /// when the hardware provides one.
     pub location: Option<String>,
+    /// The AppleHPM `RID` addressing this port — the value `dfu`/`reboot` take
+    /// via `--port`.
+    pub rid: i32,
 }
 
 impl Device {

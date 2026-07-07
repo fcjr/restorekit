@@ -11,6 +11,7 @@
 use std::ffi::{c_void, CString};
 use std::os::raw::c_char;
 
+use super::DfuTarget;
 use crate::error::{Error, Result};
 use crate::progress::{Event, ProgressFn};
 
@@ -354,12 +355,44 @@ fn unlock_key() -> Result<(u32, String)> {
     }
 }
 
-/// Find a DFU-capable port controller and open it. The device tree declares
-/// which AppleHPM `RID`s carry the DFU/debug VDM path in `uart-hpm-rids`
-/// (see [`super::port`]); we pick the first matching controller, falling back
-/// to `RID == 0` when that property is absent.
-fn find_device() -> Result<Hpm> {
+/// Resolve a [`DfuTarget`] to the AppleHPM `RID` whose port [`find_device`]
+/// should open. `None` means "let `find_device` pick the first DFU-capable
+/// controller" — the historical [`DfuTarget::Auto`] behavior.
+fn resolve_rid(target: &DfuTarget) -> Result<Option<i32>> {
+    match target {
+        DfuTarget::Auto => Ok(None),
+        DfuTarget::Port(rid) => {
+            if super::port::all_ports().iter().any(|p| p.dfu && p.rid == *rid) {
+                Ok(Some(*rid))
+            } else {
+                Err(Error::DfuPortNotFound(*rid))
+            }
+        }
+        DfuTarget::Ecid(e) => {
+            let mut devices = crate::device::list()?;
+            crate::device::identify(&mut devices);
+            let dev = devices
+                .iter()
+                .find(|d| d.ecid == Some(*e))
+                .ok_or(Error::EcidNotConnected(*e))?;
+            super::port::dfu_rid_for_serial(&dev.serial)
+                .map(Some)
+                .ok_or(Error::EcidNotOnDfuPort(*e))
+        }
+    }
+}
+
+/// Find a DFU-capable port controller and open it. With `target_rid == Some`,
+/// opens exactly that controller; otherwise the device tree declares which
+/// AppleHPM `RID`s carry the DFU/debug VDM path in `uart-hpm-rids` (see
+/// [`super::port`]) and we pick the first matching controller, falling back to
+/// `RID == 0` when that property is absent.
+fn find_device(target_rid: Option<i32>) -> Result<Hpm> {
     let dfu_rids = super::port::dfu_capable_rids();
+    let wanted = |rid: i32| match target_rid {
+        Some(t) => rid == t,
+        None => dfu_rids.contains(&rid),
+    };
     unsafe {
         let class = CString::new("AppleHPM").unwrap();
         let matching = IOServiceMatching(class.as_ptr());
@@ -401,8 +434,8 @@ fn find_device() -> Result<Hpm> {
             );
             CFRelease(prop);
 
-            // Skip non-DFU controllers, and stop once we've opened one.
-            if chosen.is_some() || !dfu_rids.contains(&rid) {
+            // Skip controllers we don't want, and stop once we've opened one.
+            if chosen.is_some() || !wanted(rid) {
                 IOObjectRelease(device);
                 continue;
             }
@@ -460,20 +493,22 @@ fn preflight() -> Result<()> {
     Ok(())
 }
 
-fn connect(progress: &mut dyn FnMut(Event)) -> Result<Hpm> {
+fn connect(target: &DfuTarget, progress: &mut dyn FnMut(Event)) -> Result<Hpm> {
     preflight()?;
+    let target_rid = resolve_rid(target)?;
     let (key, mac_type) = unlock_key()?;
     progress(Event::DfuTriggerStage {
         stage: format!("host: {mac_type}"),
     });
-    let hpm = find_device()?;
+    let hpm = find_device(target_rid)?;
     hpm.enter_dbma(key, progress)?;
     Ok(hpm)
 }
 
-/// Reboot the cabled target Mac into DFU mode.
-pub fn enter_dfu(progress: ProgressFn) -> Result<()> {
-    let hpm = connect(progress)?;
+/// Reboot the cabled target Mac into DFU mode. `target` selects which port to
+/// drive when the host has several DFU-capable ports (see [`DfuTarget`]).
+pub fn enter_dfu(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
+    let hpm = connect(target, progress)?;
     progress(Event::DfuTriggerStage {
         stage: "rebooting target into DFU".into(),
     });
@@ -482,8 +517,8 @@ pub fn enter_dfu(progress: ProgressFn) -> Result<()> {
 }
 
 /// Reboot the cabled target Mac into normal mode (undo a DFU trigger).
-pub fn reboot(progress: ProgressFn) -> Result<()> {
-    let hpm = connect(progress)?;
+pub fn reboot(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
+    let hpm = connect(target, progress)?;
     progress(Event::DfuTriggerStage {
         stage: "rebooting target".into(),
     });

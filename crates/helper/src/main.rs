@@ -22,7 +22,7 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use restorekit::dfu::vdm;
+    use restorekit::dfu::{vdm, DfuTarget};
     use restorekit::Event;
     use std::os::raw::c_char;
 
@@ -44,8 +44,8 @@ mod imp {
             .into_owned();
         let mut sink = |_: Event| {};
         let result: Result<(), String> = match cmd.as_str() {
-            "dfu" => vdm::enter_dfu(&mut sink).map_err(|e| e.to_string()),
-            "reboot" => vdm::reboot(&mut sink).map_err(|e| e.to_string()),
+            "dfu" => vdm::enter_dfu(&DfuTarget::Auto, &mut sink).map_err(|e| e.to_string()),
+            "reboot" => vdm::reboot(&DfuTarget::Auto, &mut sink).map_err(|e| e.to_string()),
             other => Err(format!("unknown command: {other}")),
         };
         match result {

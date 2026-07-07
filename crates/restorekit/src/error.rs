@@ -11,6 +11,15 @@ pub enum Error {
     #[error("no Mac in DFU mode with ECID {0:#x}")]
     EcidNotFound(u64),
 
+    #[error("no Mac with ECID {0:#x} is connected to this host")]
+    EcidNotConnected(u64),
+
+    #[error("the Mac with ECID {0:#x} is not on the DFU port; move its cable to the DFU port and retry")]
+    EcidNotOnDfuPort(u64),
+
+    #[error("no DFU-capable port with RID {0} on this host (see `restorekit list`)")]
+    DfuPortNotFound(i32),
+
     #[error("timed out waiting for a Mac to appear in DFU mode")]
     WaitTimeout,
 

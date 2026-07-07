@@ -214,6 +214,8 @@ struct HostPort {
     base: u32,
     location: Option<String>,
     dfu: bool,
+    /// The AppleHPM `RID` that drives this port's DFU/debug VDMs.
+    rid: i32,
 }
 
 /// Every USB-C port on this host. Cached — host topology is invariant.
@@ -226,12 +228,12 @@ fn host_ports() -> &'static [HostPort] {
 fn resolve_host_ports() -> Vec<HostPort> {
     let dfu_rids = dfu_capable_rids();
     unsafe {
-        // Each Type-C controller → (port-number, location, is-dfu).
-        let mut controllers: Vec<(u32, Option<String>, bool)> = Vec::new();
+        // Each Type-C controller → (port-number, location, is-dfu, rid).
+        let mut controllers: Vec<(u32, Option<String>, bool, i32)> = Vec::new();
         for_each_service("AppleHPM", |hpm| {
             if let (Some(rid), Some(pn)) = (prop_u32(hpm, "RID"), search_u32(hpm, "port-number")) {
                 let location = search_string(hpm, "port-location");
-                controllers.push((pn, location, dfu_rids.contains(&(rid as i32))));
+                controllers.push((pn, location, dfu_rids.contains(&(rid as i32)), rid as i32));
             }
         });
         // Match each to the USB controller with the same port-number → its
@@ -244,16 +246,40 @@ fn resolve_host_ports() -> Vec<HostPort> {
             ) else {
                 return;
             };
-            if let Some((_, location, dfu)) = controllers.iter().find(|(w, _, _)| *w == pn) {
+            if let Some((_, location, dfu, rid)) = controllers.iter().find(|(w, ..)| *w == pn) {
                 ports.push(HostPort {
                     base: loc & 0xff00_0000,
                     location: location.clone(),
                     dfu: *dfu,
+                    rid: *rid,
                 });
             }
         });
         ports
     }
+}
+
+/// Every USB-C port on this host, DFU-capable or not, for `restorekit list`.
+pub(crate) fn all_ports() -> Vec<super::HostPortInfo> {
+    host_ports()
+        .iter()
+        .map(|p| super::HostPortInfo {
+            rid: p.rid,
+            location: p.location.clone(),
+            dfu: p.dfu,
+        })
+        .collect()
+}
+
+/// The RID of the DFU-capable port the USB device with this serial is cabled to,
+/// or `None` if the device is on another port, isn't enumerated, or the topology
+/// couldn't be read.
+pub(crate) fn dfu_rid_for_serial(serial: &str) -> Option<i32> {
+    let base = *locations_by_serial().get(serial)? & 0xff00_0000;
+    host_ports()
+        .iter()
+        .find(|p| p.base == base && p.dfu)
+        .map(|p| p.rid)
 }
 
 /// Physical location of the host's DFU-capable port, e.g. "left-back".
@@ -298,6 +324,7 @@ pub(crate) fn mark_ports(devices: &mut [super::super::device::Device]) {
                 d.port = Some(Port {
                     dfu: p.dfu,
                     location: p.location.clone(),
+                    rid: p.rid,
                 });
             }
         }

@@ -28,9 +28,9 @@ enum Command {
     /// List every connected Apple device, with its mode and ECID.
     List,
     /// Reboot the cabled target Mac into DFU mode (Apple Silicon macOS host, root).
-    Dfu,
+    Dfu(TargetArgs),
     /// Reboot the cabled target Mac back into normal mode.
-    Reboot,
+    Reboot(TargetArgs),
     /// Resolve and download firmware for the detected (or specified) Mac.
     Download {
         /// Model identifier (e.g. MacBookPro17,1). Defaults to the DFU device.
@@ -69,6 +69,29 @@ enum Command {
         #[arg(long, hide = true)]
         result_file: Option<PathBuf>,
     },
+}
+
+/// Which cabled target `dfu` / `reboot` should act on. With neither flag, the
+/// host's sole DFU-capable port is used.
+#[derive(clap::Args)]
+struct TargetArgs {
+    /// Target the Mac with this ECID (hex like 0xc60a812345678, or decimal),
+    /// resolving the DFU port it's cabled to. See `restorekit list`.
+    #[arg(long, value_parser = parse_ecid, conflicts_with = "port")]
+    ecid: Option<u64>,
+    /// Target a specific DFU-capable port by its RID. See `restorekit list`.
+    #[arg(long)]
+    port: Option<i32>,
+}
+
+impl TargetArgs {
+    fn into_target(self) -> restorekit::DfuTarget {
+        match (self.ecid, self.port) {
+            (Some(e), _) => restorekit::DfuTarget::Ecid(e),
+            (_, Some(rid)) => restorekit::DfuTarget::Port(rid),
+            _ => restorekit::DfuTarget::Auto,
+        }
+    }
 }
 
 /// Firmware selection and target arguments shared by `restore` and `revive`.
@@ -160,8 +183,8 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::List => commands::list::run(cli.json),
-        Command::Dfu => commands::dfu::enter(cli.json),
-        Command::Reboot => commands::dfu::reboot(cli.json),
+        Command::Dfu(t) => commands::dfu::enter(cli.json, t.into_target()),
+        Command::Reboot(t) => commands::dfu::reboot(cli.json, t.into_target()),
         Command::Download {
             identifier,
             os_version,
