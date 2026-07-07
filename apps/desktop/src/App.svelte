@@ -62,9 +62,15 @@
   const ecidByPort = new Map<string, string>(); // last known ECID per host port
   function serialFor(d: Device): string | null {
     if (d.serial_number) return d.serial_number;
-    if (d.ecid && serialByEcid.has(d.ecid)) return serialByEcid.get(d.ecid)!;
+    const e = ecidFor(d);
+    if (e && serialByEcid.has(e)) return serialByEcid.get(e)!;
     const loc = d.port?.location;
     if (loc && serialByPort.has(loc)) return serialByPort.get(loc)!;
+    // Fall back to the persisted seen-device history (survives app restarts).
+    if (e) {
+      const sd = seenDevices.find((s) => s.ecid === e && s.serial_number);
+      if (sd?.serial_number) return sd.serial_number;
+    }
     return null;
   }
   // A device's ECID, falling back to the last ECID seen on its port — during a
@@ -336,12 +342,11 @@
 
   // The best value to encode for a device: its hardware serial, else ECID, else
   // the raw USB serial string. `null` when the device exposes nothing.
+  // The QR encodes the hardware serial for asset tracking; no serial, no QR
+  // (an ECID QR isn't useful to scan into inventory).
   function qrOf(d: Device): { value: string; label: string } | null {
     const s = serialFor(d);
-    if (s) return { value: s, label: "Hardware serial" };
-    if (d.ecid) return { value: d.ecid, label: "ECID" };
-    if (d.serial) return { value: d.serial, label: "Identifier" };
-    return null;
+    return s ? { value: s, label: "Hardware serial" } : null;
   }
 
   async function showQr(value: string, label = "Hardware serial") {
