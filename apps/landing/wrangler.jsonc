@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "restorekit-landing",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-07-07",
+  "assets": {
+    "binding": "ASSETS",
+    // The worker must see every request so it can redirect the apex host;
+    // asset matching is path-based and would otherwise bypass it.
+    "run_worker_first": true
+  },
+  "routes": [
+    { "pattern": "www.restorekit.org", "custom_domain": true },
+    { "pattern": "restorekit.org", "custom_domain": true }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

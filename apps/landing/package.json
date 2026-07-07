@@ -1,0 +1,31 @@
+{
+  "name": "restorekit-landing",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "wrangler types && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.worker.json",
+    "cf-typegen": "wrangler types",
+    "deploy": "vite build && wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1",
+    "@sveltejs/vite-plugin-svelte": "^5",
+    "@tailwindcss/vite": "^4",
+    "@types/three": "^0.185.0",
+    "svelte": "^5",
+    "svelte-check": "^4",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^6",
+    "wrangler": "^4"
+  },
+  "dependencies": {
+    "@threlte/core": "^8.5.16",
+    "shiki": "^4.3.1",
+    "three": "^0.185.1"
+  }
+}

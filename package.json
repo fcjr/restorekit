@@ -1,0 +1,15 @@
+{
+  "name": "restorekit-monorepo",
+  "private": true,
+  "scripts": {
+    "dev:desktop": "pnpm --filter restorekit-desktop dev",
+    "dev:landing": "pnpm --filter restorekit-landing dev",
+    "build:desktop": "pnpm --filter restorekit-desktop build",
+    "build:landing": "pnpm --filter restorekit-landing build",
+    "check": "pnpm -r check"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp", "workerd"]
+  }
+}

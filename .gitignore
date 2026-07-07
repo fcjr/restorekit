@@ -7,3 +7,4 @@ dist/
 .DS_Store
 # App Store Connect API keys — never commit.
 *.p8
+node_modules/
