@@ -60,6 +60,20 @@ export interface JobView {
   message: string;
 }
 
+/** A device ever seen by this host, deduped by ECID across modes. */
+export interface SeenDevice {
+  ecid: string;
+  serial_number: string | null;
+  model_identifier: string | null;
+  name: string;
+  chip: string | null;
+  board: string | null;
+  mode: string;
+  port: string | null;
+  first_seen: string;
+  last_seen: string;
+}
+
 /** One row in the persistent device-history log. */
 export interface HistoryEntry {
   serial_number: string | null;
@@ -129,6 +143,8 @@ export const api = {
   getSettings: () => call<Settings>("get_settings"),
   setAutoDfu: (enabled: boolean) => call<void>("set_auto_dfu", { enabled }),
   openAppleConfigurator: () => call<void>("open_apple_configurator"),
+  recordSeenDevices: (devices: SeenDevice[]) => call<void>("record_seen_devices", { devices }),
+  listSeenDevices: () => call<SeenDevice[]>("list_seen_devices"),
 };
 
 /** Persisted app settings. */
@@ -168,6 +184,7 @@ async function saveCsv(cmd: string, filename: string): Promise<boolean> {
 
 export const exportHistoryCsv = () => saveCsv("export_history_csv", "restorekit-history.csv");
 export const exportDevicesCsv = () => saveCsv("export_devices_csv", "restorekit-devices.csv");
+export const exportSeenCsv = () => saveCsv("export_seen_csv", "restorekit-devices-history.csv");
 
 function browserMock(cmd: string): Promise<unknown> {
   const devices: Device[] = [
@@ -199,6 +216,11 @@ function browserMock(cmd: string): Promise<unknown> {
     get_settings: { auto_dfu: false } as Settings,
     set_auto_dfu: null,
     open_apple_configurator: null,
+    record_seen_devices: null,
+    list_seen_devices: [
+      { ecid: "0x1a2b3c4d5e6f", serial_number: "C02YY7654321", model_identifier: "MacBookPro17,1", name: "MacBook Pro (M1, Late 2020)", chip: "CPID:8103", board: "BDID:24", mode: "dfu", port: "left-back", first_seen: "2026-07-06T09:00:00.000Z", last_seen: "2026-07-07T15:04:00.000Z" },
+      { ecid: "0x77aa22bb44cc", serial_number: "C02XX1234567", model_identifier: "Mac14,2", name: "MacBook Air (M2, 2022)", chip: "CPID:8112", board: "BDID:28", mode: "recovery", port: "right", first_seen: "2026-07-07T11:00:00.000Z", last_seen: "2026-07-07T11:20:00.000Z" },
+    ] as SeenDevice[],
     record_capture: null,
     history_clear: null,
     serial_qr_svg:

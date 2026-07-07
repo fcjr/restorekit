@@ -8,6 +8,7 @@
     pickIpsw,
     exportHistoryCsv,
     exportDevicesCsv,
+    exportSeenCsv,
     gib,
     MODES,
     APPROVAL_REQUIRED,
@@ -17,11 +18,12 @@
     type CacheInfo,
     type HistoryEntry,
     type JobView,
+    type SeenDevice,
     type Mode,
   } from "./lib/api";
   import { checkForUpdates } from "./lib/updater";
 
-  type Phase = "idle" | "resolving" | "downloading" | "restoring" | "done" | "error";
+  type Phase = "idle" | "resolving" | "downloading" | "done" | "error";
 
   const isWindows =
     typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
@@ -30,13 +32,16 @@
 
   // ---- device / host state ----
   let devices = $state<Device[]>([]);
-  let selectedSerial = $state<string | null>(null);
+  let selectedKey = $state<string | null>(null); // roster row key (ECID or serial)
   let canTrigger = $state(false);
   let manual = $state("");
   let cache = $state<CacheInfo | null>(null);
 
-  // ---- views: serial capture / list / history / restores ----
-  let tab = $state<"restore" | "list" | "history" | "restores">("restore");
+  // ---- views: restore (device-centric) / list / history ----
+  let tab = $state<"restore" | "list" | "history">("restore");
+  let devSubtab = $state<"connected" | "history">("connected"); // Devices tab mode
+  let seenDevices = $state<SeenDevice[]>([]);
+  let compact = $state(false); // condensed Restore detail
   let historyEnabled = $state(true); // false when the app is built without the feature
   let history = $state<HistoryEntry[]>([]);
   let confirmingClearHistory = $state(false);
@@ -48,6 +53,26 @@
   // recovery across polls is recorded once, not every 2s.
   const recorded = new Set<string>();
 
+  // Captured serials survive the transition into DFU (which exposes no serial):
+  // remember the last serial seen for each ECID and host port.
+  const serialByEcid = new Map<string, string>();
+  const serialByPort = new Map<string, string>();
+  const ecidByPort = new Map<string, string>(); // last known ECID per host port
+  function serialFor(d: Device): string | null {
+    if (d.serial_number) return d.serial_number;
+    if (d.ecid && serialByEcid.has(d.ecid)) return serialByEcid.get(d.ecid)!;
+    const loc = d.port?.location;
+    if (loc && serialByPort.has(loc)) return serialByPort.get(loc)!;
+    return null;
+  }
+  // A device's ECID, falling back to the last ECID seen on its port — during a
+  // restore the device re-enumerates through modes that don't expose the ECID.
+  function ecidFor(d: Device): string | null {
+    if (d.ecid) return d.ecid;
+    const loc = d.port?.location;
+    return loc && ecidByPort.has(loc) ? ecidByPort.get(loc)! : null;
+  }
+
   // ---- settings: auto-DFU + Apple Configurator ----
   let autoDfu = $state(false);
   let configuratorErr = $state("");
@@ -57,7 +82,11 @@
   // ---- parallel restore jobs ----
   let jobs = $state<JobView[]>([]);
   let jobLogs = $state<Record<number, string[]>>({});
-  let openLogFor = $state<number | null>(null);
+  let logEl = $state<HTMLElement | null>(null);
+  let logFollow = $state(true); // Console.app-style: follow tail unless scrolled up
+  let jobStart = $state<Record<number, number>>({});
+  let jobEnd = $state<Record<number, number>>({});
+  let now = $state(0); // ticks every second so elapsed times update live
   const recordedJobs = new Set<number>(); // jobs already written to history
 
   // ---- per-action state ----
@@ -71,7 +100,6 @@
   let error = $state("");
   let confirming = $state(false);
   let confirmingClear = $state(false);
-  let doneKind = $state<"restore" | "download">("restore");
   let needsApproval = $state(false);
   let approvalNote = $state("");
   let approvalChecking = $state(false);
@@ -85,9 +113,46 @@
   let driverDone = $state(false);
   let driverError = $state("");
   let dl = $state({ received: 0, total: 0, cached: false, verifying: false });
-  let rs = $state({ name: "starting", percent: 0 });
 
-  const selected = $derived(devices.find((d) => d.serial === selectedSerial) ?? null);
+  // Unified roster: each connected device merged with its restore job (if any),
+  // plus jobs whose device isn't currently enumerated (rebooting mid-restore, or
+  // finished). Keyed by ECID so a row survives the device re-enumerating.
+  interface RosterRow {
+    key: string;
+    ecid: string | null;
+    name: string;
+    device: Device | null;
+    job: JobView | null;
+  }
+  function latestJobForEcid(e: string | null): JobView | null {
+    if (!e) return null;
+    let match: JobView | null = null;
+    for (const j of jobs) if (j.ecid === e) match = j;
+    return match;
+  }
+  const roster = $derived.by<RosterRow[]>(() => {
+    const rows: RosterRow[] = [];
+    const seen = new Set<string>();
+    for (const d of devices) {
+      const e = ecidFor(d);
+      const key = e ?? d.serial;
+      rows.push({ key, ecid: e, name: d.name, device: d, job: latestJobForEcid(e) });
+      seen.add(key);
+      if (e) seen.add(e);
+    }
+    for (const j of jobs) {
+      if (seen.has(j.ecid)) continue;
+      rows.push({ key: j.ecid, ecid: j.ecid, name: j.name, device: null, job: j });
+      seen.add(j.ecid);
+    }
+    return rows;
+  });
+  const selectedRow = $derived(roster.find((r) => r.key === selectedKey) ?? roster[0] ?? null);
+  const selected = $derived(selectedRow?.device ?? null);
+  const selectedJob = $derived(selectedRow?.job ?? null);
+  const restoring = $derived(
+    selectedJob != null && (selectedJob.status === "queued" || selectedJob.status === "running"),
+  );
   const dlPercent = $derived(dl.total > 0 ? (dl.received / dl.total) * 100 : 0);
   const running = $derived(phase !== "idle");
 
@@ -127,13 +192,6 @@
         sub: dl.total > 0 ? `${gib(dl.received)} / ${gib(dl.total)}` : "",
       };
     }
-    if (phase === "restoring")
-      return {
-        title: rs.name,
-        label: "Restoring",
-        pct: rs.percent,
-        sub: "Do not disconnect the target.",
-      };
     return { title: "", label: "", pct: 0, sub: "" };
   });
 
@@ -173,19 +231,51 @@
       case "verifying":
         dl.verifying = true;
         break;
-      case "restore_step":
-        rs.name = (e as any).name;
-        rs.percent = (e as any).progress * 100;
-        break;
     }
   }
 
   async function refresh() {
     try {
-      devices = await api.listDevices();
-      if (!selectedSerial && devices.length) selectedSerial = devices[0].serial;
+      const list = await api.listDevices();
+      for (const d of list) {
+        if (d.ecid && d.port?.location) ecidByPort.set(d.port.location, d.ecid);
+        if (!d.serial_number) continue;
+        if (d.ecid) serialByEcid.set(d.ecid, d.serial_number);
+        if (d.port?.location) serialByPort.set(d.port.location, d.serial_number);
+      }
+      devices = list;
+      recordSeen(list);
     } catch {
       /* enumeration hiccups are fine */
+    }
+  }
+
+  // Upsert connected devices (that have an ECID) into the persistent seen-device
+  // history — one deduped row per Mac, enriched as it moves through modes.
+  function recordSeen(list: Device[]) {
+    if (!historyEnabled) return;
+    const nowIso = new Date().toISOString();
+    const rows: SeenDevice[] = list
+      .filter((d) => d.ecid)
+      .map((d) => ({
+        ecid: d.ecid,
+        serial_number: serialFor(d),
+        model_identifier: d.identifier,
+        name: d.name,
+        chip: d.chip || null,
+        board: d.board || null,
+        mode: d.mode,
+        port: d.port?.location ?? null,
+        first_seen: nowIso,
+        last_seen: nowIso,
+      }));
+    if (rows.length) api.recordSeenDevices(rows).catch(() => {});
+  }
+  async function loadSeen() {
+    try {
+      seenDevices = await api.listSeenDevices();
+    } catch {
+      /* seen-list hiccups are fine */
     }
   }
 
@@ -245,7 +335,8 @@
   // The best value to encode for a device: its hardware serial, else ECID, else
   // the raw USB serial string. `null` when the device exposes nothing.
   function qrOf(d: Device): { value: string; label: string } | null {
-    if (d.serial_number) return { value: d.serial_number, label: "Hardware serial" };
+    const s = serialFor(d);
+    if (s) return { value: s, label: "Hardware serial" };
     if (d.ecid) return { value: d.ecid, label: "ECID" };
     if (d.serial) return { value: d.serial, label: "Identifier" };
     return null;
@@ -293,10 +384,17 @@
 
   async function doExportDevices() {
     try {
-      await exportDevicesCsv();
+      if (devSubtab === "history") await exportSeenCsv();
+      else await exportDevicesCsv();
     } catch {
       /* export cancelled or failed */
     }
+  }
+  // Open a connected device in the Restore pane.
+  function openInRestore(d: Device) {
+    selectedKey = ecidFor(d) ?? d.serial;
+    logFollow = true;
+    tab = "restore";
   }
 
   // ---- restore jobs ----
@@ -311,6 +409,18 @@
     const i = jobs.findIndex((x) => x.id === j.id);
     if (i >= 0) jobs[i] = j;
     else jobs = [...jobs, j];
+    // Track elapsed time across the job's lifecycle (reset on re-queue/restart).
+    if (j.status === "queued") {
+      delete jobStart[j.id];
+      delete jobEnd[j.id];
+    } else if (j.status === "running" && jobStart[j.id] === undefined) {
+      jobStart[j.id] = Date.now();
+    } else if (
+      (j.status === "done" || j.status === "failed" || j.status === "canceled") &&
+      jobEnd[j.id] === undefined
+    ) {
+      jobEnd[j.id] = Date.now();
+    }
     // Log a finished restore to history once (best-effort; enrich from devices).
     if (j.status === "done" && historyEnabled && !recordedJobs.has(j.id)) {
       recordedJobs.add(j.id);
@@ -329,6 +439,32 @@
         .catch(() => {});
     }
   }
+  function onLogScroll() {
+    if (!logEl) return;
+    // "At the bottom" (within a small slack) means keep following the tail.
+    logFollow = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
+  }
+  function jumpToLive() {
+    logFollow = true;
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
+  }
+  // Auto-scroll the inline log to the tail as new lines arrive, while following.
+  $effect(() => {
+    if (!selectedJob || !logEl) return;
+    void (jobLogs[selectedJob.id]?.length ?? 0); // re-run when new lines land
+    if (logFollow) logEl.scrollTop = logEl.scrollHeight;
+  });
+
+  function fmtElapsed(j: JobView): string {
+    const start = jobStart[j.id];
+    if (start === undefined) return "—";
+    const end = jobEnd[j.id] ?? now;
+    const secs = Math.max(0, Math.floor((end - start) / 1000));
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
   async function cancelJob(id: number) {
     try {
       await api.cancelRestore(id);
@@ -390,6 +526,20 @@
     failed: "var(--danger)",
     canceled: "var(--fnt)",
   };
+  // The status tag for a roster row: the restore job's state takes precedence
+  // over the device's USB mode.
+  function rowTag(r: RosterRow): { label: string; color: string } {
+    const j = r.job;
+    if (j && (j.status === "running" || j.status === "queued")) return { label: "RSTR", color: JOB_COLOR.running };
+    if (j && j.status === "done") return { label: "DONE", color: JOB_COLOR.done };
+    if (j && j.status === "failed") return { label: "FAIL", color: JOB_COLOR.failed };
+    if (j && j.status === "canceled") return { label: "CNCL", color: JOB_COLOR.canceled };
+    if (r.device) return { label: MODE_TAG[r.device.mode], color: MODE_COLOR[r.device.mode] };
+    return { label: "—", color: "var(--mut)" };
+  }
+  function jobActive(j: JobView | null): boolean {
+    return j != null && (j.status === "queued" || j.status === "running");
+  }
 
   // Click-to-copy for table cells and whole rows, with a brief toast.
   let toast = $state("");
@@ -435,6 +585,9 @@
     checkForUpdates();
     refresh();
     loadJobs();
+    if (historyEnabled) loadSeen();
+    now = Date.now();
+    const clock = setInterval(() => (now = Date.now()), 1000);
     const poll = setInterval(() => {
       if (phase === "idle") {
         refresh();
@@ -449,15 +602,17 @@
     });
     return () => {
       clearInterval(poll);
+      clearInterval(clock);
       unlisten.then((u) => u());
       unlistenJob.then((u) => u());
       unlistenJobLog.then((u) => u());
     };
   });
 
-  function select(serial: string) {
+  function select(key: string) {
     if (running) return;
-    selectedSerial = serial;
+    selectedKey = key;
+    logFollow = true;
     resetAction();
   }
   function resetAction() {
@@ -499,7 +654,7 @@
     try {
       const dfuDev = await api.triggerDfu();
       await refresh();
-      if (dfuDev) selectedSerial = dfuDev.serial;
+      if (dfuDev) selectedKey = dfuDev.ecid || dfuDev.serial;
     } catch (e) {
       if (String(e).includes(APPROVAL_REQUIRED)) requestApproval("dfu");
       else error = String(e);
@@ -632,12 +787,13 @@
         ipsw = await api.downloadFirmware(firmware);
       }
       if (!ipsw) throw new Error("no firmware to restore");
-      // Hand the restore to the parallel job queue (its own process), then jump
-      // to the Restores view so several can run at once.
+      // Hand the restore to the parallel job queue (its own process). It shows up
+      // live in the roster and detail; several can run at once.
       await api.enqueueRestore(ipsw, active.ecid, active.name, revive);
       api.cacheInfo().then((v) => (cache = v)).catch(() => {});
+      selectedKey = active.ecid || active.serial;
+      logFollow = true;
       resetAction();
-      tab = "restores";
       await loadJobs();
     } catch (e) {
       error = String(e);
@@ -655,7 +811,6 @@
       dl = { received: 0, total: firmware.size, cached: false, verifying: false };
       phase = "downloading";
       await api.downloadFirmware(firmware);
-      doneKind = "download";
       phase = "done";
       api.cacheInfo().then((v) => (cache = v)).catch(() => {});
     } catch (e) {
@@ -691,7 +846,6 @@
     <span class="seg tabs">
       <button class="segbtn" class:on={tab === "restore"} onclick={() => (tab = "restore")}>Restore</button>
       <button class="segbtn" class:on={tab === "list"} onclick={() => (tab = "list")}>Devices</button>
-      <button class="segbtn" class:on={tab === "restores"} onclick={() => { tab = "restores"; loadJobs(); }}>Restores</button>
       {#if historyEnabled}
         <button class="segbtn" class:on={tab === "history"} onclick={() => { tab = "history"; loadHistory(); }}>History</button>
       {/if}
@@ -714,20 +868,28 @@
 
   {#if tab === "restore"}
   <div class="body">
-    <!-- roster -->
+    <!-- roster: connected devices + restore jobs, unified -->
     <aside class="roster">
-      <div class="roster-head"><span>Targets</span><span class="count">{devices.length}</span></div>
-      {#if devices.length}
-        {#each devices as d (d.serial)}
+      <div class="roster-head"><span>Targets</span><span class="count">{roster.length}</span></div>
+      {#if roster.length}
+        {#each roster as r (r.key)}
+          {@const tag = rowTag(r)}
           <button
             class="row"
-            class:sel={d.serial === selectedSerial && !running}
-            onclick={() => select(d.serial)}
+            class:sel={r.key === selectedRow?.key && !running}
+            onclick={() => select(r.key)}
           >
-            <span class="mode" style="color:{MODE_COLOR[d.mode]}">{MODE_TAG[d.mode]}</span>
+            <span class="mode" style="color:{tag.color}">{tag.label}</span>
             <span class="rowmeta">
-              <span class="rowname">{d.name}</span>
-              <span class="rowecid">{d.ecid || "—"}</span>
+              <span class="rowname">{r.name}</span>
+              {#if jobActive(r.job)}
+                <span class="minibar"><span class="minifill" style="width:{Math.max(3, Math.min(100, r.job?.progress ?? 0))}%; background:{tag.color}"></span></span>
+                <span class="rowsub">{r.job?.step} · {r.job ? fmtElapsed(r.job) : ""}</span>
+              {:else if r.job && r.job.status !== "queued"}
+                <span class="rowsub" style="color:{tag.color}">{r.job.status}{r.job.status === "failed" && r.job.message ? ` — ${r.job.message}` : ""}</span>
+              {:else}
+                <span class="rowsub">{r.ecid || (r.device ? r.device.serial : "—")}</span>
+              {/if}
             </span>
           </button>
         {/each}
@@ -738,7 +900,7 @@
 
     <!-- detail -->
     <section class="detail">
-      {#if phase === "resolving" || phase === "downloading" || phase === "restoring"}
+      {#if phase === "resolving" || phase === "downloading"}
         <div class="pane">
           <div class="eyebrow">{active?.name ?? selected?.name ?? ""}</div>
           <h2>{progress.title}</h2>
@@ -751,16 +913,12 @@
         </div>
       {:else if phase === "done"}
         <div class="hero">
-          <div class="eyebrow ok">{doneKind === "restore" ? "Restored" : "Downloaded"}</div>
+          <div class="eyebrow ok">Downloaded</div>
           <div class="badge ok">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5 L10 17.5 L19 6.5" /></svg>
           </div>
-          <h1>{doneKind === "restore" ? "Restored." : "Firmware ready."}</h1>
-          <p class="lede">
-            {doneKind === "restore"
-              ? "The target is booting to Setup Assistant."
-              : "The matching firmware is cached and ready to restore."}
-          </p>
+          <h1>Firmware ready.</h1>
+          <p class="lede">The matching firmware is cached and ready to restore.</p>
           <button class="btn" onclick={resetAction}>Back to devices</button>
         </div>
       {:else if phase === "error"}
@@ -775,34 +933,94 @@
           <div class="empty-title">No Apple devices connected</div>
           <p class="lede">Cable a Mac to this host's DFU port. RestoreKit detects it the moment it enumerates.</p>
         </div>
-      {:else if selected}
+      {:else if selectedRow}
         <div class="pane">
-          <div class="eyebrow" style="color:{MODE_COLOR[selected.mode]}">
-            {MODES[selected.mode].label} · {MODES[selected.mode].hint}
+          <div class="panetop">
+            {#if selectedJob}
+              <div class="eyebrow" style="color:{JOB_COLOR[selectedJob.status] ?? 'var(--acc)'}">
+                {restoring ? `Restoring · ${selectedJob.step}` : selectedJob.status}
+              </div>
+            {:else if selected}
+              <div class="eyebrow" style="color:{MODE_COLOR[selected.mode]}">
+                {MODES[selected.mode].label} · {MODES[selected.mode].hint}
+              </div>
+            {:else}
+              <div class="eyebrow">Device</div>
+            {/if}
+            <div class="grow"></div>
+            <button class="densebtn" onclick={() => (compact = !compact)} title="Toggle compact view">{compact ? "⊞ Full" : "⊟ Compact"}</button>
           </div>
           <h1 class="dtitle">
-            {selected.name}
-            {#if selected.identifier}<span class="dparen">({selected.identifier})</span>{/if}
+            {selectedRow.name}
+            {#if selected?.identifier}<span class="dparen">({selected.identifier})</span>{/if}
           </h1>
 
-          <div class="spec">
-            <div class="k">Identifier</div><div class="v">{selected.identifier ?? "—"}</div>
-            <div class="k">Chip · board</div><div class="v">{selected.chip || "—"} · {selected.board || "—"}</div>
-            <div class="k">ECID</div><div class="v">{selected.ecid || "—"}</div>
-            <div class="k">iBoot</div><div class="v">{selected.srtg ?? "—"}</div>
-            {#if selected.port}
-              <div class="k">Port</div>
-              <div class="v">
-                {selected.port.location ?? "unknown"}
-                {#if selected.port.dfu}<span class="tag ok">DFU port</span>{:else}<span class="tag">not DFU</span>{/if}
-              </div>
-            {/if}
-          </div>
+          {#if selected && compact}
+            <div class="specline">
+              <button class="cellcopy inline" onclick={() => copy(selected.identifier ?? "")}>{selected.identifier ?? "—"}</button>
+              {#if serialFor(selected)}<span class="dot">·</span><button class="cellcopy inline" onclick={() => copy(serialFor(selected) ?? "")}>{serialFor(selected)}</button>{/if}
+              <span class="dot">·</span><button class="cellcopy inline" onclick={() => copy(selected.ecid ?? "")}>{selected.ecid || "—"}</button>
+              {#if selected.port}<span class="dot">·</span><button class="cellcopy inline" onclick={() => copy(selected.port?.location ?? "")}>{selected.port.location}{selected.port.dfu ? " · DFU port" : ""}</button>{/if}
+            </div>
+          {:else if selected}
+            <div class="spec">
+              <div class="k">Identifier</div><div class="v"><button class="cellcopy" onclick={() => copy(selected.identifier ?? "")}>{selected.identifier ?? "—"}</button></div>
+              <div class="k">Serial</div><div class="v"><button class="cellcopy" onclick={() => copy(serialFor(selected) ?? "")}>{serialFor(selected) ?? "—"}</button></div>
+              <div class="k">Chip · board</div><div class="v"><button class="cellcopy" onclick={() => copy(`${selected.chip} ${selected.board}`.trim())}>{selected.chip || "—"} · {selected.board || "—"}</button></div>
+              <div class="k">ECID</div><div class="v"><button class="cellcopy" onclick={() => copy(selected.ecid ?? "")}>{selected.ecid || "—"}</button></div>
+              <div class="k">iBoot</div><div class="v"><button class="cellcopy" onclick={() => copy(selected.srtg ?? "")}>{selected.srtg ?? "—"}</button></div>
+              {#if selected.port}
+                <div class="k">Port</div>
+                <div class="v">
+                  <button class="cellcopy" onclick={() => copy(selected.port?.location ?? "")}>{selected.port.location ?? "unknown"}</button>
+                  {#if selected.port.dfu}<span class="tag ok">DFU port</span>{:else}<span class="tag">not DFU</span>{/if}
+                </div>
+              {/if}
+            </div>
+          {:else if selectedRow.ecid}
+            <div class="spec">
+              <div class="k">ECID</div><div class="v"><button class="cellcopy" onclick={() => copy(selectedRow.ecid ?? "")}>{selectedRow.ecid}</button></div>
+              <div class="k">State</div><div class="v">disconnected (restoring or rebooting)</div>
+            </div>
+          {/if}
 
           {#if error}<p class="err">{error}</p>{/if}
           {#if busy}<p class="busy">{busy}</p>{/if}
 
-          {#if mMode === "restore"}
+          {#if selectedJob}
+            <div class="block">
+              <div class="prow">
+                <span class="plabel">{restoring ? selectedJob.step : selectedJob.status}</span>
+                <span class="ppct">{Math.round(selectedJob.progress)}% · {fmtElapsed(selectedJob)}</span>
+              </div>
+              <div class="pbar"><div class="pfill" style="width:{Math.max(2, Math.min(100, selectedJob.progress))}%; background:{JOB_COLOR[selectedJob.status] ?? 'var(--acc)'}"></div></div>
+              {#if restoring}
+                <p class="psub">Bar is the current step, not the whole restore. Don't disconnect, DFU, or reboot this Mac.</p>
+              {:else if selectedJob.status === "failed"}
+                <p class="err">{selectedJob.message || "Restore failed."}</p>
+              {:else if selectedJob.status === "done"}
+                <p class="psub" style="color:var(--ok)">Restored. The target is booting to Setup Assistant.</p>
+              {:else if selectedJob.status === "canceled"}
+                <p class="psub">Canceled.</p>
+              {/if}
+
+              <div class="joblog-wrap">
+                <pre class="log joblog" class:compact bind:this={logEl} onscroll={onLogScroll}>{(jobLogs[selectedJob.id] ?? []).join("\n") || "Waiting for log output…"}</pre>
+                {#if !logFollow}
+                  <button class="livebtn" onclick={jumpToLive}>Jump to live ↓</button>
+                {/if}
+              </div>
+
+              <div class="actions">
+                {#if restoring}
+                  <button class="btn danger" onclick={() => cancelJob(selectedJob.id)}>Cancel restore</button>
+                {:else}
+                  <button class="btn primary" onclick={() => restartJob(selectedJob.id)}>Restart</button>
+                {/if}
+              </div>
+            </div>
+          {:else if selected}
+            {#if mMode === "restore"}
             <div class="opts">
               <div class="opt">
                 <span class="ok-label">macOS ver.</span>
@@ -855,6 +1073,7 @@
               <p class="lede">This host can't trigger DFU. Put the target into DFU by hand:</p>
               <pre class="log">{manual}</pre>
             </div>
+            {/if}
           {/if}
         </div>
       {/if}
@@ -863,79 +1082,75 @@
   {:else if tab === "list"}
     <section class="tabview">
       <div class="tabhead">
-        <span class="eyebrow">Connected devices · {devices.length}</span>
+        <span class="seg">
+          <button class="segbtn" class:on={devSubtab === "connected"} onclick={() => (devSubtab = "connected")}>Connected · {devices.length}</button>
+          {#if historyEnabled}
+            <button class="segbtn" class:on={devSubtab === "history"} onclick={() => { devSubtab = "history"; loadSeen(); }}>All seen · {seenDevices.length}</button>
+          {/if}
+        </span>
         <div class="grow"></div>
-        <button class="btn sm" onclick={doExportDevices} disabled={!devices.length}>Export CSV</button>
+        <button class="btn sm" onclick={doExportDevices} disabled={devSubtab === "history" ? !seenDevices.length : !devices.length}>Export CSV</button>
       </div>
-      {#if devices.length}
+
+      {#if devSubtab === "connected"}
+        {#if devices.length}
+          <table class="tbl">
+            <thead>
+              <tr><th>Serial</th><th>Model</th><th>ECID</th><th>Mode</th><th>Port</th><th></th></tr>
+            </thead>
+            <tbody>
+              {#each devices as d (d.serial)}
+                {@const s = serialFor(d)}
+                {@const e = ecidFor(d)}
+                <tr>
+                  <td><button class="cellcopy" onclick={() => copy(s ?? "")}>{s ?? "—"}</button></td>
+                  <td>
+                    <button class="cellcopy" onclick={() => copy(d.name)}>{d.name}</button>
+                    {#if d.identifier}<button class="cellcopy cellsub" onclick={() => copy(d.identifier!)}>{d.identifier}</button>{/if}
+                  </td>
+                  <td><button class="cellcopy" onclick={() => copy(e ?? "")}>{e ?? "—"}</button></td>
+                  <td><button class="cellcopy" onclick={() => copy(d.mode)}><span class="mtag" style="color:{MODE_COLOR[d.mode]}">{MODE_TAG[d.mode]}</span></button></td>
+                  <td><button class="cellcopy" onclick={() => copy(d.port?.location ?? "")}>{d.port?.location ?? "—"}</button></td>
+                  <td class="right nowrap">
+                    <button class="iconbtn" title="Open in Restore" onclick={() => openInRestore(d)}>Open →</button>
+                    {#if historyEnabled}
+                      {@const q = qrOf(d)}
+                      {#if q}<button class="iconbtn" title="Show QR" aria-label="Show QR" onclick={() => showQr(q.value, q.label)}>QR</button>{/if}
+                    {/if}
+                    <button class="iconbtn" title="Copy row" aria-label="Copy row" onclick={() => copy(deviceLine(d))}>{@render copyicon()}</button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <div class="tabempty">No devices connected.</div>
+        {/if}
+        <p class="tabnote">Serial capture works in recovery mode and for booted Macs — DFU mode usually doesn't expose the hardware serial.</p>
+      {:else if seenDevices.length}
         <table class="tbl">
           <thead>
-            <tr><th>Serial</th><th>Model</th><th>ECID</th><th>Mode</th><th>Port</th><th></th></tr>
+            <tr><th>Serial</th><th>Model</th><th>ECID</th><th>Last mode</th><th>First seen</th><th>Last seen</th></tr>
           </thead>
           <tbody>
-            {#each devices as d (d.serial)}
+            {#each seenDevices as sd (sd.ecid)}
               <tr>
-                <td><button class="cellcopy" onclick={() => copy(d.serial_number ?? "")}>{d.serial_number ?? "—"}</button></td>
+                <td><button class="cellcopy" onclick={() => copy(sd.serial_number ?? "")}>{sd.serial_number ?? "—"}</button></td>
                 <td>
-                  <button class="cellcopy" onclick={() => copy(d.name)}>{d.name}</button>
-                  {#if d.identifier}<button class="cellcopy cellsub" onclick={() => copy(d.identifier!)}>{d.identifier}</button>{/if}
+                  <button class="cellcopy" onclick={() => copy(sd.name)}>{sd.name}</button>
+                  {#if sd.model_identifier}<button class="cellcopy cellsub" onclick={() => copy(sd.model_identifier!)}>{sd.model_identifier}</button>{/if}
                 </td>
-                <td><button class="cellcopy" onclick={() => copy(d.ecid)}>{d.ecid || "—"}</button></td>
-                <td><button class="cellcopy" onclick={() => copy(d.mode)}><span class="mtag" style="color:{MODE_COLOR[d.mode]}">{MODE_TAG[d.mode]}</span></button></td>
-                <td><button class="cellcopy" onclick={() => copy(d.port?.location ?? "")}>{d.port?.location ?? "—"}</button></td>
-                <td class="right nowrap">
-                  {#if historyEnabled}
-                    {@const q = qrOf(d)}
-                    {#if q}<button class="iconbtn" title="Show QR" aria-label="Show QR" onclick={() => showQr(q.value, q.label)}>QR</button>{/if}
-                  {/if}
-                  <button class="iconbtn" title="Copy row" aria-label="Copy row" onclick={() => copy(deviceLine(d))}>{@render copyicon()}</button>
-                </td>
+                <td><button class="cellcopy" onclick={() => copy(sd.ecid)}>{sd.ecid}</button></td>
+                <td><span class="mtag">{sd.mode}</span></td>
+                <td class="seentime">{fmtTime(sd.first_seen)}</td>
+                <td class="seentime">{fmtTime(sd.last_seen)}</td>
               </tr>
             {/each}
           </tbody>
         </table>
+        <p class="tabnote">Every Mac ever seen, deduped by ECID and enriched as it passes through modes.</p>
       {:else}
-        <div class="tabempty">No devices connected.</div>
-      {/if}
-      <p class="tabnote">Serial capture works in recovery mode and for booted Macs — DFU mode usually doesn't expose the hardware serial.</p>
-    </section>
-  {:else if tab === "restores"}
-    <section class="tabview">
-      <div class="tabhead">
-        <span class="eyebrow">Restores · {jobs.length}</span>
-      </div>
-      {#if jobs.length}
-        <table class="tbl">
-          <thead>
-            <tr><th>Device</th><th>ECID</th><th>Status</th><th>Progress</th><th></th></tr>
-          </thead>
-          <tbody>
-            {#each jobs as j (j.id)}
-              <tr>
-                <td>{j.name}</td>
-                <td>{j.ecid}</td>
-                <td>
-                  <span class="mtag" style="color:{JOB_COLOR[j.status] ?? 'var(--mut)'}">{j.status}</span>
-                  <div class="jobstep">{j.status === "failed" && j.message ? j.message : j.step}</div>
-                </td>
-                <td class="jobprog">
-                  <span class="pbar"><span class="pfill" style="width:{Math.max(2, Math.min(100, j.progress))}%; background:{JOB_COLOR[j.status] ?? 'var(--acc)'}"></span></span>
-                  <span class="jobpct">{Math.round(j.progress)}%</span>
-                </td>
-                <td class="right nowrap">
-                  <button class="iconbtn" onclick={() => (openLogFor = j.id)}>Log</button>
-                  {#if j.status === "queued" || j.status === "running"}
-                    <button class="iconbtn" onclick={() => cancelJob(j.id)}>Cancel</button>
-                  {:else}
-                    <button class="iconbtn" onclick={() => restartJob(j.id)}>Restart</button>
-                  {/if}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      {:else}
-        <div class="tabempty">No restores yet. Start one from the Restore tab — it runs here, and several run in parallel, each in its own process.</div>
+        <div class="tabempty">No devices seen yet. Connect a Mac and it's remembered here.</div>
       {/if}
     </section>
   {:else}
@@ -1116,19 +1331,6 @@
     </div>
   {/if}
 
-  {#if openLogFor !== null}
-    <div class="scrim">
-      <div class="modal wide">
-        <div class="eyebrow" style="color:var(--acc)">Restore log</div>
-        <h3>{jobs.find((j) => j.id === openLogFor)?.name ?? "Device"}</h3>
-        <pre class="log joblog">{(jobLogs[openLogFor] ?? []).join("\n") || "No log output yet."}</pre>
-        <div class="modal-actions">
-          <button class="btn ghost" onclick={() => (openLogFor = null)}>Close</button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
   {#if toast}<div class="toast">{toast}</div>{/if}
 </div>
 
@@ -1275,12 +1477,24 @@
     font-size: 12.5px;
     color: var(--ink);
   }
-  .rowecid {
+  .rowsub {
     font-size: 10.5px;
     color: var(--dim);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .minibar {
+    display: block;
+    height: 4px;
+    background: var(--line);
+    overflow: hidden;
+    margin: 1px 0 3px;
+  }
+  .minifill {
+    display: block;
+    height: 100%;
+    transition: width 0.3s ease;
   }
   .roster-empty {
     border-top: 1px solid var(--line);
@@ -1520,6 +1734,58 @@
   .tabhead .grow {
     flex: 1;
   }
+  /* Restore detail: compact toggle + condensed spec line */
+  .panetop {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .panetop .eyebrow {
+    margin: 0;
+  }
+  .panetop .grow {
+    flex: 1;
+  }
+  .densebtn {
+    border: 1px solid var(--line2);
+    background: transparent;
+    color: var(--mut);
+    font: inherit;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    padding: 3px 9px;
+  }
+  .densebtn:hover {
+    border-color: var(--acc);
+    color: var(--acc);
+  }
+  .specline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    max-width: 520px;
+    border: 1px solid var(--line);
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--ink2);
+  }
+  .specline .dot {
+    color: var(--dim);
+  }
+  .cellcopy.inline {
+    display: inline;
+    width: auto;
+  }
+  .seentime {
+    font-size: 11.5px;
+    color: var(--mut);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .joblog.compact {
+    max-height: 160px;
+  }
   .tbl {
     width: 100%;
     border-collapse: collapse;
@@ -1623,40 +1889,35 @@
     color: var(--mut);
     font-size: 12.5px;
   }
-  .jobstep {
-    margin-top: 3px;
-    font-size: 11px;
-    color: var(--dim);
-    max-width: 320px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .jobprog {
-    min-width: 160px;
-  }
-  .jobprog .pbar {
-    display: inline-block;
-    width: 110px;
-    height: 6px;
-    vertical-align: middle;
-    margin-right: 8px;
-  }
-  .jobprog .pfill {
-    display: block;
-    height: 100%;
-  }
-  .jobpct {
-    font-size: 11px;
-    color: var(--mut);
-  }
-  .modal.wide {
-    width: 640px;
+  .joblog-wrap {
+    position: relative;
+    margin: 4px 0 16px;
   }
   .joblog {
     max-height: 360px;
-    margin: 4px 0 16px;
+    margin: 0;
     font-size: 11.5px;
     line-height: 1.5;
+    /* Override the app-wide user-select:none so the log can be copied. */
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: auto;
+  }
+  .livebtn {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    border: 1px solid var(--acc);
+    background: var(--raise);
+    color: var(--acc);
+    font: inherit;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .livebtn:hover {
+    background: var(--accsoft);
   }
   .tabnote {
     margin: 14px 0 0;

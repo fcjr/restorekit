@@ -53,6 +53,9 @@ pub fn run() {
         history::record_capture,
         history::history_clear,
         history::export_history_csv,
+        history::record_seen_devices,
+        history::list_seen_devices,
+        history::export_seen_csv,
         history::serial_qr_svg,
     ]);
     #[cfg(not(feature = "history"))]
