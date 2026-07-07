@@ -150,6 +150,14 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
 
 See the [api docs](https://docs.rs/restorekit) more details.
 
+## Sponsors
+
+restorekit development is sponsored by:
+
+<a href="https://leftshift.com"><img src="docs/assets/leftshift.svg" alt="Left Shift Logical" height="52"></a>
+
+If restorekit saved you a trip to the apple store, consider [sponsoring my work](https://github.com/sponsors/fcjr)!
+
 ## License
 
 Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). The DFU code code is

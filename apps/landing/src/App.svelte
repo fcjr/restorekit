@@ -5,9 +5,11 @@
   import shotDevicesDark from "./assets/app-devices-dark.png";
   import shotHistoryDark from "./assets/app-history-dark.png";
   import shotRestoreLight from "./assets/app-restore-light.png";
+  import leftshiftLogo from "./assets/leftshift.svg";
 
   const GITHUB = "https://github.com/fcjr/restorekit";
   const RELEASES = `${GITHUB}/releases`;
+  const SPONSOR = "https://github.com/sponsors/fcjr";
 
   // Direct links to the latest desktop-app builds, resolved from the GitHub
   // API on load; until then (or if it fails) they land on the releases page.
@@ -668,12 +670,13 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
   <section class="border-b border-line bg-panel">
     <div class="mx-auto flex max-w-6xl flex-col items-center gap-4 px-5 py-14 text-center">
       {@render eyebrow("Sponsor")}
-      <p class="max-w-md text-[14px] leading-7 text-ink2">
-        restorekit development is sponsored by
-        <a href="https://leftshift.com" class="font-semibold text-amber hover:text-amber-hov">Left Shift</a>.
-      </p>
+      <p class="max-w-md text-[14px] leading-7 text-ink2">restorekit development is sponsored by</p>
+      <a href="https://leftshift.com" class="opacity-90 transition-opacity hover:opacity-100">
+        <img src={leftshiftLogo} alt="Left Shift Logical" width="170" height="52" loading="lazy" />
+      </a>
       <p class="text-[11.5px] text-fnt">
-        You can also help by <a href={GITHUB} class="text-mut hover:text-ink2 underline underline-offset-4">starring or contributing on GitHub</a>.
+        You can help too: <a href={SPONSOR} class="text-amber hover:text-amber-hov">sponsor restorekit</a> or
+        <a href={GITHUB} class="text-mut hover:text-ink2 underline underline-offset-4">star and contribute on GitHub</a>.
       </p>
     </div>
   </section>
@@ -688,6 +691,7 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
       <div class="grow"></div>
       <div class="flex flex-wrap gap-5">
         <a href={GITHUB} class="hover:text-ink2">GitHub</a>
+        <a href={SPONSOR} class="hover:text-ink2">Sponsor</a>
         <a href="{GITHUB}/releases" class="hover:text-ink2">Releases</a>
         <a href="https://crates.io/crates/restorekit-cli" class="hover:text-ink2">crates.io</a>
         <a href="https://docs.rs/restorekit" class="hover:text-ink2">docs.rs</a>
