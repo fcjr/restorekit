@@ -59,6 +59,12 @@ enum Command {
         #[arg(long)]
         path: bool,
     },
+    /// Show, export, or clear the capture/restore history.
+    #[cfg(feature = "history")]
+    History {
+        #[command(subcommand)]
+        action: HistoryAction,
+    },
     /// Bind the WinUSB driver so restorekit can reach the cabled Mac (elevates).
     #[cfg(target_os = "windows")]
     SetupDriver {
@@ -92,6 +98,20 @@ impl TargetArgs {
             _ => restorekit::DfuTarget::Auto,
         }
     }
+}
+
+#[cfg(feature = "history")]
+#[derive(Subcommand)]
+enum HistoryAction {
+    /// List logged devices, newest first.
+    List,
+    /// Export the whole history to a CSV file.
+    Export {
+        /// Destination CSV path.
+        path: PathBuf,
+    },
+    /// Delete all logged history.
+    Clear,
 }
 
 /// Firmware selection and target arguments shared by `restore` and `revive`.
@@ -205,6 +225,12 @@ fn main() {
             cli.verbose,
         )),
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
+        #[cfg(feature = "history")]
+        Command::History { action } => match action {
+            HistoryAction::List => commands::history::list(cli.json),
+            HistoryAction::Export { path } => commands::history::export(path),
+            HistoryAction::Clear => commands::history::clear(),
+        },
         #[cfg(target_os = "windows")]
         Command::SetupDriver {
             elevated,

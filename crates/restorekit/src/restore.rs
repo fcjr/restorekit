@@ -96,9 +96,15 @@ pub fn restore(
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     // On Linux and Windows, start the embedded usbmuxd server so idevicerestore
-    // can reach USB devices (restore mode) without an external daemon.
+    // can reach USB devices (restore mode) without an external daemon — unless a
+    // parent process already started a shared one (parallel restores), which we
+    // then reuse via the inherited USBMUXD_SOCKET_ADDRESS.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    let _usbmuxd = crate::usbmuxd::UsbmuxdGuard::start(progress)?;
+    let _usbmuxd = if std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
+        None
+    } else {
+        Some(crate::usbmuxd::UsbmuxdGuard::start(progress)?)
+    };
 
     // On Windows the Mac's restore-mode interface is claimed by Apple's driver,
     // which libusb can't open; spawn an elevated watcher (one UAC) that forces
@@ -200,7 +206,18 @@ fn restore_attempt(
                         &tx as *const std::sync::mpsc::Sender<Event> as *mut c_void,
                     );
 
+                    // Stream each log line as an event for a live log window. The
+                    // sink is cleared before the worker's own sender drops, so the
+                    // caller's `rx` loop still terminates.
+                    let tx_log = tx.clone();
+                    sys::set_log_sink(Some(Box::new(move |level, line| {
+                        let _ = tx_log.send(Event::LogLine {
+                            level,
+                            line: line.to_string(),
+                        });
+                    })));
                     let rc = sys::idevicerestore_start(client);
+                    sys::set_log_sink(None);
                     if rc == 0 {
                         Ok(())
                     } else {

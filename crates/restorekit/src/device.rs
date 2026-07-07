@@ -519,6 +519,10 @@ pub struct Device {
     /// The device's ECID, if known: parsed from the serial in restore modes, or
     /// filled in for a booted Mac by [`identify`].
     pub ecid: Option<u64>,
+    /// The hardware serial number (e.g. "C02XX…"), when the device exposes one:
+    /// iBoot's `SRNM` in recovery mode, or the raw USB serial when booted. DFU
+    /// mode usually omits it.
+    pub srnm: Option<String>,
     /// Restore-family chip identity; present in DFU/recovery/restore, else None.
     pub identity: Option<Identity>,
     /// Exact Apple marketing name (e.g. "MacBook Pro (13-inch, M1, 2020)"),
@@ -593,41 +597,50 @@ impl Device {
 /// Example:
 /// `CPID:8103 CPFM:03 SCEP:01 BDID:26 ECID:000C60A812345678 IBFL:3C SRTG:[iBoot-7429.61.2]`
 ///
-/// Fields are space-separated `KEY:VALUE`; numeric values are hex, `SRTG` is
-/// bracketed. Missing optional fields are tolerated; CPID/BDID/ECID are required.
-pub fn parse_serial(serial: &str) -> Option<(u16, u8, u64, Option<String>)> {
+/// Fields are space-separated `KEY:VALUE`; numeric values are hex, `SRTG` and
+/// `SRNM` are bracketed. Missing optional fields are tolerated; CPID/BDID/ECID
+/// are required. Returns `(cpid, bdid, ecid, srtg, srnm)`.
+#[allow(clippy::type_complexity)]
+pub fn parse_serial(serial: &str) -> Option<(u16, u8, u64, Option<String>, Option<String>)> {
     let mut cpid = None;
     let mut bdid = None;
     let mut ecid = None;
     let mut srtg = None;
+    let mut srnm = None;
 
     for field in serial.split_whitespace() {
         let (key, value) = field.split_once(':')?;
+        let bracketed = || {
+            value
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_string()
+        };
         match key {
             "CPID" => cpid = u16::from_str_radix(value, 16).ok(),
             "BDID" => bdid = u8::from_str_radix(value, 16).ok(),
             "ECID" => ecid = u64::from_str_radix(value, 16).ok(),
-            "SRTG" => {
-                srtg = Some(
-                    value
-                        .trim_start_matches('[')
-                        .trim_end_matches(']')
-                        .to_string(),
-                )
-            }
+            "SRTG" => srtg = Some(bracketed()),
+            "SRNM" => srnm = Some(bracketed()),
             _ => {}
         }
     }
 
-    Some((cpid?, bdid?, ecid?, srtg))
+    Some((cpid?, bdid?, ecid?, srtg, srnm))
 }
 
 pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
     let serial = info.serial_number().unwrap_or("").to_string();
     let mode = UsbMode::from_pid(info.product_id());
     let parsed = parse_serial(&serial);
-    let ecid = parsed.as_ref().map(|(_, _, ecid, _)| *ecid);
-    let identity = parsed.map(|(cpid, bdid, _, srtg)| Identity {
+    let ecid = parsed.as_ref().map(|(_, _, ecid, _, _)| *ecid);
+    // The hardware serial from iBoot's SRNM (recovery), else the raw USB serial
+    // for a booted Mac (which already is the Apple serial).
+    let srnm = parsed
+        .as_ref()
+        .and_then(|(_, _, _, _, srnm)| srnm.clone())
+        .or_else(|| (mode == UsbMode::Booted && !serial.is_empty()).then(|| serial.clone()));
+    let identity = parsed.map(|(cpid, bdid, _, srtg, _)| Identity {
         cpid,
         bdid,
         srtg,
@@ -639,6 +652,7 @@ pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
         product: info.product_string().unwrap_or("Apple device").to_string(),
         serial,
         ecid,
+        srnm,
         identity,
         marketing_name: None,
         port: None,
@@ -997,12 +1011,13 @@ mod tests {
 
     #[test]
     fn parses_full_serial() {
-        let s = "CPID:8103 CPFM:03 SCEP:01 BDID:26 ECID:000C60A812345678 IBFL:3C SRTG:[iBoot-7429.61.2]";
-        let (cpid, bdid, ecid, srtg) = parse_serial(s).unwrap();
+        let s = "CPID:8103 CPFM:03 SCEP:01 BDID:26 ECID:000C60A812345678 IBFL:3C SRTG:[iBoot-7429.61.2] SRNM:[C02XX1234567]";
+        let (cpid, bdid, ecid, srtg, srnm) = parse_serial(s).unwrap();
         assert_eq!(cpid, 0x8103);
         assert_eq!(bdid, 0x26);
         assert_eq!(ecid, 0x000C60A812345678);
         assert_eq!(srtg.as_deref(), Some("iBoot-7429.61.2"));
+        assert_eq!(srnm.as_deref(), Some("C02XX1234567"));
     }
 
     #[test]
@@ -1016,6 +1031,7 @@ mod tests {
             product: "Apple Mobile Device".into(),
             serial: String::new(),
             ecid: Some(ecid),
+            srnm: None,
             identity: Some(Identity {
                 cpid: 0x8103,
                 bdid: 0x26,

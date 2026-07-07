@@ -48,6 +48,17 @@ static LOG_LINES: Mutex<Vec<(c_int, String)>> = Mutex::new(Vec::new());
 static LOG_ECHO: AtomicBool = AtomicBool::new(false);
 const LOG_CAPACITY: usize = 512;
 
+/// Optional sink that receives every captured log line as it arrives, for
+/// live-streaming the restore log (see [`set_log_sink`]).
+type LogSink = Box<dyn Fn(c_int, &str) + Send>;
+static LOG_SINK: Mutex<Option<LogSink>> = Mutex::new(None);
+
+/// Install (or clear, with `None`) a callback invoked for each idevicerestore
+/// log line as it is captured. Used to stream the restore log to a frontend.
+pub fn set_log_sink(sink: Option<LogSink>) {
+    *LOG_SINK.lock().unwrap_or_else(|e| e.into_inner()) = sink;
+}
+
 /// Called from C (log_capture.c) for each idevicerestore log line.
 ///
 /// # Safety
@@ -64,6 +75,11 @@ pub unsafe extern "C" fn restorekit_log_capture(level: c_int, msg: *const c_char
     }
     if LOG_ECHO.load(Ordering::Relaxed) {
         eprintln!("{line}");
+    }
+    if let Ok(guard) = LOG_SINK.lock() {
+        if let Some(sink) = guard.as_ref() {
+            sink(level, &line);
+        }
     }
     if let Ok(mut buf) = LOG_LINES.lock() {
         if buf.len() >= LOG_CAPACITY {

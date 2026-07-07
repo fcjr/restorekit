@@ -11,6 +11,12 @@ keywords.workspace = true
 categories.workspace = true
 readme = "../../README.md"
 
+[features]
+default = ["history"]
+# Persistent capture/restore history, stored in a bundled-SQLite database with
+# migrations embedded in the binary. Pulls in rusqlite (statically linked).
+history = ["dep:rusqlite", "dep:rusqlite_migration"]
+
 [dependencies]
 restorekit-sys = { path = "../restorekit-sys", version = "0.3.1" }
 nusb = "0.2"
@@ -22,6 +28,8 @@ plist = "1"
 thiserror = "2"
 sha1 = "0.10"
 sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+rusqlite_migration = { version = "1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

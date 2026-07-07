@@ -72,6 +72,9 @@ pub enum Error {
     #[error("could not determine home directory")]
     NoHomeDir,
 
+    #[error("history database error: {0}")]
+    Database(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 

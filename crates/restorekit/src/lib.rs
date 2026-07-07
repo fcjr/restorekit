@@ -66,6 +66,8 @@ pub mod dfu;
 pub mod driver;
 pub mod error;
 pub mod firmware;
+#[cfg(feature = "history")]
+pub mod history;
 pub mod progress;
 pub mod restore;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -77,3 +79,30 @@ pub use error::{Error, Result};
 pub use firmware::Firmware;
 pub use progress::Event;
 pub use restore::Mode;
+
+/// A shared embedded usbmuxd the parent process holds while it spawns per-device
+/// restore workers. Child `restore` processes detect it (via the
+/// `RESTOREKIT_SHARED_USBMUXD` env var, inherited from the parent) and reuse it
+/// rather than each starting their own conflicting instance.
+///
+/// A no-op on macOS, where the system usbmuxd is always available.
+pub struct SharedUsbmuxd {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    _guard: usbmuxd::UsbmuxdGuard,
+}
+
+/// Start a [`SharedUsbmuxd`] the parent holds for the lifetime of its restore
+/// jobs. Enables true process-per-device parallelism (see [`SharedUsbmuxd`]).
+pub fn start_shared_usbmuxd(progress: progress::ProgressFn) -> Result<SharedUsbmuxd> {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        let guard = usbmuxd::UsbmuxdGuard::start(progress)?;
+        unsafe { std::env::set_var("RESTOREKIT_SHARED_USBMUXD", "1") };
+        Ok(SharedUsbmuxd { _guard: guard })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        let _ = progress;
+        Ok(SharedUsbmuxd {})
+    }
+}

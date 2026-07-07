@@ -44,6 +44,11 @@ pub enum Event {
         name: String,
         progress: f32,
     },
+    /// One line of idevicerestore's log, streamed live for a log window.
+    LogLine {
+        level: i32,
+        line: String,
+    },
     /// A restore attempt failed on a transient transport error (e.g. a dropped
     /// USB write mid-transfer) and is being retried from the top.
     RestoreRetrying {
