@@ -41,7 +41,9 @@
   let tab = $state<"restore" | "list" | "history">("restore");
   let devSubtab = $state<"connected" | "history">("connected"); // Devices tab mode
   let seenDevices = $state<SeenDevice[]>([]);
-  let compact = $state(false); // condensed Restore detail
+  let restoreView = $state<"detail" | "list">("detail"); // Restore tab layout
+  let showQrInList = $state(false); // inline QR codes in the Devices list
+  let qrCache = $state<Record<string, string>>({}); // value → QR svg
   let historyEnabled = $state(true); // false when the app is built without the feature
   let history = $state<HistoryEntry[]>([]);
   let confirmingClearHistory = $state(false);
@@ -164,13 +166,13 @@
     canTrigger && helperState !== "" && helperState !== "enabled" && phase === "idle",
   );
 
-  // Which action panel the selected device gets.
-  const mMode = $derived.by<"restore" | "usb" | "dfu" | "manual">(() => {
-    const d = selected;
-    if (!d) return "restore";
+  // Which action a device gets: full restore config, WinUSB setup, DFU trigger,
+  // or manual instructions.
+  function deviceMode(d: Device): "restore" | "usb" | "dfu" | "manual" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
     return canTrigger ? "dfu" : "manual";
-  });
+  }
+  const mMode = $derived(selected ? deviceMode(selected) : "restore");
 
   const progress = $derived.by(() => {
     if (phase === "resolving")
@@ -357,6 +359,23 @@
     qrSerial = null;
     qrSvg = "";
   }
+  // Generate (once, cached) the QR SVG for a value shown inline in the list.
+  async function ensureQr(value: string) {
+    if (!value || qrCache[value] !== undefined) return;
+    qrCache[value] = ""; // mark pending so we only fetch once
+    try {
+      qrCache[value] = await api.serialQrSvg(value);
+    } catch {
+      qrCache[value] = "";
+    }
+  }
+  $effect(() => {
+    if (!showQrInList) return;
+    for (const d of devices) {
+      const q = qrOf(d);
+      if (q) ensureQr(q.value);
+    }
+  });
   async function copySerial() {
     if (!qrSerial) return;
     try {
@@ -851,6 +870,12 @@
       {/if}
     </span>
     <div class="grow"></div>
+    {#if tab === "restore"}
+      <span class="seg viewseg">
+        <button class="segbtn" class:on={restoreView === "detail"} onclick={() => (restoreView = "detail")}>Detail</button>
+        <button class="segbtn" class:on={restoreView === "list"} onclick={() => (restoreView = "list")}>List</button>
+      </span>
+    {/if}
     <span class="host">
       <span class="hostdot" style="background:{canTrigger ? 'var(--acc)' : 'var(--fnt)'}"></span>
       {hostLabel}
@@ -866,7 +891,7 @@
     </div>
   {/if}
 
-  {#if tab === "restore"}
+  {#if tab === "restore" && restoreView === "detail"}
   <div class="body">
     <!-- roster: connected devices + restore jobs, unified -->
     <aside class="roster">
@@ -935,34 +960,21 @@
         </div>
       {:else if selectedRow}
         <div class="pane">
-          <div class="panetop">
-            {#if selectedJob}
-              <div class="eyebrow" style="color:{JOB_COLOR[selectedJob.status] ?? 'var(--acc)'}">
-                {restoring ? `Restoring · ${selectedJob.step}` : selectedJob.status}
-              </div>
-            {:else if selected}
-              <div class="eyebrow" style="color:{MODE_COLOR[selected.mode]}">
-                {MODES[selected.mode].label} · {MODES[selected.mode].hint}
-              </div>
-            {:else}
-              <div class="eyebrow">Device</div>
-            {/if}
-            <div class="grow"></div>
-            <button class="densebtn" onclick={() => (compact = !compact)} title="Toggle compact view">{compact ? "⊞ Full" : "⊟ Compact"}</button>
-          </div>
+          {#if selectedJob}
+            <div class="eyebrow" style="color:{JOB_COLOR[selectedJob.status] ?? 'var(--acc)'}">
+              {restoring ? `Restoring · ${selectedJob.step}` : selectedJob.status}
+            </div>
+          {:else if selected}
+            <div class="eyebrow" style="color:{MODE_COLOR[selected.mode]}">
+              {MODES[selected.mode].label} · {MODES[selected.mode].hint}
+            </div>
+          {/if}
           <h1 class="dtitle">
             {selectedRow.name}
             {#if selected?.identifier}<span class="dparen">({selected.identifier})</span>{/if}
           </h1>
 
-          {#if selected && compact}
-            <div class="specline">
-              <button class="cellcopy inline" onclick={() => copy(selected.identifier ?? "")}>{selected.identifier ?? "—"}</button>
-              {#if serialFor(selected)}<span class="dot">·</span><button class="cellcopy inline" onclick={() => copy(serialFor(selected) ?? "")}>{serialFor(selected)}</button>{/if}
-              <span class="dot">·</span><button class="cellcopy inline" onclick={() => copy(selected.ecid ?? "")}>{selected.ecid || "—"}</button>
-              {#if selected.port}<span class="dot">·</span><button class="cellcopy inline" onclick={() => copy(selected.port?.location ?? "")}>{selected.port.location}{selected.port.dfu ? " · DFU port" : ""}</button>{/if}
-            </div>
-          {:else if selected}
+          {#if selected}
             <div class="spec">
               <div class="k">Identifier</div><div class="v"><button class="cellcopy" onclick={() => copy(selected.identifier ?? "")}>{selected.identifier ?? "—"}</button></div>
               <div class="k">Serial</div><div class="v"><button class="cellcopy" onclick={() => copy(serialFor(selected) ?? "")}>{serialFor(selected) ?? "—"}</button></div>
@@ -1005,7 +1017,7 @@
               {/if}
 
               <div class="joblog-wrap">
-                <pre class="log joblog" class:compact bind:this={logEl} onscroll={onLogScroll}>{(jobLogs[selectedJob.id] ?? []).join("\n") || "Waiting for log output…"}</pre>
+                <pre class="log joblog" bind:this={logEl} onscroll={onLogScroll}>{(jobLogs[selectedJob.id] ?? []).join("\n") || "Waiting for log output…"}</pre>
                 {#if !logFollow}
                   <button class="livebtn" onclick={jumpToLive}>Jump to live ↓</button>
                 {/if}
@@ -1079,6 +1091,59 @@
       {/if}
     </section>
   </div>
+  {:else if tab === "restore"}
+    <section class="tabview">
+      <div class="tabhead"><span class="eyebrow">Targets · {roster.length}</span></div>
+      {#if roster.length}
+        <div class="dlist">
+          {#each roster as r (r.key)}
+            {@const tag = rowTag(r)}
+            <div class="dcard">
+              <div class="dcard-main">
+                <div class="dcard-head">
+                  <span class="mtag" style="color:{tag.color}">{tag.label}</span>
+                  <span class="dcard-name">{r.name}</span>
+                  {#if r.device?.identifier}<span class="dparen">({r.device.identifier})</span>{/if}
+                </div>
+                <div class="dcard-meta">
+                  {#if r.device && serialFor(r.device)}<span>serial {serialFor(r.device)}</span>{/if}
+                  <span>ecid {r.ecid ?? "—"}</span>
+                  {#if r.device}<span>{r.device.mode}{r.device.port?.location ? ` · ${r.device.port.location}` : ""}</span>{:else}<span>disconnected</span>{/if}
+                </div>
+                {#if r.job && jobActive(r.job)}
+                  <div class="dcard-prog">
+                    <span class="pbar"><span class="pfill" style="width:{Math.max(3, Math.min(100, r.job.progress))}%; background:{tag.color}"></span></span>
+                    <span class="jobpct">{Math.round(r.job.progress)}% · {r.job.step} · {fmtElapsed(r.job)}</span>
+                  </div>
+                {:else if r.job && r.job.status !== "queued"}
+                  <div class="dcard-meta"><span style="color:{tag.color}">{r.job.status}{r.job.status === "failed" && r.job.message ? ` — ${r.job.message}` : ""}</span></div>
+                {/if}
+              </div>
+              <div class="dcard-actions">
+                {#if r.job && jobActive(r.job)}
+                  <button class="btn danger sm" onclick={() => cancelJob(r.job!.id)}>Cancel</button>
+                {:else if r.job}
+                  <button class="btn sm" onclick={() => restartJob(r.job!.id)}>Restart</button>
+                {:else if r.device}
+                  {@const dm = deviceMode(r.device)}
+                  {#if dm === "restore"}
+                    <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; beginRestore(); }}>Erase & restore</button>
+                    <button class="btn ghost sm" disabled={!!busy} onclick={() => { selectedKey = r.key; rebootTarget(); }}>Reboot</button>
+                  {:else if dm === "dfu"}
+                    <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; enterDfu(); }}>Enter DFU</button>
+                  {:else if dm === "usb"}
+                    <button class="btn primary sm" onclick={() => { selectedKey = r.key; restoreView = "detail"; }}>Set up USB</button>
+                  {/if}
+                {/if}
+                <button class="btn ghost sm" title="Full config + log" onclick={() => { select(r.key); restoreView = "detail"; }}>Open →</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="tabempty">No devices connected. Cable a Mac to this host's DFU port.</div>
+      {/if}
+    </section>
   {:else if tab === "list"}
     <section class="tabview">
       <div class="tabhead">
@@ -1089,6 +1154,9 @@
           {/if}
         </span>
         <div class="grow"></div>
+        {#if historyEnabled && devSubtab === "connected"}
+          <button class="btn ghost sm" onclick={() => (showQrInList = !showQrInList)}>{showQrInList ? "Hide QR" : "Show QR"}</button>
+        {/if}
         <button class="btn sm" onclick={doExportDevices} disabled={devSubtab === "history" ? !seenDevices.length : !devices.length}>Export CSV</button>
       </div>
 
@@ -1096,12 +1164,13 @@
         {#if devices.length}
           <table class="tbl">
             <thead>
-              <tr><th>Serial</th><th>Model</th><th>ECID</th><th>Mode</th><th>Port</th><th></th></tr>
+              <tr><th>Serial</th><th>Model</th><th>ECID</th><th>Mode</th><th>Port</th>{#if showQrInList}<th>QR</th>{/if}<th></th></tr>
             </thead>
             <tbody>
               {#each devices as d (d.serial)}
                 {@const s = serialFor(d)}
                 {@const e = ecidFor(d)}
+                {@const q = qrOf(d)}
                 <tr>
                   <td><button class="cellcopy" onclick={() => copy(s ?? "")}>{s ?? "—"}</button></td>
                   <td>
@@ -1111,11 +1180,13 @@
                   <td><button class="cellcopy" onclick={() => copy(e ?? "")}>{e ?? "—"}</button></td>
                   <td><button class="cellcopy" onclick={() => copy(d.mode)}><span class="mtag" style="color:{MODE_COLOR[d.mode]}">{MODE_TAG[d.mode]}</span></button></td>
                   <td><button class="cellcopy" onclick={() => copy(d.port?.location ?? "")}>{d.port?.location ?? "—"}</button></td>
+                  {#if showQrInList}
+                    <td class="qrcell">{#if q && qrCache[q.value]}{@html qrCache[q.value]}{/if}</td>
+                  {/if}
                   <td class="right nowrap">
                     <button class="iconbtn" title="Open in Restore" onclick={() => openInRestore(d)}>Open →</button>
-                    {#if historyEnabled}
-                      {@const q = qrOf(d)}
-                      {#if q}<button class="iconbtn" title="Show QR" aria-label="Show QR" onclick={() => showQr(q.value, q.label)}>QR</button>{/if}
+                    {#if historyEnabled && q}
+                      <button class="iconbtn" title="Show QR" aria-label="Show QR" onclick={() => showQr(q.value, q.label)}>QR</button>
                     {/if}
                     <button class="iconbtn" title="Copy row" aria-label="Copy row" onclick={() => copy(deviceLine(d))}>{@render copyicon()}</button>
                   </td>
@@ -1734,57 +1805,81 @@
   .tabhead .grow {
     flex: 1;
   }
-  /* Restore detail: compact toggle + condensed spec line */
-  .panetop {
+  /* Restore list view: full-width multi-line device cards */
+  .dlist {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+  }
+  .dcard {
     display: flex;
     align-items: center;
-    margin-bottom: 12px;
+    gap: 16px;
+    padding: 14px 16px;
+    border-top: 1px solid var(--line);
   }
-  .panetop .eyebrow {
-    margin: 0;
+  .dcard:first-child {
+    border-top: 0;
   }
-  .panetop .grow {
+  .dcard-main {
     flex: 1;
+    min-width: 0;
   }
-  .densebtn {
-    border: 1px solid var(--line2);
-    background: transparent;
-    color: var(--mut);
-    font: inherit;
-    font-size: 10.5px;
-    letter-spacing: 0.06em;
-    padding: 3px 9px;
+  .dcard-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
   }
-  .densebtn:hover {
-    border-color: var(--acc);
-    color: var(--acc);
+  .dcard-name {
+    font-size: 14px;
+    color: var(--ink);
   }
-  .specline {
+  .dcard-meta {
     display: flex;
     flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 5px;
+    font-size: 11.5px;
+    color: var(--mut);
+  }
+  .dcard-prog {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    max-width: 520px;
-    border: 1px solid var(--line);
-    padding: 8px 12px;
-    font-size: 12px;
-    color: var(--ink2);
+    gap: 10px;
+    margin-top: 8px;
+    max-width: 460px;
   }
-  .specline .dot {
-    color: var(--dim);
+  .dcard-prog .pbar {
+    flex: 1;
+    height: 6px;
   }
-  .cellcopy.inline {
-    display: inline;
-    width: auto;
+  .dcard-prog .pfill {
+    display: block;
+    height: 100%;
+  }
+  .dcard-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  .qrcell {
+    width: 116px;
+  }
+  .qrcell :global(svg) {
+    width: 104px;
+    height: 104px;
+    display: block;
+    background: #fff;
+    padding: 5px;
+    border: 1px solid var(--line2);
   }
   .seentime {
     font-size: 11.5px;
     color: var(--mut);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
-  }
-  .joblog.compact {
-    max-height: 160px;
   }
   .tbl {
     width: 100%;
