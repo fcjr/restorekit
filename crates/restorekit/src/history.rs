@@ -234,7 +234,8 @@ pub fn list_seen() -> Result<Vec<SeenDevice>> {
 /// Write the seen-device history to `path` as CSV.
 pub fn export_seen_csv(path: &Path) -> Result<()> {
     let entries = list_seen()?;
-    let mut out = String::from("ECID,Serial,Model,Name,Chip,Board,Mode,Port,First seen,Last seen\n");
+    let mut out =
+        String::from("ECID,Serial,Model,Name,Chip,Board,Mode,Port,First seen,Last seen\n");
     for e in &entries {
         let cols = [
             e.ecid.as_str(),
@@ -248,7 +249,13 @@ pub fn export_seen_csv(path: &Path) -> Result<()> {
             e.first_seen.as_str(),
             e.last_seen.as_str(),
         ];
-        out.push_str(&cols.iter().map(|c| csv_field(c)).collect::<Vec<_>>().join(","));
+        out.push_str(
+            &cols
+                .iter()
+                .map(|c| csv_field(c))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
         out.push('\n');
     }
     std::fs::write(path, out)?;
