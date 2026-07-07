@@ -629,11 +629,27 @@ pub fn parse_serial(serial: &str) -> Option<(u16, u8, u64, Option<String>, Optio
     Some((cpid?, bdid?, ecid?, srtg, srnm))
 }
 
+/// Some Macs (booted / "other" mode) expose a `CPID-ECID` USB serial like
+/// `00008103-000445E11462001E` — 8 hex CPID, a dash, then the 16-hex ECID.
+/// Pull the ECID out of it when the richer `parse_serial` finds nothing.
+fn ecid_from_usb_serial(serial: &str) -> Option<u64> {
+    let (cpid, ecid) = serial.split_once('-')?;
+    let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
+    if hex(cpid, 8) && hex(ecid, 16) {
+        u64::from_str_radix(ecid, 16).ok()
+    } else {
+        None
+    }
+}
+
 pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
     let serial = info.serial_number().unwrap_or("").to_string();
     let mode = UsbMode::from_pid(info.product_id());
     let parsed = parse_serial(&serial);
-    let ecid = parsed.as_ref().map(|(_, _, ecid, _, _)| *ecid);
+    let ecid = parsed
+        .as_ref()
+        .map(|(_, _, ecid, _, _)| *ecid)
+        .or_else(|| ecid_from_usb_serial(&serial));
     // The hardware serial from iBoot's SRNM (recovery), else the raw USB serial
     // for a booted Mac (which already is the Apple serial).
     let srnm = parsed
@@ -1023,6 +1039,17 @@ mod tests {
     #[test]
     fn missing_required_field_fails() {
         assert!(parse_serial("CPID:8103 BDID:26").is_none());
+    }
+
+    #[test]
+    fn ecid_from_cpid_ecid_serial() {
+        assert_eq!(
+            super::ecid_from_usb_serial("00008103-000445E11462001E"),
+            Some(0x000445E11462001E),
+        );
+        // Apple hardware serials and other shapes don't match.
+        assert_eq!(super::ecid_from_usb_serial("C02DQ6TPQ05P"), None);
+        assert_eq!(super::ecid_from_usb_serial("00008103-XYZ"), None);
     }
 
     fn dev(mode: UsbMode, ecid: u64) -> Device {

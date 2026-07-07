@@ -27,11 +27,31 @@ pub struct HistoryEntry {
     pub timestamp_rfc3339: String,
 }
 
+/// One device ever seen by this host, deduped by ECID and enriched across the
+/// modes it passes through (a serial appears in recovery, the model in DFU, …).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeenDevice {
+    pub ecid: String,
+    pub serial_number: Option<String>,
+    pub model_identifier: Option<String>,
+    pub name: String,
+    pub chip: Option<String>,
+    pub board: Option<String>,
+    pub mode: String,
+    pub port: Option<String>,
+    pub first_seen: String,
+    pub last_seen: String,
+}
+
 /// Migrations, embedded in the binary at compile time.
 fn migrations() -> &'static Migrations<'static> {
     static MIGRATIONS: OnceLock<Migrations<'static>> = OnceLock::new();
-    MIGRATIONS
-        .get_or_init(|| Migrations::new(vec![M::up(include_str!("../migrations/001_init.sql"))]))
+    MIGRATIONS.get_or_init(|| {
+        Migrations::new(vec![
+            M::up(include_str!("../migrations/001_init.sql")),
+            M::up(include_str!("../migrations/002_seen_devices.sql")),
+        ])
+    })
 }
 
 fn db(e: rusqlite::Error) -> Error {
@@ -137,6 +157,98 @@ pub fn export_csv(path: &Path) -> Result<()> {
                 .collect::<Vec<_>>()
                 .join(","),
         );
+        out.push('\n');
+    }
+    std::fs::write(path, out)?;
+    Ok(())
+}
+
+const SEEN_UPSERT: &str = "INSERT INTO seen_devices \
+    (ecid, serial_number, model_identifier, name, chip, board, mode, port, first_seen, last_seen) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9) \
+    ON CONFLICT(ecid) DO UPDATE SET \
+      serial_number = COALESCE(excluded.serial_number, serial_number), \
+      model_identifier = COALESCE(excluded.model_identifier, model_identifier), \
+      name = excluded.name, \
+      chip = COALESCE(excluded.chip, chip), \
+      board = COALESCE(excluded.board, board), \
+      mode = excluded.mode, \
+      port = COALESCE(excluded.port, port), \
+      last_seen = excluded.last_seen";
+
+/// Upsert a batch of currently-seen devices, keyed by ECID. Richer data (a
+/// serial or model that appears in a later mode) fills in blanks without
+/// clobbering what's already known; `last_seen` always advances.
+pub fn record_seen(devices: &[SeenDevice]) -> Result<()> {
+    let mut conn = open()?;
+    let tx = conn.transaction().map_err(db)?;
+    {
+        let mut stmt = tx.prepare(SEEN_UPSERT).map_err(db)?;
+        for d in devices {
+            stmt.execute(params![
+                d.ecid,
+                d.serial_number,
+                d.model_identifier,
+                d.name,
+                d.chip,
+                d.board,
+                d.mode,
+                d.port,
+                d.last_seen,
+            ])
+            .map_err(db)?;
+        }
+    }
+    tx.commit().map_err(db)?;
+    Ok(())
+}
+
+/// Every device ever seen, most-recently-seen first.
+pub fn list_seen() -> Result<Vec<SeenDevice>> {
+    let conn = open()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT ecid, serial_number, model_identifier, name, chip, board, mode, port, \
+             first_seen, last_seen FROM seen_devices ORDER BY last_seen DESC",
+        )
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(SeenDevice {
+                ecid: r.get(0)?,
+                serial_number: r.get(1)?,
+                model_identifier: r.get(2)?,
+                name: r.get(3)?,
+                chip: r.get(4)?,
+                board: r.get(5)?,
+                mode: r.get(6)?,
+                port: r.get(7)?,
+                first_seen: r.get(8)?,
+                last_seen: r.get(9)?,
+            })
+        })
+        .map_err(db)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db)
+}
+
+/// Write the seen-device history to `path` as CSV.
+pub fn export_seen_csv(path: &Path) -> Result<()> {
+    let entries = list_seen()?;
+    let mut out = String::from("ECID,Serial,Model,Name,Chip,Board,Mode,Port,First seen,Last seen\n");
+    for e in &entries {
+        let cols = [
+            e.ecid.as_str(),
+            e.serial_number.as_deref().unwrap_or(""),
+            e.model_identifier.as_deref().unwrap_or(""),
+            e.name.as_str(),
+            e.chip.as_deref().unwrap_or(""),
+            e.board.as_deref().unwrap_or(""),
+            e.mode.as_str(),
+            e.port.as_deref().unwrap_or(""),
+            e.first_seen.as_str(),
+            e.last_seen.as_str(),
+        ];
+        out.push_str(&cols.iter().map(|c| csv_field(c)).collect::<Vec<_>>().join(","));
         out.push('\n');
     }
     std::fs::write(path, out)?;

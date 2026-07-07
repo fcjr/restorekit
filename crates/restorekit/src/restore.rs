@@ -73,6 +73,11 @@ fn is_transient_failure(err: &Error) -> bool {
         "Could not read data",
         "Unable to receive message from FDR",
         "usb_bulk_transfer",
+        // The target dropped off USB during the DFU→recovery reboot while the
+        // stage-1 (iBEC/RestoreDCP) components were going over — almost always
+        // recovers on another attempt once the device settles.
+        "Unable to place device into recovery mode from DFU mode",
+        "Unable to send iBoot stage 1 components",
     ];
     match err {
         Error::RestoreFailed { log_tail, .. } => MARKERS.iter().any(|m| log_tail.contains(m)),
