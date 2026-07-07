@@ -489,6 +489,33 @@
     return `${m}:${String(s).padStart(2, "0")}`;
   }
 
+  // Remember a serial harvested from a restore's log, keyed by the job's ECID,
+  // and persist it — this is the one path that captures a Mac only ever seen in
+  // DFU (its serial shows up once restored boots the ramdisk).
+  function captureRestoreSerial(jobId: number, serial: string) {
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job?.ecid || !serial) return;
+    serialByEcid.set(job.ecid, serial);
+    if (!historyEnabled) return;
+    const nowIso = new Date().toISOString();
+    void api
+      .recordSeenDevices([
+        {
+          ecid: job.ecid,
+          serial_number: serial,
+          model_identifier: null,
+          name: job.name,
+          chip: null,
+          board: null,
+          mode: "restore",
+          port: null,
+          first_seen: nowIso,
+          last_seen: nowIso,
+        },
+      ])
+      .catch(() => {});
+  }
+
   async function cancelJob(id: number) {
     try {
       await api.cancelRestore(id);
@@ -623,6 +650,10 @@
     const unlistenJobLog = onRestoreJobLog((l) => {
       const cur = jobLogs[l.id] ?? [];
       jobLogs[l.id] = [...cur.slice(-800), l.line];
+      // idevicerestore logs the hardware serial mid-restore (from restored);
+      // harvest it and remember it by ECID, since DFU never exposes it.
+      const m = l.line.match(/device serial number is (\S+)/i);
+      if (m) captureRestoreSerial(l.id, m[1]);
     });
     return () => {
       clearInterval(poll);
