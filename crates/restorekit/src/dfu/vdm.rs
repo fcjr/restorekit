@@ -362,7 +362,10 @@ fn resolve_rid(target: &DfuTarget) -> Result<Option<i32>> {
     match target {
         DfuTarget::Auto => Ok(None),
         DfuTarget::Port(rid) => {
-            if super::port::all_ports().iter().any(|p| p.dfu && p.rid == *rid) {
+            if super::port::all_ports()
+                .iter()
+                .any(|p| p.dfu && p.rid == *rid)
+            {
                 Ok(Some(*rid))
             } else {
                 Err(Error::DfuPortNotFound(*rid))

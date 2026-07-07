@@ -30,9 +30,8 @@ pub struct HistoryEntry {
 /// Migrations, embedded in the binary at compile time.
 fn migrations() -> &'static Migrations<'static> {
     static MIGRATIONS: OnceLock<Migrations<'static>> = OnceLock::new();
-    MIGRATIONS.get_or_init(|| {
-        Migrations::new(vec![M::up(include_str!("../migrations/001_init.sql"))])
-    })
+    MIGRATIONS
+        .get_or_init(|| Migrations::new(vec![M::up(include_str!("../migrations/001_init.sql"))]))
 }
 
 fn db(e: rusqlite::Error) -> Error {
@@ -131,7 +130,13 @@ pub fn export_csv(path: &Path) -> Result<()> {
             e.mode.as_str(),
             e.status.as_str(),
         ];
-        out.push_str(&cols.iter().map(|c| csv_field(c)).collect::<Vec<_>>().join(","));
+        out.push_str(
+            &cols
+                .iter()
+                .map(|c| csv_field(c))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
         out.push('\n');
     }
     std::fs::write(path, out)?;

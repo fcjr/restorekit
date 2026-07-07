@@ -14,7 +14,9 @@ pub enum Error {
     #[error("no Mac with ECID {0:#x} is connected to this host")]
     EcidNotConnected(u64),
 
-    #[error("the Mac with ECID {0:#x} is not on the DFU port; move its cable to the DFU port and retry")]
+    #[error(
+        "the Mac with ECID {0:#x} is not on the DFU port; move its cable to the DFU port and retry"
+    )]
     EcidNotOnDfuPort(u64),
 
     #[error("no DFU-capable port with RID {0} on this host (see `restorekit list`)")]
