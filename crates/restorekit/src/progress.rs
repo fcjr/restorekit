@@ -44,6 +44,14 @@ pub enum Event {
         name: String,
         progress: f32,
     },
+    /// A restore attempt failed on a transient transport error (e.g. a dropped
+    /// USB write mid-transfer) and is being retried from the top.
+    RestoreRetrying {
+        /// The attempt that just failed (1-based).
+        attempt: u32,
+        max_attempts: u32,
+        message: String,
+    },
     /// The embedded usbmuxd server is starting (Linux only).
     UsbmuxdStarting,
     /// Binding the WinUSB driver to Apple's DFU/recovery devices (Windows only).

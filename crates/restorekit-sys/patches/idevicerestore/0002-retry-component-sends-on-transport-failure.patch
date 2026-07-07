@@ -1,0 +1,190 @@
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -4247,7 +4247,67 @@
+ 	}
+ 	return 0;
+ }
++
++/* Multi-gigabyte components stream as hundreds of thousands of 8K plist
++ * chunks, so a single dropped write used to abort the whole restore. Instead,
++ * reconnect to the data port and re-send the component from the start, a
++ * bounded number of times. Sends either the IPSW member at `path` (streamed)
++ * or the `data`/`size` buffer. */
++#define RESTORE_SEND_ATTEMPTS 3
++
++static int _restore_send_component_data_with_retry(struct idevicerestore_client_t* client, plist_t message, const char* component, const char* path, void* data, size_t size)
++{
++	int attempt;
++	for (attempt = 1; attempt <= RESTORE_SEND_ATTEMPTS; attempt++) {
++		restore_service_client_t service = _restore_get_service_client_for_data_request(client, message);
++		if (!service) {
++			logger(LL_ERROR, "%s: Unable to connect to service client\n", __func__);
++			return -1;
++		}
++
++		struct _restore_send_file_data_ctx rctx;
++		rctx.client = client;
++		rctx.service = service;
++		rctx.last_progress = 0;
++		rctx.tag = progress_get_next_tag();
+ 
++		int rc = 0;
++		if (path) {
++			register_progress(rctx.tag, component);
++			rc = ipsw_extract_send(client->ipsw, path, 8192, (ipsw_send_cb)_restore_send_file_data, &rctx);
++		} else {
++			if (size > 0x2000000) {
++				register_progress(rctx.tag, component);
++			}
++			int64_t i = size;
++			while (i > 0) {
++				int blob_size = i > 8192 ? 8192 : (int)i;
++				if (_restore_send_file_data(&rctx, ((char*)data + size - i), blob_size, size-i, size) < 0) {
++					rc = -1;
++					break;
++				}
++				i -= blob_size;
++			}
++			if (rc == 0) {
++				_restore_send_file_data(&rctx, NULL, 0, size, size);
++			}
++		}
++
++		_restore_service_free(service);
++		finalize_progress(rctx.tag);
++
++		if (rc == 0) {
++			return 0;
++		}
++		if (attempt < RESTORE_SEND_ATTEMPTS) {
++			logger(LL_WARNING, "Sending %s failed (attempt %d of %d); reconnecting to retry\n", component, attempt, RESTORE_SEND_ATTEMPTS);
++			sleep(2);
++		}
++	}
++	logger(LL_ERROR, "Unable to send component %s after %d attempts\n", component, RESTORE_SEND_ATTEMPTS);
++	return -1;
++}
++
+ int restore_send_personalized_boot_object_v3(struct idevicerestore_client_t* client, plist_t message)
+ {
+ 	if (client->debug_level > 1) {
+@@ -4331,43 +4391,15 @@
+ 		}
+ 	}
+ 
+-	restore_service_client_t service = _restore_get_service_client_for_data_request(client, message);
+-	if (!service) {
+-		logger(LL_ERROR, "%s: Unable to connect to service client\n", __func__);
+-		return -1;
+-	}
+-
+ 	logger(LL_INFO, "Sending %s now (%" PRIu64 " bytes)...\n", component, (uint64_t)size);
+ 
+-	struct _restore_send_file_data_ctx rctx;
+-	rctx.client = client;
+-	rctx.service = service;
+-	rctx.last_progress = 0;
+-	rctx.tag = progress_get_next_tag();
+-
+-	if (size > 0x2000000) {
+-		register_progress(rctx.tag, component);
++	if (_restore_send_component_data_with_retry(client, message, component, NULL, data, size) < 0) {
++		free(data);
++		logger(LL_ERROR, "Unable to send component %s data\n", component);
++		return -1;
+ 	}
+-
+-	int64_t i = size;
+-	while (i > 0) {
+-		int blob_size = i > 8192 ? 8192 : i;
+-		if (_restore_send_file_data(&rctx, ((char*)data + size - i), blob_size, size-i, size) < 0) {
+-			free(data);
+-			_restore_service_free(service);
+-			finalize_progress(rctx.tag);
+-			logger(LL_ERROR, "Unable to send component %s data\n", component);
+-			return -1;
+-		}
+-		i -= blob_size;
+-	}
+ 	free(data);
+ 
+-	_restore_send_file_data(&rctx, NULL, 0, size-i, size);
+-	finalize_progress(rctx.tag);
+-
+-	_restore_service_free(service);
+-
+ 	logger(LL_INFO, "Done sending %s\n", component);
+ 	return 0;
+ }
+@@ -4440,34 +4472,15 @@
+ 	uint64_t fsize = 0;
+ 	ipsw_get_file_size(client->ipsw, path, &fsize);
+ 
+-	restore_service_client_t service = _restore_get_service_client_for_data_request(client, message);
+-	if (!service) {
+-		logger(LL_ERROR, "%s: Unable to connect to service client\n", __func__);
+-		return -1;
+-	}
+-
+ 	logger(LL_INFO, "Sending %s now (%" PRIu64 " bytes)\n", component, fsize);
+ 
+-	struct _restore_send_file_data_ctx rctx;
+-	rctx.client = client;
+-	rctx.service = service;
+-	rctx.last_progress = 0;
+-	rctx.tag = progress_get_next_tag();
+-
+-	register_progress(rctx.tag, component);
+-
+-	if (ipsw_extract_send(client->ipsw, path, 8192, (ipsw_send_cb)_restore_send_file_data, &rctx) < 0) {
++	if (_restore_send_component_data_with_retry(client, message, component, path, NULL, 0) < 0) {
+ 		free(path);
+-		_restore_service_free(service);
+-		finalize_progress(rctx.tag);
+ 		logger(LL_ERROR, "Failed to send component %s\n", component);
+ 		return -1;
+ 	}
+ 	free(path);
+ 
+-	_restore_service_free(service);
+-	finalize_progress(rctx.tag);
+-
+ 	logger(LL_INFO, "Done sending %s\n", component);
+ 	return 0;
+ }
+@@ -4734,34 +4747,15 @@
+ 	uint64_t fsize = 0;
+ 	ipsw_get_file_size(client->ipsw, path, &fsize);
+ 
+-	restore_service_client_t service = _restore_get_service_client_for_data_request(client, message);
+-	if (!service) {
+-		logger(LL_ERROR, "%s: Unable to connect to service client\n", __func__);
+-		return -1;
+-	}
+-
+ 	logger(LL_INFO, "Sending %s now (%" PRIu64 " bytes)\n", component, fsize);
+ 
+-	struct _restore_send_file_data_ctx rctx;
+-	rctx.client = client;
+-	rctx.service = service;
+-	rctx.last_progress = 0;
+-	rctx.tag = progress_get_next_tag();
+-
+-	register_progress(rctx.tag, component);
+-
+-	if (ipsw_extract_send(client->ipsw, path, 8192, (ipsw_send_cb)_restore_send_file_data, &rctx) < 0) {
++	if (_restore_send_component_data_with_retry(client, message, component, path, NULL, 0) < 0) {
+ 		free(path);
+-		_restore_service_free(service);
+-		finalize_progress(rctx.tag);
+ 		logger(LL_ERROR, "Failed to send component %s\n", component);
+ 		return -1;
+ 	}
+ 	free(path);
+ 
+-	_restore_service_free(service);
+-	finalize_progress(rctx.tag);
+-
+ 	logger(LL_INFO, "Done sending %s\n", component);
+ 
+ 	return 0;

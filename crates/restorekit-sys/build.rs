@@ -59,8 +59,11 @@ fn main() {
         build_autotools(&vendor.join(lib), lib, version, &deps);
     }
 
-    // idevicerestore: compile its sources directly (no library upstream).
-    compile_idevicerestore(&vendor.join("idevicerestore"), &deps);
+    // idevicerestore: compile its sources directly (no library upstream),
+    // after copying them aside and applying our patches (see patches/).
+    let idevicerestore_src =
+        patch_idevicerestore_sources(&manifest, &vendor.join("idevicerestore"), &out);
+    compile_idevicerestore(&idevicerestore_src, &deps);
 
     // usbmuxd server (Linux + Windows): embed the daemon event loop so the
     // binary is self-contained — no external usbmuxd process needed. It's what
@@ -328,6 +331,47 @@ fn build_libzip(src: &Path, deps: &Deps) {
     // cmake crate installs into <dst>; mirror into our prefix if separate.
     let _ = dst;
     std::fs::write(&marker, "").unwrap();
+}
+
+/// Copy idevicerestore's `src/` into OUT_DIR and apply the `.patch` files from
+/// `patches/idevicerestore/` in filename order. Patching a throwaway copy
+/// keeps the vendored submodule pristine (clean `git status`, clean submodule
+/// pins) while the patches live in this repo, reviewed and versioned. Returns
+/// the patched project root (containing `src/`).
+fn patch_idevicerestore_sources(manifest: &Path, vendor_src: &Path, out: &Path) -> PathBuf {
+    let patch_dir = manifest.join("patches/idevicerestore");
+    println!("cargo:rerun-if-changed={}", patch_dir.display());
+
+    let root = out.join("idevicerestore-patched");
+    if root.exists() {
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    let dst = root.join("src");
+    std::fs::create_dir_all(&dst).unwrap();
+    for entry in std::fs::read_dir(vendor_src.join("src")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            std::fs::copy(&path, dst.join(path.file_name().unwrap())).unwrap();
+        }
+    }
+
+    let mut patches: Vec<PathBuf> = std::fs::read_dir(&patch_dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("patch"))
+        .collect();
+    patches.sort();
+    for patch in patches {
+        println!("cargo:rerun-if-changed={}", patch.display());
+        run(
+            Command::new("git")
+                .args(["apply", "--whitespace=nowarn"])
+                .arg(&patch)
+                .current_dir(&root),
+            &format!("apply {}", patch.file_name().unwrap().to_string_lossy()),
+        );
+    }
+    root
 }
 
 /// Compile idevicerestore's own C sources into a static archive and link it.

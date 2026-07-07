@@ -54,9 +54,37 @@ unsafe extern "C" fn progress_trampoline(step: i32, step_progress: f64, userdata
     });
 }
 
+/// Total attempts for a restore that fails on a transient transport error (a
+/// dropped USB write/read mid-transfer). Non-transport failures never retry.
+const RESTORE_ATTEMPTS: u32 = 3;
+
+/// Pause between attempts, giving the target time to settle back into a
+/// re-detectable state (recovery/DFU) after a failed restore.
+const RESTORE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Whether a failed restore is worth retrying: the log tail indicates the
+/// device connection dropped mid-transfer rather than a real restore error
+/// (bad firmware, TSS rejection, ...).
+fn is_transient_failure(err: &Error) -> bool {
+    const MARKERS: &[&str] = &[
+        // libimobiledevice property-list-service short write (e.g. -256).
+        "Failed to send data",
+        // restored read side dropped.
+        "Could not read data",
+        "Unable to receive message from FDR",
+        "usb_bulk_transfer",
+    ];
+    match err {
+        Error::RestoreFailed { log_tail, .. } => MARKERS.iter().any(|m| log_tail.contains(m)),
+        _ => false,
+    }
+}
+
 /// Run a restore against the DFU device with the given ECID, streaming progress.
 ///
 /// This links libidevicerestore statically; there is no external binary.
+/// Transient transport failures (dropped USB writes) are retried a bounded
+/// number of times, re-running the restore from device detection.
 pub fn restore(
     ipsw: &Path,
     ecid: u64,
@@ -78,6 +106,36 @@ pub fn restore(
     #[cfg(target_os = "windows")]
     let _restore_watcher = crate::driver::spawn_restore_mode_watcher();
 
+    let mut attempt = 1;
+    loop {
+        match restore_attempt(ipsw, ecid, cache_dir, mode, verbose, progress) {
+            Ok(()) => {
+                progress(Event::Done);
+                return Ok(());
+            }
+            Err(e) if attempt < RESTORE_ATTEMPTS && is_transient_failure(&e) => {
+                progress(Event::RestoreRetrying {
+                    attempt,
+                    max_attempts: RESTORE_ATTEMPTS,
+                    message: e.to_string(),
+                });
+                std::thread::sleep(RESTORE_RETRY_DELAY);
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// One full pass of the restore: spawn the worker, pump progress, join.
+fn restore_attempt(
+    ipsw: &Path,
+    ecid: u64,
+    cache_dir: Option<&Path>,
+    mode: Mode,
+    verbose: bool,
+    progress: ProgressFn,
+) -> Result<()> {
     // Route idevicerestore's logging through our capture sink (rather than its
     // default stdout dump) so it doesn't stomp on the progress UI and so we can
     // surface the real error text on failure. `verbose` also echoes to stderr.
@@ -179,10 +237,7 @@ pub fn restore(
             status: -1,
             log_tail: "restore thread panicked".into(),
         })
-    })?;
-
-    progress(Event::Done);
-    Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -196,5 +251,24 @@ mod tests {
             "uploading filesystem"
         );
         assert_eq!(step_name(999), "restoring");
+    }
+
+    #[test]
+    fn transient_failures_are_classified() {
+        let transport = Error::RestoreFailed {
+            status: -11,
+            log_tail: "_restore_send_file_data: Failed to send data (-256)\n\
+                       ipsw_extract_send: send failed"
+                .into(),
+        };
+        assert!(is_transient_failure(&transport));
+
+        let real = Error::RestoreFailed {
+            status: -1,
+            log_tail: "unable to get SHSH blobs for this device".into(),
+        };
+        assert!(!is_transient_failure(&real));
+
+        assert!(!is_transient_failure(&Error::WaitTimeout));
     }
 }

@@ -1,0 +1,16 @@
+diff --git a/src/restore.c b/src/restore.c
+index eaabef4..8028059 100644
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -4208,7 +4208,10 @@ static int _restore_send_file_data(struct _restore_send_file_data_ctx* rctx, con
+ 		// Send FileDataDone to mark end of transfer
+ 		plist_dict_set_item(dict, "FileDataDone", plist_new_bool(1));
+ 	}
+-	restored_error_t restore_error = _restore_service_send(rctx->service, dict, 0);
++	/* Binary plists carry the chunk raw instead of base64-inside-XML (~35%
++	 * less wire volume and no XML churn). Only takes effect on data-port
++	 * (SERVICE_TYPE_PLIST) connections; restored ignores the format. */
++	restored_error_t restore_error = _restore_service_send(rctx->service, dict, PLIST_FORMAT_BINARY);
+ 	if (restore_error != RESTORE_E_SUCCESS) {
+ 		plist_free(dict);
+ 		logger(LL_ERROR, "%s: Failed to send data (%d)\n", __func__, restore_error);

@@ -161,6 +161,16 @@ fn restore_render(bar: &ProgressBar, event: Event, json: bool) {
             bar.set_message(name);
             bar.set_position((progress * 100.0) as u64);
         }
+        Event::RestoreRetrying {
+            attempt,
+            max_attempts,
+            ..
+        } => {
+            bar.println(format!(
+                "Connection to the target dropped; retrying restore ({}/{max_attempts})...",
+                attempt + 1
+            ));
+        }
         Event::Done => bar.set_position(100),
         _ => {}
     }
