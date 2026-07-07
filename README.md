@@ -35,7 +35,7 @@ Or grab a binary from the [releases](https://github.com/fcjr/restorekit/releases
 ## Install the Desktop app
 
 There is also a WIP tauri + svelte gui that wraps the `restorekit` library for an easier one-click
-restore.  It has the same functionality and can currently be installd on macOS via homebrew.
+restore.  It has the same functionality and can currently be installed on macOS via homebrew.
 
 ```sh
 brew trust fcjr/fcjr                       # required since homebrew 6
