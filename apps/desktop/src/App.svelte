@@ -1313,8 +1313,10 @@
         <span class="eyebrow">Third-party licenses · {licenseCount}</span>
       </div>
       <p class="tabnote" style="margin:0 0 12px">
-        restorekit bundles these open-source components. Generated with cargo-about plus the
-        vendored C libraries.
+        restorekit bundles these open-source components (generated with cargo-about plus the
+        vendored C libraries). The restorekit source is Apache-2.0; macOS builds link Apache,
+        LGPL and BSD components, while Linux and Windows builds also bundle GPL-3.0 usbmuxd and
+        are conveyed as a whole under GPL-3.0.
       </p>
       <div class="licenses">{@html licensesHtml}</div>
     </section>

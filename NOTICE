@@ -11,7 +11,31 @@ Contributors, which is itself based on ThunderboltPatcher
 licensed under the Apache License, Version 2.0.
 
 This product bundles, as git submodules built from source, the following
-libraries, each under its own license (see each project for details):
-libplist, libimobiledevice-glue, libusbmuxd, libirecovery, libtatsu,
-libimobiledevice, and idevicerestore (libimobiledevice project, LGPL-2.1);
-and libzip (https://libzip.org, BSD-3-Clause).
+libraries, each under its own license (see each project for details, and the
+desktop app's About tab for the full license texts):
+
+  libplist, libimobiledevice-glue, libusbmuxd, libirecovery, libtatsu,
+  libimobiledevice, idevicerestore .... LGPL-2.1-or-later
+  libzip (https://libzip.org) ......... BSD-3-Clause
+  usbmuxd (Linux and Windows only) .... GPL-3.0-or-later
+
+Because these libraries are linked statically, the LGPL relink provision is
+satisfied by the availability of this project's complete source, which lets
+anyone rebuild against a modified library.
+
+Per-platform licensing of distributed binaries
+-----------------------------------------------
+The restorekit source in this repository is licensed under Apache-2.0. The
+license of a compiled binary depends on which components it links:
+
+  macOS binaries (CLI and desktop app) link only the Apache-2.0, LGPL, and
+  BSD components above; usbmuxd is not compiled or linked on macOS (the
+  system daemon is used).
+
+  Linux and Windows binaries additionally statically link usbmuxd, which is
+  GPL-3.0-or-later. A binary that links GPL-3.0 code is, as a combined work,
+  conveyed under the GNU General Public License, version 3. GPL-3.0 is
+  compatible with Apache-2.0 in this direction, so the restorekit source
+  remains Apache-2.0, but the Linux and Windows release binaries as
+  distributed are GPL-3.0. Their complete corresponding source is this
+  repository.

@@ -160,6 +160,13 @@ If restorekit saved you a trip to the apple store, consider [sponsoring my work]
 
 ## License
 
-Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). The DFU code code is
-a rust port of [macvdmtool](https://github.com/AsahiLinux/macvdmtool) (also Apache-2.0);
-the vendored C libraries keep their own licenses.
+The restorekit source is Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The DFU code is a rust port of [macvdmtool](https://github.com/AsahiLinux/macvdmtool)
+(also Apache-2.0); the vendored C libraries keep their own licenses.
+
+A compiled binary's license depends on what it links. macOS builds link only
+Apache-2.0, LGPL, and BSD components. Linux and Windows builds additionally
+bundle [usbmuxd](https://github.com/libimobiledevice/usbmuxd) (GPL-3.0), so those
+release binaries are conveyed as a whole under **GPL-3.0**. The LGPL libraries are
+linked statically; the relink provision is satisfied by this repository's source.
+See [NOTICE](NOTICE) for the full breakdown.
