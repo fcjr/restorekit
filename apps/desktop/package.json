@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "gen:licenses": "node scripts/gen-licenses.mjs",
     "stage-helper": "bash ./stage-helper.sh",
     "build:signed": "bash ./build-signed.sh",
     "tauri": "node scripts/tauri.mjs",

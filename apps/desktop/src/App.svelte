@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { getVersion } from "@tauri-apps/api/app";
+  import licensesHtml from "./lib/licenses.html?raw";
   import {
     api,
     onProgress,
@@ -37,8 +39,10 @@
   let manual = $state("");
   let cache = $state<CacheInfo | null>(null);
 
-  // ---- views: restore (device-centric) / list / history ----
-  let tab = $state<"restore" | "list" | "history">("restore");
+  // ---- views: restore (device-centric) / list / history / about ----
+  let tab = $state<"restore" | "list" | "history" | "about">("restore");
+  let appVersion = $state("");
+  const licenseCount = (licensesHtml.match(/class="lic-name"/g) ?? []).length;
   let devSubtab = $state<"connected" | "history">("connected"); // Devices tab mode
   let seenDevices = $state<SeenDevice[]>([]);
   let restoreView = $state<"detail" | "list">("detail"); // Restore tab layout
@@ -633,6 +637,7 @@
       else if (tab !== "restore") tab = "restore";
     }).catch(() => {});
     api.getSettings().then((s) => (autoDfu = s.auto_dfu)).catch(() => {});
+    getVersion().then((v) => (appVersion = v)).catch(() => {});
     checkForUpdates();
     refresh();
     loadJobs();
@@ -904,6 +909,7 @@
       {#if historyEnabled}
         <button class="segbtn" class:on={tab === "history"} onclick={() => { tab = "history"; loadHistory(); }}>History</button>
       {/if}
+      <button class="segbtn" class:on={tab === "about"} onclick={() => (tab = "about")}>About</button>
     </span>
     <div class="grow"></div>
     {#if tab === "restore"}
@@ -1260,7 +1266,7 @@
         <div class="tabempty">No devices seen yet. Connect a Mac and it's remembered here.</div>
       {/if}
     </section>
-  {:else}
+  {:else if tab === "history"}
     <section class="tabview">
       <div class="tabhead">
         <span class="eyebrow">History · {history.length}</span>
@@ -1290,6 +1296,27 @@
       {:else}
         <div class="tabempty">No captures yet. Connect a Mac in recovery mode and its serial is logged here automatically.</div>
       {/if}
+    </section>
+  {:else}
+    <section class="tabview about">
+      <div class="tabhead"><span class="eyebrow">About</span></div>
+      <h1 class="dtitle">restorekit{appVersion ? ` · ${appVersion}` : ""}</h1>
+      <p class="lede">
+        DFU-restore Apple Silicon Macs, from macOS, Linux or Windows. Free and open source under
+        Apache-2.0. The DFU trigger is a Rust port of AsahiLinux's macvdmtool.
+      </p>
+      <div class="aboutmeta">
+        <button class="cellcopy" onclick={() => copy("https://github.com/fcjr/restorekit")}>github.com/fcjr/restorekit</button>
+      </div>
+
+      <div class="tabhead" style="margin-top:26px">
+        <span class="eyebrow">Third-party licenses · {licenseCount}</span>
+      </div>
+      <p class="tabnote" style="margin:0 0 12px">
+        restorekit bundles these open-source components. Generated with cargo-about plus the
+        vendored C libraries.
+      </p>
+      <div class="licenses">{@html licensesHtml}</div>
     </section>
   {/if}
 
@@ -2063,6 +2090,53 @@
     margin: 14px 0 0;
     font-size: 11px;
     color: var(--fnt);
+  }
+
+  /* about + licenses */
+  .about .lede {
+    max-width: 58ch;
+  }
+  .aboutmeta {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--mut);
+  }
+  .licenses {
+    border: 1px solid var(--line);
+    padding: 2px 16px;
+  }
+  .licenses :global(.lic) {
+    border-top: 1px solid var(--line);
+    padding: 14px 0;
+  }
+  .licenses :global(.lic:first-child) {
+    border-top: 0;
+  }
+  .licenses :global(.lic-name) {
+    margin: 0 0 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .licenses :global(.lic-used) {
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: var(--mut);
+    word-break: break-word;
+  }
+  .licenses :global(.lic-text) {
+    margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    background: var(--bar);
+    padding: 8px 10px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--fnt);
+    white-space: pre-wrap;
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   /* QR modal */
