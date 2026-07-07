@@ -119,7 +119,7 @@
     {
       label: "Multiple targets",
       cells: [
-        { text: "Pick by ECID or port", tone: "ok" },
+        { text: "Parallel · one process each", tone: "ok" },
         { text: "Up to 15 with USB hubs" },
         { text: "One at a time", tone: "dim" },
         { text: "One target", tone: "dim" },
@@ -412,8 +412,9 @@
       <p class="mt-4 max-w-xl text-[13.5px] leading-7 text-mut">
         It has the same functionality as the cli. Every cabled apple device shows up the moment it
         enumerates, along with its mode (DFU, recovery, booted). You approve the helper once on
-        macOS, or run the driver setup once on windows, and after that a restore is two clicks. It
-        keeps itself updated too.
+        macOS, or run the driver setup once on windows, and after that a restore is two clicks.
+        Cable up a few macs and it restores them all at once, each in its own process, with a live
+        log and progress per machine. It keeps itself updated too.
       </p>
 
       <div class="mt-7 flex flex-wrap items-center gap-3">
