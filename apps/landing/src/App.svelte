@@ -52,11 +52,16 @@
       .catch(() => {});
   }
 
-  const compareRows: { label: string; cells: { text: string; tone?: "ok" | "warn" | "dim" }[] }[] = [
+  const compareRows: {
+    label: string;
+    cells: { text: string; tone?: "ok" | "warn" | "dim"; href?: string }[];
+  }[] = [
     {
       label: "Price",
       cells: [
         { text: "Free", tone: "ok" },
+        { text: "Quote only", tone: "warn" },
+        { text: "Quote only + hardware", tone: "warn" },
         { text: "$99/yr per admin · orgs from $600/yr" },
         { text: "Free" },
         { text: "Free" },
@@ -65,7 +70,9 @@
     {
       label: "Open source",
       cells: [
-        { text: "Apache-2.0", tone: "ok" },
+        { text: "Apache-2.0⁴", tone: "ok" },
+        { text: "Proprietary", tone: "dim" },
+        { text: "Proprietary", tone: "dim" },
         { text: "Proprietary", tone: "dim" },
         { text: "Proprietary", tone: "dim" },
         { text: "Apache-2.0" },
@@ -75,6 +82,8 @@
       label: "Host platforms",
       cells: [
         { text: "macOS · Linux · Windows", tone: "ok" },
+        { text: "Not published", tone: "dim" },
+        { text: "Dedicated appliance" },
         { text: "macOS 15+ on Apple Silicon" },
         { text: "macOS" },
         { text: "macOS on Apple Silicon" },
@@ -84,8 +93,21 @@
       label: "Full restore & revive",
       cells: [
         { text: "✓", tone: "ok" },
+        { text: "Erase only", tone: "dim" },
+        { text: "Erase + reinstall" },
         { text: "Pro only", tone: "warn" },
         { text: "✓" },
+        { text: "—", tone: "dim" },
+      ],
+    },
+    {
+      label: "Certified erasure",
+      cells: [
+        { text: "None yet · sponsor it²", tone: "warn", href: "#sponsor-certification" },
+        { text: "ADISA · Common Criteria · NIST 800-88", tone: "ok" },
+        { text: "ADISA · NIST 800-88", tone: "ok" },
+        { text: "—", tone: "dim" },
+        { text: "—", tone: "dim" },
         { text: "—", tone: "dim" },
       ],
     },
@@ -93,6 +115,8 @@
       label: "Automatic DFU trigger",
       cells: [
         { text: "✓ on Mac hosts¹", tone: "ok" },
+        { text: "✓ (Auto DFU)" },
+        { text: "—", tone: "dim" },
         { text: "✓ (free tier: DFU + reboot only)" },
         { text: "Manual key sequence", tone: "dim" },
         { text: "✓ (trigger only)" },
@@ -104,6 +128,8 @@
         { text: "✓", tone: "ok" },
         { text: "—", tone: "dim" },
         { text: "—", tone: "dim" },
+        { text: "—", tone: "dim" },
+        { text: "—", tone: "dim" },
         { text: "CLI, no JSON" },
       ],
     },
@@ -111,6 +137,8 @@
       label: "Desktop app",
       cells: [
         { text: "✓", tone: "ok" },
+        { text: "✓" },
+        { text: "Appliance UI" },
         { text: "✓" },
         { text: "✓" },
         { text: "—", tone: "dim" },
@@ -120,6 +148,8 @@
       label: "Multiple targets",
       cells: [
         { text: "Parallel · one process each", tone: "ok" },
+        { text: "Via Cambrionix hubs" },
+        { text: "Not published", tone: "dim" },
         { text: "Up to 15 with USB hubs" },
         { text: "One at a time", tone: "dim" },
         { text: "One target", tone: "dim" },
@@ -128,6 +158,8 @@
     {
       label: "Acroname hub support",
       cells: [
+        { text: "—", tone: "dim" },
+        { text: "Cambrionix instead³", tone: "dim" },
         { text: "—", tone: "dim" },
         { text: "✓ org tier" },
         { text: "Hubs unsupported", tone: "dim" },
@@ -138,6 +170,8 @@
       label: "Target Macs",
       cells: [
         { text: "T2 & Apple Silicon", tone: "ok" },
+        { text: "T2 & Apple Silicon" },
+        { text: "Intel & Apple Silicon" },
         { text: "T2 & Apple Silicon" },
         { text: "T2 & Apple Silicon" },
         { text: "T2 & Apple Silicon" },
@@ -532,18 +566,23 @@ $ restorekit -h`,
         How it stacks up against the other tools.
       </h2>
       <p class="mt-4 max-w-2xl text-[13.5px] leading-7 text-mut">
-        DFU Blaster Pro is good software with real fleet features, but it costs $99 to $600+ a year
-        and only runs on a mac. Apple Configurator is free but macOS only, you do the DFU key
-        sequence by hand, and it handles one machine at a time. macvdmtool triggers DFU and stops
-        there.
+        DFU Blaster Pro is good software with real fleet features, it's just paid and mac only.
+        Apple Configurator is free but macOS only and one machine at a time. macvdmtool triggers
+        DFU and stops there. Then there's the enterprise wipe market: Blancco and Ziperase sell
+        certified erasure with audit paperwork, quoted through a sales call, and neither one puts
+        a price on their site. Credit where it's due, they hold certifications restorekit doesn't.
+        If your compliance team needs the certificate, that's their lane. If you just need working
+        Macs, it's a lot of procurement for a restore.
       </p>
 
       <div class="mt-10 overflow-x-auto">
-        <table class="w-full min-w-[760px] border-collapse border border-line text-[12px]">
+        <table class="w-full min-w-[1080px] border-collapse border border-line text-[12px]">
           <thead>
             <tr class="bg-bar text-left">
               <th class="border-b border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt"></th>
               <th class="border-b border-l border-line px-4 py-3 text-[12px] font-semibold text-amber">restorekit</th>
+              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Blancco</th>
+              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Ziperase</th>
               <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">DFU Blaster Pro</th>
               <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Apple Configurator / Finder</th>
               <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">macvdmtool</th>
@@ -563,7 +602,16 @@ $ restorekit -h`,
                           ? 'text-dim'
                           : 'text-ink2'}"
                   >
-                    {cell.text}
+                    {#if cell.href}
+                      <a
+                        href={cell.href}
+                        class="underline underline-offset-4 hover:text-amber-hov"
+                      >
+                        {cell.text}
+                      </a>
+                    {:else}
+                      {cell.text}
+                    {/if}
                   </td>
                 {/each}
               </tr>
@@ -579,6 +627,49 @@ $ restorekit -h`,
         natively. Vendor pricing and features as published July 2026, check their sites for
         current terms.
       </p>
+      <p class="mt-3 max-w-3xl text-[11.5px] leading-6 text-fnt">
+        ³ It's already a bit ridiculous that Acroname
+        <a
+          href="https://acroname.com/store/programmable-industrial-power-delivery-hub-s99-usbhub-3c-pro"
+          class="text-amber hover:text-amber-hov">sells hub features à la carte</a
+        > ($100 to $400 per licensed feature). Cambrionix goes a step further and puts DFU itself
+        behind a license:
+        <a
+          href="https://www.cambrionix.com/products/thundersync5-c16-pd"
+          class="text-amber hover:text-amber-hov">their DFU-capable hub</a
+        > only enters DFU once it's registered in their Connect Premium software, the hub is sold as
+        a subscription bundle (£79 a month over three years), and when the software term runs out
+        you pay again to extend it.
+      </p>
+      <p class="mt-3 max-w-3xl text-[11.5px] leading-6 text-fnt">
+        ⁴ The restorekit source is Apache-2.0. A built binary's license depends on what it links:
+        macOS builds are Apache-2.0 with LGPL and BSD libraries, while linux and windows builds also
+        bundle <a href="https://github.com/libimobiledevice/usbmuxd" class="text-amber hover:text-amber-hov">usbmuxd</a>
+        (GPL-3.0), so those release binaries are conveyed as a whole under GPL-3.0. Either way it's
+        open source, all the way down.
+      </p>
+      <div
+        id="sponsor-certification"
+        class="mt-8 flex max-w-3xl flex-col gap-5 border border-line bg-panel px-6 py-6 md:flex-row md:items-center"
+      >
+        <div class="grow">
+          <h3 class="text-[15px] font-semibold tracking-tight text-ink">
+            ² Help make restorekit the first open source tool with certified erasure.
+          </h3>
+          <p class="mt-2 text-[12.5px] leading-6 text-mut">
+            No open source tool has a certified erasure process. Not one. The DFU restore already
+            wipes the volume the same way the paid tools do, what's missing is a lab report saying
+            so, and certifications like ADISA cost real money. Sponsor the lab time and the whole
+            industry gets a free, certified option with your name on it.
+          </p>
+        </div>
+        <a
+          href="mailto:frank@restorekit.org?subject=Sponsoring%20a%20restorekit%20erasure%20certification"
+          class="shrink-0 bg-amber px-6 py-3 text-center text-[13px] font-semibold text-amber-ink transition-colors hover:bg-amber-hov"
+        >
+          frank@restorekit.org
+        </a>
+      </div>
     </div>
   </section>
 
@@ -701,8 +792,8 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
     <div class="border-t border-line">
       <p class="mx-auto max-w-6xl px-5 py-4 text-[10.5px] leading-5 text-dim">
         The DFU code is a rust port of Asahi Linux's macvdmtool (also Apache-2.0). DFU Blaster is a
-        trademark of Twocanoes Software and Apple Configurator of Apple Inc., mentioned here for
-        comparison only.
+        trademark of Twocanoes Software, Apple Configurator of Apple Inc., and Blancco and Ziperase
+        of their respective owners, mentioned here for comparison only.
       </p>
     </div>
   </footer>
