@@ -318,6 +318,21 @@ pub async fn restart_restore(
     Ok(())
 }
 
+/// Remove a finished (done/failed/canceled) job from the list, so its device
+/// row reverts to plain device state — or disappears if the Mac is unplugged.
+#[tauri::command]
+pub async fn clear_restore_job(restores: State<'_, Restores>, id: u64) -> Result<(), String> {
+    let mut g = restores.inner.lock().await;
+    if let Some(job) = g.jobs.get(&id) {
+        if matches!(job.view.status.as_str(), "queued" | "running") {
+            return Err("job is still active; cancel it first".into());
+        }
+        g.jobs.remove(&id);
+        g.order.retain(|x| *x != id);
+    }
+    Ok(())
+}
+
 /// A snapshot of all jobs, in enqueue order.
 #[tauri::command]
 pub async fn list_restore_jobs(restores: State<'_, Restores>) -> Result<Vec<JobView>, String> {

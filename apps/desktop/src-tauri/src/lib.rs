@@ -48,6 +48,7 @@ pub fn run() {
         restores::enqueue_restore,
         restores::cancel_restore,
         restores::restart_restore,
+        restores::clear_restore_job,
         restores::list_restore_jobs,
         history::history_list,
         history::record_capture,
@@ -82,6 +83,7 @@ pub fn run() {
         restores::enqueue_restore,
         restores::cancel_restore,
         restores::restart_restore,
+        restores::clear_restore_job,
         restores::list_restore_jobs,
     ]);
 

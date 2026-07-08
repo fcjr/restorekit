@@ -534,6 +534,19 @@
       /* ignore */
     }
   }
+  // Dismiss a finished job: the row reverts to plain device state, or vanishes
+  // entirely if the Mac is no longer cabled.
+  async function clearJob(id: number) {
+    try {
+      await api.clearRestoreJob(id);
+    } catch {
+      return;
+    }
+    jobs = jobs.filter((j) => j.id !== id);
+    delete jobLogs[id];
+    delete jobStart[id];
+    delete jobEnd[id];
+  }
   async function toggleAutoDfu() {
     autoDfu = !autoDfu;
     try {
@@ -1070,6 +1083,7 @@
                   <button class="btn danger" onclick={() => cancelJob(selectedJob.id)}>Cancel restore</button>
                 {:else}
                   <button class="btn primary" onclick={() => restartJob(selectedJob.id)}>Restart</button>
+                  <button class="btn" onclick={() => clearJob(selectedJob.id)}>Clear</button>
                 {/if}
               </div>
             </div>
@@ -1166,6 +1180,7 @@
                   <button class="btn danger sm" onclick={() => cancelJob(r.job!.id)}>Cancel</button>
                 {:else if r.job}
                   <button class="btn sm" onclick={() => restartJob(r.job!.id)}>Restart</button>
+                  <button class="btn ghost sm" onclick={() => clearJob(r.job!.id)}>Clear</button>
                 {:else if r.device}
                   {@const dm = deviceMode(r.device)}
                   {#if dm === "restore"}
