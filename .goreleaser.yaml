@@ -71,6 +71,35 @@ homebrew_casks:
       needs root for that step (sudo restorekit dfu). Restores run on macOS
       and Linux.
 
+snapcrafts:
+  # Same naming rationale as the cask: the plain `restorekit` snap name is
+  # reserved for the desktop app. The app key below is what users type, so
+  # the command is `restorekit-cli` (the inner binary is still `restorekit`).
+  - name: restorekit-cli
+    ids: [restorekit]
+    title: restorekit
+    summary: DFU-restore Apple Silicon Macs from the command line
+    description: |
+      restorekit lets you fully wipe or restore a T2 or M series mac without
+      using any apple tools. Plug the target mac into your host's DFU port,
+      put it in DFU mode (automatic DFU only works from a macOS host), then:
+
+          sudo restorekit-cli restore
+
+      This snap needs raw USB access to talk to the device:
+
+          sudo snap connect restorekit-cli:raw-usb
+    license: Apache-2.0
+    grade: stable
+    confinement: strict
+    base: core24
+    publish: true
+    channel_templates: [stable]
+    apps:
+      restorekit-cli:
+        command: restorekit
+        plugs: [home, network, raw-usb, removable-media]
+
 scoops:
   # Same naming rationale as the cask: the plain `restorekit` name is reserved
   # for the desktop app. The installed binary is still `restorekit`.

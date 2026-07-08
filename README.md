@@ -28,6 +28,9 @@ brew install fcjr/fcjr/restorekit-cli
 # or on windows via scoop
 scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr
 scoop install restorekit-cli
+# or on linux via snap
+sudo snap install restorekit-cli
+sudo snap connect restorekit-cli:raw-usb
 ```
 
 Or grab a binary from the [releases](https://github.com/fcjr/restorekit/releases).
@@ -35,11 +38,15 @@ Or grab a binary from the [releases](https://github.com/fcjr/restorekit/releases
 ## Install the Desktop app
 
 There is also a WIP tauri + svelte gui that wraps the `restorekit` library for an easier one-click
-restore.  It has the same functionality and can currently be installed on macOS via homebrew.
+restore.  It has the same functionality and can currently be installed on macOS via homebrew
+or on linux via snap.
 
 ```sh
 brew trust fcjr/fcjr                       # required since homebrew 6
 brew install --cask fcjr/fcjr/restorekit   # macOS
+# or on linux via snap
+sudo snap install restorekit
+sudo snap connect restorekit:raw-usb
 ```
 
 For linux (.deb, .AppImage) or windows, you can download the gui directly from the

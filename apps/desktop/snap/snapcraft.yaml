@@ -1,0 +1,50 @@
+# Template for the desktop app's snap, packed from the Tauri .deb in
+# release-app.yml (VERSION_PLACEHOLDER is filled in there, same pattern as
+# homebrew/restorekit.rb). The plain `restorekit` snap name is the desktop
+# app; the CLI ships separately as `restorekit-cli` (see .goreleaser.yaml).
+#
+# base core22 must match the runner the .deb is built on (ubuntu-22.04) —
+# bump both together.
+name: restorekit
+title: RestoreKit
+base: core22
+version: "VERSION_PLACEHOLDER"
+summary: Restore Apple Silicon Macs with one click
+description: |
+  RestoreKit lets you fully wipe or restore a T2 or M series mac without
+  using any apple tools. Plug the target mac into your host's DFU port,
+  put it in DFU mode (automatic DFU only works from a macOS host), and
+  restore.
+
+  This snap needs raw USB access to talk to the device:
+
+      sudo snap connect restorekit:raw-usb
+
+license: Apache-2.0
+grade: stable
+confinement: strict
+
+# WebKit looks up its subprocess binaries at the host path.
+layout:
+  /usr/lib/$CRAFT_ARCH_TRIPLET/webkit2gtk-4.1:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET/webkit2gtk-4.1
+
+apps:
+  restorekit:
+    command: usr/bin/restorekit-desktop
+    desktop: usr/share/applications/RestoreKit.desktop
+    extensions: [gnome]
+    plugs: [home, network, raw-usb, removable-media]
+
+parts:
+  restorekit:
+    plugin: dump
+    source: restorekit.deb
+    source-type: deb
+    # GTK3 comes from the gnome extension; webkit2gtk does not.
+    stage-packages:
+      - libwebkit2gtk-4.1-0
+    override-build: |
+      craftctl default
+      sed -i 's|^Icon=.*|Icon=/usr/share/icons/hicolor/128x128/apps/restorekit-desktop.png|' \
+        $CRAFT_PART_INSTALL/usr/share/applications/RestoreKit.desktop

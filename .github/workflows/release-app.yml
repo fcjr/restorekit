@@ -20,6 +20,8 @@ jobs:
             toolchain: stable
           - os: ubuntu-22.04
             toolchain: stable
+          - os: ubuntu-22.04-arm
+            toolchain: stable
           # Windows uses the GNU host toolchain — the vendored C stack is built
           # with autotools (no MSVC), and it's what the helper + app link against.
           - os: windows-latest
@@ -140,6 +142,28 @@ jobs:
             --wait
           xcrun stapler staple "$dmg"
           gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
+
+      # Pack the .deb into a snap and publish it to the Snap Store under the
+      # plain `restorekit` name (the CLI ships separately as `restorekit-cli`).
+      # Destructive mode builds on the host directly, which works because the
+      # runner (ubuntu-22.04) matches the snap's core22 base.
+      - name: Build & publish the snap
+        if: runner.os == 'Linux'
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          arch="$(dpkg --print-architecture)"
+          sudo snap install snapcraft --classic
+          mkdir -p snapbuild
+          cp "apps/desktop/src-tauri/target/release/bundle/deb/RestoreKit_${version}_${arch}.deb" \
+            snapbuild/restorekit.deb
+          sed "s/VERSION_PLACEHOLDER/${version}/" apps/desktop/snap/snapcraft.yaml \
+            > snapbuild/snapcraft.yaml
+          cd snapbuild
+          snapcraft pack --destructive-mode
+          snapcraft upload --release=stable "restorekit_${version}_${arch}.snap"
 
       # Fill the cask template with this release's version + .dmg sha256 and push
       # it to the tap, so `brew install --cask restorekit` tracks the release.

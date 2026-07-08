@@ -165,6 +165,9 @@ jobs:
       - name: Mark binaries executable
         run: chmod +x artifacts/*/restorekit artifacts/*/restorekit.exe
 
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -174,3 +177,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # One token for both the Homebrew tap and the Scoop bucket.
           TAP_GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
