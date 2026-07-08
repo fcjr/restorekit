@@ -74,13 +74,14 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: pnpm
 
       - name: Install frontend deps
-        working-directory: apps/desktop
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build & stage the privileged DFU helper
         working-directory: apps/desktop
