@@ -17,6 +17,7 @@ jobs:
         include:
           - os: macos-14
           - os: ubuntu-24.04
+          - os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
     env:
       # Incremental compilation only helps local rebuild loops; on CI it just
