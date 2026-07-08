@@ -565,15 +565,6 @@ $ restorekit -h`,
       <h2 class="max-w-xl text-[24px] font-semibold tracking-tight text-ink">
         How it stacks up against the other tools.
       </h2>
-      <p class="mt-4 max-w-2xl text-[13.5px] leading-7 text-mut">
-        DFU Blaster Pro is good software with real fleet features, it's just paid and mac only.
-        Apple Configurator is free but macOS only and one machine at a time. macvdmtool triggers
-        DFU and stops there. Then there's the enterprise wipe market: Blancco and Ziperase sell
-        certified erasure with audit paperwork, quoted through a sales call, and neither one puts
-        a price on their site. Credit where it's due, they hold certifications restorekit doesn't.
-        If your compliance team needs the certificate, that's their lane. If you just need working
-        Macs, it's a lot of procurement for a restore.
-      </p>
 
       <div class="mt-10 overflow-x-auto">
         <table class="w-full min-w-[1080px] border-collapse border border-line text-[12px]">
