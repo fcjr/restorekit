@@ -62,7 +62,7 @@
         { text: "Free", tone: "ok" },
         { text: "Quote only", tone: "warn" },
         { text: "Quote only + hardware", tone: "warn" },
-        { text: "$99/yr per admin · orgs from $600/yr" },
+        { text: "$99/yr per admin · orgs from $600/yr + $3/Mac" },
         { text: "Free" },
         { text: "Free" },
       ],
@@ -82,7 +82,7 @@
       label: "Host platforms",
       cells: [
         { text: "macOS · Linux · Windows", tone: "ok" },
-        { text: "Not published", tone: "dim" },
+        { text: "macOS · Mac Pro recommended" },
         { text: "Dedicated appliance" },
         { text: "macOS 15+ on Apple Silicon" },
         { text: "macOS" },
@@ -93,9 +93,9 @@
       label: "Full restore & revive",
       cells: [
         { text: "✓", tone: "ok" },
-        { text: "Erase only", tone: "dim" },
         { text: "Erase + reinstall" },
-        { text: "Pro only", tone: "warn" },
+        { text: "Erase + reinstall" },
+        { text: "Restore paid-only · no revive", tone: "warn" },
         { text: "✓" },
         { text: "—", tone: "dim" },
       ],
@@ -104,7 +104,7 @@
       label: "Certified erasure",
       cells: [
         { text: "None yet · sponsor it²", tone: "warn", href: "#sponsor-certification" },
-        { text: "ADISA · Common Criteria · NIST 800-88", tone: "ok" },
+        { text: "ADISA · NIST 800-88 methods", tone: "ok" },
         { text: "ADISA · NIST 800-88", tone: "ok" },
         { text: "—", tone: "dim" },
         { text: "—", tone: "dim" },
@@ -116,8 +116,8 @@
       cells: [
         { text: "✓ on Mac hosts¹", tone: "ok" },
         { text: "✓ (Auto DFU)" },
-        { text: "—", tone: "dim" },
-        { text: "✓ (free tier: DFU + reboot only)" },
+        { text: "No DFU · manual boot to Recovery", tone: "dim" },
+        { text: "✓ (post-trial: DFU + reboot only)" },
         { text: "Manual key sequence", tone: "dim" },
         { text: "✓ (trigger only)" },
       ],
@@ -127,7 +127,7 @@
       cells: [
         { text: "✓", tone: "ok" },
         { text: "—", tone: "dim" },
-        { text: "—", tone: "dim" },
+        { text: "REST API for reports only", tone: "dim" },
         { text: "—", tone: "dim" },
         { text: "—", tone: "dim" },
         { text: "CLI, no JSON" },
@@ -149,8 +149,8 @@
       cells: [
         { text: "Parallel · one process each", tone: "ok" },
         { text: "Via Cambrionix hubs" },
-        { text: "Not published", tone: "dim" },
-        { text: "Up to 15 with USB hubs" },
+        { text: "One per station", tone: "dim" },
+        { text: "Up to 15 via Acroname hubs" },
         { text: "One at a time", tone: "dim" },
         { text: "One target", tone: "dim" },
       ],
@@ -172,9 +172,9 @@
         { text: "T2 & Apple Silicon", tone: "ok" },
         { text: "T2 & Apple Silicon" },
         { text: "Intel & Apple Silicon" },
+        { text: "Apple Silicon only", tone: "dim" },
         { text: "T2 & Apple Silicon" },
-        { text: "T2 & Apple Silicon" },
-        { text: "T2 & Apple Silicon" },
+        { text: "Apple Silicon only", tone: "dim" },
       ],
     },
   ];
@@ -571,8 +571,8 @@ $ restorekit -h`,
             <tr class="bg-bar text-left">
               <th class="border-b border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt"></th>
               <th class="border-b border-l border-line px-4 py-3 text-[12px] font-semibold text-amber">restorekit</th>
-              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Blancco</th>
-              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Ziperase</th>
+              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Blancco Eraser for Apple Devices</th>
+              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Device Link for Macs by Ziperase</th>
               <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">DFU Blaster Pro</th>
               <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Apple Configurator / Finder</th>
               <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">macvdmtool</th>
