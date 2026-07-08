@@ -994,7 +994,7 @@
           <pre class="log danger">{error}</pre>
           <button class="btn" onclick={resetAction}>Back</button>
         </div>
-      {:else if devices.length === 0}
+      {:else if roster.length === 0}
         <div class="hero">
           <div class="badge"><span class="pulse"></span></div>
           <div class="empty-title">No Apple devices connected</div>
