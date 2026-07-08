@@ -146,7 +146,10 @@ jobs:
       # Pack the .deb into a snap and publish it to the Snap Store under the
       # plain `restorekit` name (the CLI ships separately as `restorekit-cli`).
       # Destructive mode builds on the host directly, which works because the
-      # runner (ubuntu-22.04) matches the snap's core22 base.
+      # runner (ubuntu-22.04) matches the snap's core22 base. Pack runs under
+      # sudo: snapcraft shells out to `snap install` for the gnome extension's
+      # build snaps, and snapd only allows that as root. It also swallows snap's
+      # stderr, so dump its log on failure to see the real error.
       - name: Build & publish the snap
         if: runner.os == 'Linux'
         env:
@@ -162,7 +165,10 @@ jobs:
           sed "s/VERSION_PLACEHOLDER/${version}/" apps/desktop/snap/snapcraft.yaml \
             > snapbuild/snapcraft.yaml
           cd snapbuild
-          snapcraft pack --destructive-mode
+          sudo snapcraft pack --destructive-mode || {
+            sudo cat /root/.local/state/snapcraft/log/*.log
+            exit 1
+          }
           snapcraft upload --release=stable "restorekit_${version}_${arch}.snap"
 
       # Fill the cask template with this release's version + .dmg sha256 and push
