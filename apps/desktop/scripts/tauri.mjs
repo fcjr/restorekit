@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Wrapper so `npm run tauri ...` works from any shell on Windows without setting
+// Wrapper so `pnpm tauri ...` works from any shell on Windows without setting
 // environment variables by hand.
 //
 // The Rust side links the idevicerestore C stack and `windows-sys` with the GNU
@@ -23,7 +23,7 @@ if (process.platform === "win32") {
 
 // A single command string (rather than an args array) with `shell: true` both
 // resolves the `tauri` shim on Windows (.cmd) and avoids Node's DEP0190 warning.
-// The args come from our own `npm run tauri …`, so concatenation is safe here.
+// The args come from our own `pnpm tauri …`, so concatenation is safe here.
 const command = ["tauri", ...process.argv.slice(2)].join(" ");
 const child = spawn(command, { stdio: "inherit", shell: true, env: process.env });
 child.on("exit", (code) => process.exit(code ?? 1));

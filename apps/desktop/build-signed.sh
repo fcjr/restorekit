@@ -17,4 +17,4 @@ set -a
 set +a
 
 bash ./stage-helper.sh
-npm run tauri build
+pnpm tauri build

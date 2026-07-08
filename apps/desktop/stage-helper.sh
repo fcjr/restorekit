@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the privileged DFU helper and stage it as a Tauri externalBin sidecar,
 # named with the host target triple (what Tauri expects). Run before
-# `npm run tauri dev` / `npm run tauri build`.
+# `pnpm tauri dev` / `pnpm tauri build`.
 set -euo pipefail
 cd "$(dirname "$0")"
 
