@@ -9,7 +9,7 @@
 #   - crates/restorekit-cli/Cargo.toml      restorekit dep version
 #   - apps/desktop/src-tauri/Cargo.toml     package version (outside the workspace)
 #   - apps/desktop/src-tauri/tauri.conf.json
-#   - apps/desktop/package.json + package-lock.json (via npm)
+#   - apps/desktop/package.json
 #   - Cargo.lock + apps/desktop/src-tauri/Cargo.lock (via cargo)
 set -euo pipefail
 
@@ -59,8 +59,8 @@ replace apps/desktop/src-tauri/Cargo.toml \
 replace apps/desktop/src-tauri/tauri.conf.json \
   's/^(\s*"version": ")\Q$ENV{CUR}\E(",?)$/$1$ENV{NEW}$2/'
 
-echo "  updating apps/desktop/package.json + package-lock.json"
-(cd apps/desktop && npm version "$new" --no-git-tag-version >/dev/null)
+replace apps/desktop/package.json \
+  's/^(\s*"version": ")\Q$ENV{CUR}\E(",?)$/$1$ENV{NEW}$2/'
 
 echo "  updating Cargo.lock"
 cargo update --workspace --quiet
@@ -74,7 +74,6 @@ files=(
   apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
   apps/desktop/src-tauri/tauri.conf.json
 )
-[[ -f apps/desktop/package-lock.json ]] && files+=(apps/desktop/package-lock.json)
 git commit --quiet -m "chore(release): bump version to $new" -- "${files[@]}"
 echo "  committed: chore(release): bump version to $new"
 
