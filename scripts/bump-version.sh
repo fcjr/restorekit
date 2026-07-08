@@ -67,12 +67,15 @@ cargo update --workspace --quiet
 echo "  updating apps/desktop/src-tauri/Cargo.lock"
 (cd apps/desktop/src-tauri && cargo update --workspace --quiet)
 
-git commit --quiet -m "chore(release): bump version to $new" -- \
-  Cargo.toml Cargo.lock \
-  crates/restorekit/Cargo.toml crates/restorekit-cli/Cargo.toml \
-  apps/desktop/package.json apps/desktop/package-lock.json \
-  apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock \
+files=(
+  Cargo.toml Cargo.lock
+  crates/restorekit/Cargo.toml crates/restorekit-cli/Cargo.toml
+  apps/desktop/package.json
+  apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
   apps/desktop/src-tauri/tauri.conf.json
+)
+[[ -f apps/desktop/package-lock.json ]] && files+=(apps/desktop/package-lock.json)
+git commit --quiet -m "chore(release): bump version to $new" -- "${files[@]}"
 echo "  committed: chore(release): bump version to $new"
 
 echo
