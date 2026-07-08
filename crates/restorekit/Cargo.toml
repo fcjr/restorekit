@@ -18,7 +18,7 @@ default = ["history"]
 history = ["dep:rusqlite", "dep:rusqlite_migration"]
 
 [dependencies]
-restorekit-sys = { path = "../restorekit-sys", version = "0.3.1" }
+restorekit-sys = { path = "../restorekit-sys", version = "0.4.0" }
 nusb = "0.2"
 futures-core = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
