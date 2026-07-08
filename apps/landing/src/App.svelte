@@ -264,13 +264,13 @@
       <div>
         {@render eyebrow("Open-source Mac recovery · CLI + desktop app", "text-amber")}
         <h1 class="max-w-xl text-[clamp(26px,3.2vw,38px)] font-bold leading-[1.12] tracking-[-0.02em] text-ink">
-          Reformat any Apple Silicon mac from macOS, linux or windows with a single
+          Reformat any T2 or Apple Silicon mac from macOS, linux or windows with a single
           command.<span class="caret" aria-hidden="true"></span>
         </h1>
         <p class="mt-5 max-w-lg text-[13.5px] leading-7 text-mut">
-          restorekit is a standalone rust library, cli tool, and gui that lets you fully wipe or
-          restore a T2 or M series macbook without using any apple tools. All binaries are
-          statically linked, so it needs no additional software or configuration.
+          restorekit is a standalone rust library, cli tool, and gui that fully wipes or restores
+          a T2 or M series mac without any apple tools. Binaries are statically linked, so there
+          is nothing else to install or configure.
         </p>
 
         <div class="mt-8 flex flex-col items-stretch gap-3 sm:flex-row">
@@ -351,13 +351,12 @@
       <div class="space-y-4 text-[13.5px] leading-7 text-mut">
         <p>
           I've worked at a few places where windows was the default machine (including for IT) and
-          macs were only issued when requested or required. A lot of times the IT folks are forced
-          to use a macbook simply because they need one to recover and reset their fleet of
-          macbooks.
+          macs were only issued when requested or required. A lot of times the IT folks are stuck
+          carrying a macbook for one job: recovering and resetting the rest of the fleet.
         </p>
         <p>
-          I've also seen companies forced to ship a whole new mac out to employees in locations
-          without an apple store when a simple reset would have solved the problem.
+          I've also seen companies ship a whole new mac to an employee with no apple store nearby
+          when a simple reset would have fixed it.
         </p>
         <p class="text-ink2">I think this sucks.</p>
       </div>
@@ -418,8 +417,8 @@
         <div>
           <h3 class="text-[15px] font-semibold text-ink">Which port is the DFU port?</h3>
           <p class="mt-3 max-w-sm text-[12.5px] leading-6 text-mut">
-            Unfortunately apple wasn't consistent when choosing what usb port to make the DFU
-            (device firmware upgrade) port... The desktop app labels it live per machine; here's
+            Unfortunately apple wasn't consistent about which usb port is the DFU (device
+            firmware upgrade) port... The desktop app labels it live per machine; here's
             where to find it on the most common macs, or see
             <a href="https://support.apple.com/en-us/120694" class="text-amber hover:text-amber-hov">apple's official list</a>.
           </p>
@@ -441,11 +440,11 @@
     <div class="mx-auto max-w-6xl px-5 py-16 md:py-20">
       {@render eyebrow("The desktop app")}
       <h2 class="max-w-xl text-[24px] font-semibold tracking-tight text-ink">
-        A gui that wraps the restorekit library for an easier one-click restore.
+        A gui that wraps the restorekit library for point-and-click restores.
       </h2>
       <p class="mt-4 max-w-xl text-[13.5px] leading-7 text-mut">
-        It has the same functionality as the cli. Every cabled apple device shows up the moment it
-        enumerates, along with its mode (DFU, recovery, booted). You approve the helper once on
+        Everything the cli does, in a window. Every cabled apple device shows up the moment it
+        enumerates, with its mode (DFU, recovery, booted). You approve the helper once on
         macOS, or run the driver setup once on windows, and after that a restore is two clicks.
         Cable up a few macs and it restores them all at once, each in its own process, with a live
         log and progress per machine. It keeps itself updated too.
@@ -521,12 +520,12 @@
           The whole workflow is one command.
         </h2>
         <p class="mt-4 text-[13.5px] leading-7 text-mut">
-          Run <code class="text-ink2">sudo restorekit restore</code> and bam! restorekit will detect
-          the mac, download the appropriate firmware, and restore the machine to factory settings.
+          Run <code class="text-ink2">sudo restorekit restore</code> and bam! It detects the mac,
+          downloads the right firmware, and restores it to factory settings.
         </p>
         <ul class="mt-6 space-y-3 text-[12.5px] leading-6 text-mut">
           <li class="flex gap-3"><span class="text-amber">→</span> <span>Plays nice with automation: a <code class="text-ink2">--json</code> flag on most commands</span></li>
-          <li class="flex gap-3"><span class="text-amber">→</span> <span>Target one of several Macs by <code class="text-ink2">--ecid</code> or port</span></li>
+          <li class="flex gap-3"><span class="text-amber">→</span> <span>Target one of several macs by <code class="text-ink2">--ecid</code> or port</span></li>
           <li class="flex gap-3"><span class="text-amber">→</span> <span>Retries component sends and restores on transport hiccups</span></li>
           <li class="flex gap-3"><span class="text-amber">→</span> <span>Windows: <code class="text-ink2">restorekit setup-driver</code> binds WinUSB once</span></li>
           <li class="flex gap-3"><span class="text-amber">→</span> <span>Linux: ships a udev rule so you can skip <code class="text-ink2">sudo</code></span></li>
@@ -629,8 +628,8 @@ $ restorekit -h`,
           href="https://www.cambrionix.com/products/thundersync5-c16-pd"
           class="text-amber hover:text-amber-hov">their DFU-capable hub</a
         > only enters DFU once it's registered in their Connect Premium software, the hub is sold as
-        a subscription bundle (£79 a month over three years), and when the software term runs out
-        you pay again to extend it.
+        a subscription bundle (£79 a month over three years), and when the term runs out you pay
+        again.
       </p>
       <p class="mt-3 max-w-3xl text-[11.5px] leading-6 text-fnt">
         ⁴ The restorekit source is Apache-2.0. A built binary's license depends on what it links:
