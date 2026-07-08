@@ -37,7 +37,11 @@ pub fn watch() -> Result<Watch> {
 
 impl Watch {
     /// Block until a Mac newly enters DFU mode, or the timeout elapses.
-    pub fn wait(mut self, timeout: Duration) -> Result<Device> {
+    ///
+    /// Takes `&mut self` so a caller can re-trigger DFU and wait again on the
+    /// same watch; Macs that entered DFU during an earlier wait are returned
+    /// then, not silently skipped.
+    pub fn wait(&mut self, timeout: Duration) -> Result<Device> {
         use nusb::hotplug::HotplugEvent;
 
         let deadline = Instant::now() + timeout;

@@ -280,8 +280,18 @@ impl Hpm {
 
     /// Bring the controller into debug mode (DBMa), unlocking first if needed.
     fn enter_dbma(&self, key: u32, progress: &mut dyn FnMut(Event)) -> Result<()> {
-        let connection = self.read_register(0x3f)?;
-        if connection[0] & 1 == 0 {
+        // The target drops off the port briefly while it reboots, so poll the
+        // connection register rather than checking once — a re-sent trigger can
+        // land mid-reboot (same cadence as macvdmtool's WaitConnected).
+        let mut connected = false;
+        for _ in 0..30 {
+            if self.read_register(0x3f)?[0] & 1 != 0 {
+                connected = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if !connected {
             return Err(Error::Vdm(
                 "no target detected on the DFU port (check the cable and port)".into(),
             ));

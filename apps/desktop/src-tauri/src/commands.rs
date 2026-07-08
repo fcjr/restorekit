@@ -118,12 +118,19 @@ pub async fn trigger_dfu() -> Result<DeviceView, String> {
         tauri::async_runtime::spawn_blocking(|| {
             // Subscribe before triggering so a Mac already sitting in DFU is
             // never mistaken for the one the trigger just rebooted.
-            let watch = dfu::watch().map_err(|e| e.to_string())?;
-            crate::elevate::run_helper("dfu")?;
-            let device = watch
-                .wait(std::time::Duration::from_secs(20))
-                .map_err(|e| e.to_string())?;
-            Ok(view(device))
+            let mut watch = dfu::watch().map_err(|e| e.to_string())?;
+            // The target's boot ROM occasionally misses the DFU request and
+            // boots normally (a timing race Apple Configurator hits too), so
+            // re-send the trigger when DFU enumeration doesn't happen.
+            let mut attempt = 1;
+            loop {
+                crate::elevate::run_helper("dfu")?;
+                match watch.wait(std::time::Duration::from_secs(10)) {
+                    Ok(device) => return Ok(view(device)),
+                    Err(restorekit::Error::WaitTimeout) if attempt < 3 => attempt += 1,
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
         })
         .await
         .map_err(|e| e.to_string())?

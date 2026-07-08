@@ -1,5 +1,5 @@
 use std::io::{IsTerminal, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use restorekit::progress::Event;
 use restorekit::{device, dfu, Device, DfuTarget, Error, Result, Target};
@@ -80,17 +80,49 @@ fn select_from(mut devices: Vec<Device>, json: bool) -> Result<Device> {
     }
 }
 
-/// Trigger DFU electronically if the host can, else print the manual key-combo
-/// instructions so the user can put the target into DFU by hand.
-fn trigger_or_instruct(json: bool, target: &DfuTarget) -> Result<()> {
-    if restorekit::host_can_trigger_dfu() {
-        trigger_dfu(json, target)
-    } else {
+/// How many times to send the DFU trigger before giving up.
+const TRIGGER_ATTEMPTS: u32 = 3;
+
+/// How long to wait for DFU enumeration (normally a few seconds) before
+/// concluding the target booted normally and re-sending the trigger.
+const RETRY_AFTER: Duration = Duration::from_secs(10);
+
+/// Trigger DFU electronically and wait for the target via `wait`, re-sending
+/// the trigger when the target reboots normally instead: its port controller
+/// ACKs the DFU VDM but the boot ROM occasionally misses the DFU request — a
+/// timing race macvdmtool and Apple Configurator hit too, where a fresh trigger
+/// usually succeeds. On hosts that can't trigger electronically, prints the
+/// manual key-combo instructions and just waits.
+fn trigger_and_wait<T>(
+    json: bool,
+    target: &DfuTarget,
+    timeout: Duration,
+    mut wait: impl FnMut(Duration) -> Result<T>,
+) -> Result<T> {
+    if !restorekit::host_can_trigger_dfu() {
         if !json {
             eprintln!("{}\n", restorekit::manual_dfu_instructions());
         }
-        Ok(())
+        return wait(timeout);
     }
+    let deadline = Instant::now() + timeout;
+    for attempt in 1..=TRIGGER_ATTEMPTS {
+        if attempt > 1 && !json {
+            println!("Target didn't enter DFU mode; sending the trigger again ({attempt}/{TRIGGER_ATTEMPTS})...");
+        }
+        trigger_dfu(json, target)?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let slice = if attempt < TRIGGER_ATTEMPTS {
+            RETRY_AFTER.min(remaining)
+        } else {
+            remaining
+        };
+        match wait(slice) {
+            Err(Error::WaitTimeout) if attempt < TRIGGER_ATTEMPTS && Instant::now() < deadline => {}
+            other => return other,
+        }
+    }
+    unreachable!("the final attempt always returns")
 }
 
 /// Ensure a Mac is in DFU mode: if the target isn't there yet, trigger DFU
@@ -114,11 +146,12 @@ pub(crate) fn ensure_present(json: bool, timeout: Duration, ecid: Option<u64>) -
             }
             _ => {}
         }
-        trigger_or_instruct(json, &DfuTarget::Auto)?;
-        if !json {
-            println!("Waiting for the Mac with ECID {e:#x} in DFU mode...");
-        }
-        return device::wait_where(timeout, |d| d.in_dfu() && d.ecid == Some(e));
+        return trigger_and_wait(json, &DfuTarget::Auto, timeout, |slice| {
+            if !json {
+                println!("Waiting for the Mac with ECID {e:#x} in DFU mode...");
+            }
+            device::wait_where(slice, |d| d.in_dfu() && d.ecid == Some(e))
+        });
     }
 
     let present = dfu_devices()?;
@@ -137,11 +170,12 @@ pub(crate) fn ensure_present(json: bool, timeout: Duration, ecid: Option<u64>) -
             println!("Detected {} ({} mode).", d.display_name(), d.mode);
         }
     }
-    trigger_or_instruct(json, &DfuTarget::Auto)?;
-    if !json {
-        println!("Waiting for a Mac in DFU mode...");
-    }
-    device::wait(Target::One, timeout)
+    trigger_and_wait(json, &DfuTarget::Auto, timeout, |slice| {
+        if !json {
+            println!("Waiting for a Mac in DFU mode...");
+        }
+        device::wait(Target::One, slice)
+    })
 }
 
 /// `restorekit dfu` — trigger DFU on the cabled target, then wait for it.
@@ -157,14 +191,14 @@ pub fn enter(json: bool, target: DfuTarget) -> Result<()> {
 
     // Subscribe before triggering so we report the device that just entered,
     // not one that was connected all along.
-    let watch = dfu::watch()?;
+    let mut watch = dfu::watch()?;
 
-    trigger_dfu(json, &target)?;
-
-    if !json {
-        println!("Waiting for the target to enter DFU mode...");
-    }
-    let device = watch.wait(Duration::from_secs(20))?;
+    let device = trigger_and_wait(json, &target, Duration::from_secs(30), |slice| {
+        if !json {
+            println!("Waiting for the target to enter DFU mode...");
+        }
+        watch.wait(slice)
+    })?;
 
     if json {
         emit_stage(true, Event::DeviceDetected { device });
