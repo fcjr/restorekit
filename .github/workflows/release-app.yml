@@ -70,10 +70,14 @@ jobs:
           "${{ steps.msys2.outputs.msys2-location }}\usr\bin" | Out-File $env:GITHUB_PATH -Append
           "${{ steps.msys2.outputs.msys2-location }}\mingw64\bin" | Out-File $env:GITHUB_PATH -Append
 
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-      - uses: Swatinem/rust-cache@v2
+      # No cache: this workflow only runs on tag refs, which can restore
+      # caches from main only — and those are keyed for ci's debug builds, so
+      # a release build here never hits.
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update
+          rustup default ${{ matrix.toolchain }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
