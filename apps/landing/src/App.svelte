@@ -11,8 +11,10 @@
   const RELEASES = `${GITHUB}/releases`;
   const SPONSOR = "https://github.com/sponsors/fcjr";
 
-  // Direct links to the latest desktop-app builds, resolved from the GitHub
-  // API on load; until then (or if it fails) they land on the releases page.
+  // Direct links to the desktop-app builds, resolved from the GitHub API on
+  // load. Each link points at the newest release that actually has that build
+  // (a fresh release may still be missing assets while CI runs); until the
+  // fetch resolves (or if it fails) they land on the releases page.
   let appVersion = $state("");
   let appDownloads = $state(
     [
@@ -25,14 +27,22 @@
 
   onMount(async () => {
     try {
-      const res = await fetch("https://api.github.com/repos/fcjr/restorekit/releases/latest");
+      const res = await fetch("https://api.github.com/repos/fcjr/restorekit/releases?per_page=10");
       if (!res.ok) return;
-      const rel: { tag_name?: string; assets?: { name: string; browser_download_url: string }[] } =
-        await res.json();
-      appVersion = rel.tag_name ?? "";
+      const rels: {
+        tag_name?: string;
+        draft?: boolean;
+        prerelease?: boolean;
+        assets?: { name: string; browser_download_url: string }[];
+      }[] = await res.json();
+      const stable = rels.filter((r) => !r.draft && !r.prerelease);
+      appVersion = stable[0]?.tag_name ?? "";
       appDownloads = appDownloads.map((d) => {
-        const asset = rel.assets?.find((a) => d.pattern.test(a.name));
-        return asset ? { ...d, url: asset.browser_download_url } : d;
+        for (const rel of stable) {
+          const asset = rel.assets?.find((a) => d.pattern.test(a.name));
+          if (asset) return { ...d, url: asset.browser_download_url };
+        }
+        return d;
       });
     } catch {
       /* keep releases-page links */
