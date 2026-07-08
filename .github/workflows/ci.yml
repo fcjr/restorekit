@@ -55,39 +55,66 @@ jobs:
   # autotools, which can't target MSVC.
   test-windows:
     runs-on: windows-latest
+    env:
+      # Full debuginfo makes GNU ld crawl linking the test binaries against the
+      # big static C stack (and bloats the rust-cache). Line tables keep
+      # file:line backtraces on CI failures.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel
-            git
-            make
-            autoconf
-            automake
-            libtool
-            autoconf-archive
-            gettext-devel
-            pkgconf
-            perl
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-libusb
-            mingw-w64-x86_64-nasm
-
       # GNU host toolchain: build scripts link with ld, not MSVC's link.exe
       # (which MSYS2's coreutils `link` would shadow in the MINGW64 shell).
       - uses: dtolnay/rust-toolchain@master
+        id: toolchain
         with:
           toolchain: stable-x86_64-pc-windows-gnu
 
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
+
+      # rust-cache prunes workspace-crate artifacts before saving, which throws
+      # away the vendored C stack restorekit-sys builds into its OUT_DIR — ~10
+      # minutes of autotools under MSYS2 redone every run. Cache the staging
+      # prefix separately: build.rs skips each library whose .built-* marker is
+      # already present. Keyed on the exact submodule pins (build.rs doesn't
+      # watch the vendor tree, so a stale prefix would be used silently), plus
+      # rustc (OUT_DIR's hash moves with the compiler) and Cargo.lock (the -sys
+      # crates' headers the stack compiles against). No restore-keys: a partial
+      # match must rebuild, not reuse.
+      - name: Hash vendored C source pins
+        id: pins
+        shell: bash
+        run: echo "hash=$(git submodule status --recursive | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache vendored C stack
+        id: c-stack
+        uses: actions/cache@v4
+        with:
+          path: target/x86_64-pc-windows-gnu/debug/build/restorekit-sys-*/out/staging
+          key: windows-c-stack-${{ steps.pins.outputs.hash }}-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('crates/restorekit-sys/build.rs', 'Cargo.lock') }}
+
+      # With both caches hot, nothing runs autotools (staging markers skip the
+      # C stack) or rebuilds openssl-src (rust-cache has it), so the full
+      # toolbox — base-devel, autotools, perl, cmake, nasm, ~835 MiB — is dead
+      # weight; install only what the warm path uses: gcc + binutils for
+      # build.rs's cc step and the final link, pkgconf + libusb for the libusb
+      # probe, git for `git apply` on the idevicerestore patches. Either cache
+      # missing falls back to the full set.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          # Skip the full pacman -Syuu (~12s); the action's bundled MSYS2 base
+          # is refreshed regularly, and the packages below install current
+          # versions regardless. Flip back to true if pacman ever complains
+          # about a base/package mismatch.
+          update: false
+          install: >-
+            ${{ (steps.c-stack.outputs.cache-hit == 'true' && steps.rust-cache.outputs.cache-hit == 'true')
+                && 'git mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-libusb'
+                || 'base-devel git make autoconf automake libtool autoconf-archive gettext-devel pkgconf perl mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-cmake mingw-w64-x86_64-libusb mingw-w64-x86_64-nasm' }}
 
       - name: Test (windows-gnu, static C stack under MSYS2)
         shell: msys2 {0}
