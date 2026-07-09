@@ -31,6 +31,24 @@ export interface Device {
   driver_ready: boolean;
 }
 
+/** Live PD status read from a dongle over its vendor USB interface. */
+export interface DongleStatus {
+  pd_state: "disconnected" | "vbus-on" | "connected" | "accept" | "idle" | "unknown";
+  target_attached: boolean;
+  /** Cable orientation: true = CC2 (flipped), false = CC1 (normal). */
+  polarity_cc2: boolean;
+}
+
+/** A connected RecoverKit dongle and the Mac (if any) cabled to it. */
+export interface Dongle {
+  serial: string;
+  product: string;
+  /** Live status; null if the vendor interface couldn't be read. */
+  status: DongleStatus | null;
+  /** The cabled Mac, if its USB data reaches this host; null otherwise. */
+  target: Device | null;
+}
+
 export interface Firmware {
   identifier: string;
   version: string;
@@ -120,6 +138,9 @@ export const api = {
   listDevices: () => call<Device[]>("list_devices"),
   triggerDfu: () => call<Device>("trigger_dfu"),
   rebootTarget: () => call<void>("reboot_target"),
+  listDongles: () => call<Dongle[]>("list_dongles"),
+  dongleDfu: (serial: string) => call<void>("dongle_dfu", { serial }),
+  dongleReboot: (serial: string) => call<void>("dongle_reboot", { serial }),
   helperStatus: () => call<string>("helper_status"),
   approveHelper: () => call<void>("approve_helper"),
   setupDriver: () => call<void>("setup_driver"),
@@ -197,9 +218,16 @@ function browserMock(cmd: string): Promise<unknown> {
     { serial_number: "C02XX1234567", ecid: "0x77aa22bb44cc", model_identifier: "Mac14,2", name: "MacBook Air (M2, 2022)", mode: "recovery", status: "captured", timestamp_rfc3339: "2026-07-07T15:04:00.000Z" },
     { serial_number: "C02YY7654321", ecid: "0x1a2b3c4d5e6f", model_identifier: "MacBookPro17,1", name: "MacBook Pro (M1, Late 2020)", mode: "booted", status: "restored", timestamp_rfc3339: "2026-07-07T14:12:00.000Z" },
   ];
+  const dongles: Dongle[] = [
+    { serial: "DPL-1A2B3C4D", product: "Dongle-Proto-Lite", status: { pd_state: "connected", target_attached: true, polarity_cc2: true }, target: devices[0] },
+    { serial: "DPL-99887766", product: "Dongle-Proto-Lite", status: { pd_state: "disconnected", target_attached: false, polarity_cc2: false }, target: null },
+  ];
   const map: Record<string, unknown> = {
     host_can_trigger: true,
     history_enabled: true,
+    list_dongles: dongles,
+    dongle_dfu: null,
+    dongle_reboot: null,
     manual_instructions: "1. Connect the target's DFU port.\n2. Disconnect power.\n3. Hold power, reconnect, keep holding ~10s.",
     list_devices: devices,
     trigger_dfu: devices[0],

@@ -1,0 +1,8 @@
+Item,Qty,MPN / Part,LCSC,Where to buy,Link,Needed for,Notes
+74AVC1T45GW level translator,5,"74AVC1T45GW,125 (Nexperia, TSSOP-6)",C282330,Mouser / Digi-Key,https://www.mouser.com/Search/Refine?Keyword=74AVC1T45GW,SBU serial (Test 2),Order spares; pennies each. Confirm GW/TSSOP-6 variant.
+TSSOP-6 to DIP breakout adapter,2,SMD TSSOP-6 to DIP adapter PCB,,Amazon / AliExpress,https://www.amazon.com/s?k=TSSOP-6+SMD+to+DIP+adapter,SBU serial (Test 2),To hand-solder the tiny translators. One chip per adapter.
+1.2 V LDO,2,TLV70212DBVR (SOT-23-5),C81462,Mouser / Digi-Key,https://www.mouser.com/Search/Refine?Keyword=TLV70212DBVR,SBU serial (Test 2),Generates the 1.2 V translator low-side rail. Or use a 470/270 divider instead.
+USB-C breakout (all 24 pins + SBU),1,USB-C 24-pin test/breakout board,,Amazon / AliExpress,https://www.amazon.com/s?k=USB-C+24+pin+breakout+board+SBU,DFU + serial (target side),Must expose CC1/CC2 + SBU1/SBU2 + VBUS + GND. Many power-only breakouts skip SBU.
+Full-featured USB-C cable (USB3/TB),1,USB 3.x or Thunderbolt USB-C cable,,Amazon,https://www.amazon.com/s?k=thunderbolt+4+usb-c+cable,SBU serial (Test 2),Cheap USB2/charge cables have no SBU wires. Any cable works for DFU trigger only.
+Jumper wires (F-F / M-F),1,Dupont jumper wire kit,,Amazon,https://www.amazon.com/s?k=dupont+jumper+wires+female,All wiring,For Pico <-> FUSB302 <-> breakout hookup.
+Target Mac (Apple Silicon or T2),1,,,already own,,DFU + serial,A Mac you can safely put into DFU. Likely already have.

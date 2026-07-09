@@ -15,6 +15,7 @@
     MODES,
     APPROVAL_REQUIRED,
     type Device,
+    type Dongle,
     type Firmware,
     type ProgressEvent,
     type CacheInfo,
@@ -39,8 +40,12 @@
   let manual = $state("");
   let cache = $state<CacheInfo | null>(null);
 
-  // ---- views: restore (device-centric) / list / history / about ----
-  let tab = $state<"restore" | "list" | "history" | "about">("restore");
+  // ---- dongle state ----
+  let dongles = $state<Dongle[]>([]);
+  let dongleBusy = $state<string>(""); // serial of the dongle mid-action
+
+  // ---- views: restore (device-centric) / list / dongles / history / about ----
+  let tab = $state<"restore" | "list" | "dongles" | "history" | "about">("restore");
   let appVersion = $state("");
   const licenseCount = (licensesHtml.match(/class="lic-name"/g) ?? []).length;
   let devSubtab = $state<"connected" | "history">("connected"); // Devices tab mode
@@ -259,6 +264,14 @@
       recordSeen(list);
     } catch {
       /* enumeration hiccups are fine */
+    }
+  }
+
+  async function refreshDongles() {
+    try {
+      dongles = await api.listDongles();
+    } catch {
+      /* dongle enumeration hiccups are fine */
     }
   }
 
@@ -653,6 +666,7 @@
     getVersion().then((v) => (appVersion = v)).catch(() => {});
     checkForUpdates();
     refresh();
+    refreshDongles();
     loadJobs();
     if (historyEnabled) loadSeen();
     now = Date.now();
@@ -660,6 +674,7 @@
     const poll = setInterval(() => {
       if (phase === "idle") {
         refresh();
+        refreshDongles();
         refreshHelper();
       }
     }, 2000);
@@ -747,6 +762,35 @@
       else error = String(e);
     } finally {
       busy = "";
+    }
+  }
+
+  // Dongle actions are plain USB — no helper/approval, works on any host OS.
+  async function dongleDfu(serial: string) {
+    error = "";
+    dongleBusy = serial;
+    try {
+      await api.dongleDfu(serial);
+      await refresh();
+      await refreshDongles();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      dongleBusy = "";
+    }
+  }
+
+  async function dongleReboot(serial: string) {
+    error = "";
+    dongleBusy = serial;
+    try {
+      await api.dongleReboot(serial);
+      await refresh();
+      await refreshDongles();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      dongleBusy = "";
     }
   }
 
@@ -919,6 +963,9 @@
     <span class="seg tabs">
       <button class="segbtn" class:on={tab === "restore"} onclick={() => (tab = "restore")}>Restore</button>
       <button class="segbtn" class:on={tab === "list"} onclick={() => (tab = "list")}>Devices</button>
+      {#if dongles.length}
+        <button class="segbtn" class:on={tab === "dongles"} onclick={() => (tab = "dongles")}>Dongles</button>
+      {/if}
       {#if historyEnabled}
         <button class="segbtn" class:on={tab === "history"} onclick={() => { tab = "history"; loadHistory(); }}>History</button>
       {/if}
@@ -1279,6 +1326,51 @@
         <p class="tabnote">Every Mac ever seen, deduped by ECID and enriched as it passes through modes.</p>
       {:else}
         <div class="tabempty">No devices seen yet. Connect a Mac and it's remembered here.</div>
+      {/if}
+    </section>
+  {:else if tab === "dongles"}
+    <section class="tabview">
+      <div class="tabhead">
+        <span class="eyebrow">Dongles · {dongles.length}</span>
+        <div class="grow"></div>
+      </div>
+      {#if dongles.length}
+        <table class="tbl">
+          <thead>
+            <tr><th>Dongle</th><th>Target</th><th>PD state</th><th></th></tr>
+          </thead>
+          <tbody>
+            {#each dongles as dg (dg.serial)}
+              <tr>
+                <td>
+                  <button class="cellcopy" onclick={() => copy(dg.serial)}>{dg.serial}</button>
+                  <button class="cellcopy cellsub" onclick={() => copy(dg.product)}>{dg.product}</button>
+                </td>
+                <td>
+                  {#if dg.target}
+                    <button class="cellcopy" onclick={() => copy(dg.target!.name)}>{dg.target.name}</button>
+                    <span class="cellsub"><span class="mtag" style="color:{MODE_COLOR[dg.target.mode]}">{MODE_TAG[dg.target.mode]}</span></span>
+                  {:else if dg.status?.target_attached}
+                    <span class="cellsub">attached — USB data not on this host</span>
+                  {:else}
+                    <span class="cellsub">no target</span>
+                  {/if}
+                </td>
+                <td><span class="mtag">{dg.status?.pd_state ?? "—"}</span></td>
+                <td class="right nowrap">
+                  <button class="btn primary sm" disabled={dongleBusy === dg.serial || !dg.status?.target_attached}
+                    onclick={() => dongleDfu(dg.serial)}>{dongleBusy === dg.serial ? "…" : "Enter DFU"}</button>
+                  <button class="btn ghost sm" disabled={dongleBusy === dg.serial || !dg.status?.target_attached}
+                    onclick={() => dongleReboot(dg.serial)}>Reboot</button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        {#if error}<div class="tabnote" style="color:var(--danger)">{error}</div>{/if}
+        <p class="tabnote">Dongles trigger DFU over USB-PD — no admin approval, and it works from any host OS. The target's USB data must reach this host to restore it.</p>
+      {:else}
+        <div class="tabempty">No RecoverKit dongles connected.</div>
       {/if}
     </section>
   {:else if tab === "history"}

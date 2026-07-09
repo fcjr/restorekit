@@ -16,6 +16,28 @@ fn print_ports() {
     println!();
 }
 
+/// Show connected RecoverKit dongles and the Mac (if any) cabled to each.
+fn print_dongles() {
+    let dongles = match restorekit::dongle::list() {
+        Ok(d) if !d.is_empty() => d,
+        _ => return,
+    };
+    println!("RecoverKit dongles:\n");
+    for d in &dongles {
+        match d.attached_device() {
+            Ok(Some(dev)) => println!(
+                "  {} ({}) — {} [{} mode]",
+                d.serial,
+                d.product,
+                dev.display_name(),
+                dev.mode
+            ),
+            _ => println!("  {} ({}) — no target visible on this host", d.serial, d.product),
+        }
+    }
+    println!();
+}
+
 pub fn run(json: bool) -> Result<()> {
     let mut devices = device::list()?;
     // Fill in booted Macs' ECIDs on macOS hosts (best-effort, no-op elsewhere).
@@ -34,6 +56,7 @@ pub fn run(json: bool) -> Result<()> {
             println!("Cable a target Mac to the DFU port and run `restorekit dfu`.");
         }
         print_ports();
+        print_dongles();
         return Ok(());
     }
 
@@ -78,6 +101,7 @@ pub fn run(json: bool) -> Result<()> {
     }
 
     print_ports();
+    print_dongles();
 
     if !devices.iter().any(|d| d.restorable()) {
         println!("None are in DFU mode; only a Mac in DFU mode can be restored.");

@@ -1,8 +1,8 @@
 use std::io::{IsTerminal, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use restorekit::progress::Event;
-use restorekit::{device, dfu, Device, DfuTarget, Error, Result, Target};
+use restorekit::{device, Device, DfuOutcome, DfuVia, Error, Result, Target};
 
 use super::render;
 
@@ -13,19 +13,6 @@ pub(crate) fn emit_stage(json: bool, event: Event) {
     } else if let Event::DfuTriggerStage { stage } = event {
         println!("  {stage}");
     }
-}
-
-/// Send the DFU-trigger VDM sequence, emitting stages. The caller must have
-/// already confirmed this host can trigger DFU.
-fn trigger_dfu(json: bool, target: &DfuTarget) -> Result<()> {
-    if !json {
-        println!("Triggering DFU mode on the target...");
-    }
-    #[cfg(target_os = "macos")]
-    dfu::vdm::enter_dfu(target, &mut |e| emit_stage(json, e))?;
-    #[cfg(not(target_os = "macos"))]
-    let _ = target;
-    Ok(())
 }
 
 /// Macs currently in DFU mode — the devices restorekit can act on.
@@ -80,58 +67,97 @@ fn select_from(mut devices: Vec<Device>, json: bool) -> Result<Device> {
     }
 }
 
-/// How many times to send the DFU trigger before giving up.
-const TRIGGER_ATTEMPTS: u32 = 3;
-
-/// How long to wait for DFU enumeration (normally a few seconds) before
-/// concluding the target booted normally and re-sending the trigger.
-const RETRY_AFTER: Duration = Duration::from_secs(10);
-
-/// Trigger DFU electronically and wait for the target via `wait`, re-sending
-/// the trigger when the target reboots normally instead: its port controller
-/// ACKs the DFU VDM but the boot ROM occasionally misses the DFU request — a
-/// timing race macvdmtool and Apple Configurator hit too, where a fresh trigger
-/// usually succeeds. On hosts that can't trigger electronically, prints the
-/// manual key-combo instructions and just waits.
-fn trigger_and_wait<T>(
-    json: bool,
-    target: &DfuTarget,
-    timeout: Duration,
-    mut wait: impl FnMut(Duration) -> Result<T>,
-) -> Result<T> {
-    if !restorekit::host_can_trigger_dfu() {
-        if !json {
-            eprintln!("{}\n", restorekit::manual_dfu_instructions());
-        }
-        return wait(timeout);
+/// Build the trigger route selector from the CLI flags.
+fn via_from(dongle: Option<String>, ecid: Option<u64>, port: Option<i32>) -> DfuVia {
+    if let Some(id) = dongle {
+        DfuVia::Dongle(id)
+    } else if let Some(e) = ecid {
+        DfuVia::Ecid(e)
+    } else if let Some(p) = port {
+        DfuVia::Host(Some(p))
+    } else {
+        DfuVia::Auto
     }
-    let deadline = Instant::now() + timeout;
-    for attempt in 1..=TRIGGER_ATTEMPTS {
-        if attempt > 1 && !json {
-            println!("Target didn't enter DFU mode; sending the trigger again ({attempt}/{TRIGGER_ATTEMPTS})...");
-        }
-        trigger_dfu(json, target)?;
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let slice = if attempt < TRIGGER_ATTEMPTS {
-            RETRY_AFTER.min(remaining)
-        } else {
-            remaining
-        };
-        match wait(slice) {
-            Err(Error::WaitTimeout) if attempt < TRIGGER_ATTEMPTS && Instant::now() < deadline => {}
-            other => return other,
-        }
-    }
-    unreachable!("the final attempt always returns")
 }
 
-/// Ensure a Mac is in DFU mode: if the target isn't there yet, trigger DFU
-/// electronically when this host can (otherwise print manual instructions),
-/// then wait up to `timeout`. Shared by `restore` and the `dfu` command.
-pub(crate) fn ensure_present(json: bool, timeout: Duration, ecid: Option<u64>) -> Result<Device> {
-    // Targeting a specific machine: return it if already in DFU, else trigger
-    // and wait for that exact ECID. `identify` fills in booted Macs' ECIDs so
-    // they can be matched before they enter DFU.
+/// `restorekit dfu` — trigger DFU on the cabled target, routing through a
+/// dongle or the host, then wait for (and report) the Mac entering DFU.
+pub fn enter(json: bool, dongle: Option<String>, ecid: Option<u64>, port: Option<i32>) -> Result<()> {
+    let via = via_from(dongle, ecid, port);
+    match restorekit::trigger_dfu(via, Duration::from_secs(30), &mut |e| emit_stage(json, e)) {
+        Ok(DfuOutcome::Entered(device)) => {
+            if json {
+                emit_stage(true, Event::DeviceDetected { device });
+            } else {
+                println!("\nTarget is now in DFU mode: {}", device.display_name());
+                println!("  ECID: {}", device.ecid_hex().unwrap_or_default());
+            }
+            Ok(())
+        }
+        Ok(DfuOutcome::Sent) => {
+            if json {
+                emit_stage(true, Event::Done);
+            } else {
+                println!(
+                    "DFU trigger sent via dongle. No DFU device appeared on this host — if the \
+                     target's USB data isn't cabled here, confirm on the Mac's screen."
+                );
+            }
+            Ok(())
+        }
+        Err(Error::UnsupportedHost(_)) => {
+            if !json {
+                eprintln!("{}", restorekit::manual_dfu_instructions());
+            }
+            Err(Error::UnsupportedHost(
+                "cannot trigger DFU on this host".into(),
+            ))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// `restorekit reboot` — reboot the cabled target back to normal (dongle/host).
+pub fn reboot(json: bool, dongle: Option<String>, ecid: Option<u64>, port: Option<i32>) -> Result<()> {
+    let via = via_from(dongle, ecid, port);
+    if !json {
+        println!("Rebooting the target...");
+    }
+    match restorekit::dfu::reboot(via, &mut |e| emit_stage(json, e)) {
+        Ok(()) => {
+            if json {
+                emit_stage(true, Event::Done);
+            } else {
+                println!("Done. The target should be booting normally.");
+            }
+            Ok(())
+        }
+        Err(Error::UnsupportedHost(_)) => {
+            if !json {
+                eprintln!("{}", restorekit::manual_dfu_instructions());
+            }
+            Err(Error::UnsupportedHost(
+                "cannot control the target from this host".into(),
+            ))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Ensure a Mac is in DFU mode: return it if already there (with the interactive
+/// picker when several are present and no ECID pins one), otherwise trigger
+/// entry via a dongle or the host and wait. Shared by `restore`.
+pub(crate) fn ensure_present(
+    json: bool,
+    timeout: Duration,
+    dongle: Option<String>,
+    ecid: Option<u64>,
+) -> Result<Device> {
+    // An explicit dongle always routes through it.
+    if let Some(id) = dongle {
+        return finish_trigger(json, DfuVia::Dongle(id), timeout, ecid);
+    }
+    // Already in DFU? Use it without re-triggering.
     if let Some(e) = ecid {
         let mut devices = device::list()?;
         device::identify(&mut devices);
@@ -146,92 +172,48 @@ pub(crate) fn ensure_present(json: bool, timeout: Duration, ecid: Option<u64>) -
             }
             _ => {}
         }
-        return trigger_and_wait(json, &DfuTarget::Auto, timeout, |slice| {
-            if !json {
-                println!("Waiting for the Mac with ECID {e:#x} in DFU mode...");
+    } else {
+        let present = dfu_devices()?;
+        if !present.is_empty() {
+            return select_from(present, json);
+        }
+        // Name a target visible in another mode so the user knows the trigger
+        // has something to act on.
+        if !json {
+            if let Some(d) = device::list()?.iter().find(|d| {
+                matches!(
+                    d.mode,
+                    restorekit::UsbMode::Booted | restorekit::UsbMode::Recovery
+                )
+            }) {
+                println!("Detected {} ({} mode).", d.display_name(), d.mode);
             }
-            device::wait_where(slice, |d| d.in_dfu() && d.ecid == Some(e))
-        });
+        }
     }
 
-    let present = dfu_devices()?;
-    if !present.is_empty() {
-        return select_from(present, json);
-    }
-    // Nothing restorable yet; if a Mac is visible in another mode (booted,
-    // recovery), name it so the user knows the trigger has a target.
-    if !json {
-        if let Some(d) = device::list()?.iter().find(|d| {
-            matches!(
-                d.mode,
-                restorekit::UsbMode::Booted | restorekit::UsbMode::Recovery
-            )
-        }) {
-            println!("Detected {} ({} mode).", d.display_name(), d.mode);
-        }
-    }
-    trigger_and_wait(json, &DfuTarget::Auto, timeout, |slice| {
-        if !json {
-            println!("Waiting for a Mac in DFU mode...");
-        }
-        device::wait(Target::One, slice)
-    })
+    let via = ecid.map(DfuVia::Ecid).unwrap_or(DfuVia::Auto);
+    finish_trigger(json, via, timeout, ecid)
 }
 
-/// `restorekit dfu` — trigger DFU on the cabled target, then wait for it.
-pub fn enter(json: bool, target: DfuTarget) -> Result<()> {
-    if !restorekit::host_can_trigger_dfu() {
-        if !json {
-            eprintln!("{}", restorekit::manual_dfu_instructions());
+/// Run the library trigger and map its outcome for `restore`: the confirmed
+/// device, a clear error when a dongle triggered a Mac whose USB data isn't
+/// cabled here, or a wait for a manual DFU entry when nothing can trigger.
+fn finish_trigger(json: bool, via: DfuVia, timeout: Duration, ecid: Option<u64>) -> Result<Device> {
+    match restorekit::trigger_dfu(via, timeout, &mut |e| emit_stage(json, e)) {
+        Ok(DfuOutcome::Entered(dev)) => Ok(dev),
+        Ok(DfuOutcome::Sent) => Err(Error::Dongle(
+            "triggered via dongle, but the target's USB data isn't cabled to this host; \
+             connect its USB-C data here to restore"
+                .into(),
+        )),
+        Err(Error::UnsupportedHost(_)) => {
+            // No dongle and this host can't trigger: wait for a manual DFU entry.
+            if !json {
+                eprintln!("{}\n", restorekit::manual_dfu_instructions());
+                println!("Waiting for the Mac to enter DFU mode...");
+            }
+            restorekit::dfu::wait_manual(ecid, timeout)
         }
-        return Err(Error::UnsupportedHost(
-            "cannot trigger DFU on this host".into(),
-        ));
+        Err(e) => Err(e),
     }
-
-    // Subscribe before triggering so we report the device that just entered,
-    // not one that was connected all along.
-    let mut watch = dfu::watch()?;
-
-    let device = trigger_and_wait(json, &target, Duration::from_secs(30), |slice| {
-        if !json {
-            println!("Waiting for the target to enter DFU mode...");
-        }
-        watch.wait(slice)
-    })?;
-
-    if json {
-        emit_stage(true, Event::DeviceDetected { device });
-    } else {
-        println!("\nTarget is now in DFU mode: {}", device.display_name());
-        println!("  ECID: {}", device.ecid_hex().unwrap_or_default());
-    }
-    Ok(())
-}
-
-/// `restorekit reboot` — reboot the cabled target out of DFU / back to normal.
-pub fn reboot(json: bool, target: DfuTarget) -> Result<()> {
-    if !restorekit::host_can_trigger_dfu() {
-        if !json {
-            eprintln!("{}", restorekit::manual_dfu_instructions());
-        }
-        return Err(Error::UnsupportedHost(
-            "cannot control the target from this host".into(),
-        ));
-    }
-
-    if !json {
-        println!("Rebooting the target...");
-    }
-    #[cfg(target_os = "macos")]
-    dfu::vdm::reboot(&target, &mut |e| emit_stage(json, e))?;
-    #[cfg(not(target_os = "macos"))]
-    let _ = target;
-
-    if json {
-        emit_stage(true, Event::Done);
-    } else {
-        println!("Done. The target should be booting normally.");
-    }
-    Ok(())
 }

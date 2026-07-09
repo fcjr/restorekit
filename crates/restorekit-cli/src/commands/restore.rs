@@ -15,6 +15,7 @@ pub struct Opts {
     pub os_version: Option<String>,
     pub identifier: Option<String>,
     pub ecid: Option<u64>,
+    pub dongle: Option<String>,
     pub yes: bool,
     pub cache_dir: Option<PathBuf>,
     pub json: bool,
@@ -24,7 +25,12 @@ pub struct Opts {
 /// Ensure a target is in DFU mode (triggering entry if the host can), then
 /// resolve → download → restore it.
 pub fn run(opts: Opts) -> Result<()> {
-    let device = super::dfu::ensure_present(opts.json, Duration::from_secs(120), opts.ecid)?;
+    let device = super::dfu::ensure_present(
+        opts.json,
+        Duration::from_secs(120),
+        opts.dongle.clone(),
+        opts.ecid,
+    )?;
     restore_device(&device, opts)
 }
 

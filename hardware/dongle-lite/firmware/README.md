@@ -100,11 +100,47 @@ composite USB device with **two serial ports**:
 With `probe-rs` and a debug probe you can instead `cargo run --release` and get
 defmt logs.
 
+### Updating over USB (no BOOTSEL button)
+
+You only need the BOOTSEL button for the **first** flash of a build that has the
+`bootsel` console command. After that, updates are button-free:
+
+1. On **CDC0**, type `bootsel`. The firmware replies `ok bootsel; entering USB
+   bootloader`, then reboots into the RP2040 bootrom via `reset_to_usb_boot` -
+   the device drops off the bus and reappears as the `RPI-RP2` drive (and the
+   picoboot interface).
+2. Push the new image, any of:
+   - `elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw` - builds
+     nothing, just deploys the ELF to the mounted drive and the board reboots
+     into it (`-d` = deploy).
+   - `picotool load -x dongle-lite-fw.uf2` - loads and runs (`brew install
+     picotool`).
+   - drag `dongle-lite-fw.uf2` onto the `RPI-RP2` drive.
+
+So the steady-state loop is: edit -> `cargo build --release` -> type `bootsel`
+-> `elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw`. No hands on
+the board.
+
+Why the `bootsel` command is needed: while the firmware is running it presents
+as a plain CDC device, so `picotool reboot -u` has no reset interface to grab.
+The `bootsel` command *is* that reset path; once it drops to the bootrom,
+picotool / elf2uf2 / drag-drop all work. (A true no-drive OTA - `embassy-boot` +
+`embassy-usb-dfu`, updated with `dfu-util` - is possible later but needs a
+flash-partitioned bootloader; overkill for the bench.)
+
 ## Bench test procedure
 
 Open CDC0 in a terminal (`screen`, `picocom -b 115200`, etc.; baud on the
 control port is irrelevant, it's USB CDC). You should see a greeting. Type
-`help` for the command list: `dfu`, `reboot`, `serial`, `status`.
+`help` for the command list. The console mirrors AsahiLinux `macvdmtool`:
+`nop`, `dfu`, `reboot`, `serial`, `debugusb`, `reboot serial`,
+`reboot debugusb`, plus `status`, `help`, and `bootsel` (firmware update).
+
+Every command ends with a terminal status line so a host tool can drive it:
+`ok <cmd>` on success, or `err <cmd> <reason>` where reason is `no-target` (no
+target attached) or `no-ack` (the target didn't GoodCRC the VDM). Sends are
+ack-confirmed - the `ok`/`err` reflects whether the port partner actually
+acknowledged, not just that we transmitted.
 
 ### Test 1 - DFU trigger
 
@@ -146,6 +182,42 @@ wiring and that VBUS is present.
 
 Report the results of all three (and note which cable worked - many "USB 3"
 cables are actually USB 2 and won't carry SBU) before moving to M1 schematic.
+
+## Host control over USB (recoverkit SDK)
+
+Besides the human CDC console, the firmware exposes a **vendor-specific USB
+interface** (`bInterfaceClass = 0xFF`) that the `restorekit` SDK drives over
+`nusb` control transfers — no serial port, no OS driver, works the same on
+macOS/Linux/Windows (Windows needs the interface bound to WinUSB). The device
+also enumerates with a **unique USB serial** derived from the RP2040 flash UID
+(e.g. `DPL-1A2B3C4D`), so multiple dongles are individually addressable.
+
+Vendor control protocol (interface recipient, `wIndex` = the vendor interface
+number):
+
+- `VREQ_CMD` (`bRequest = 0x01`, OUT): `wValue` selects the command —
+  `0` nop, `1` dfu, `2` reboot, `3` serial, `4` debugusb. Enqueues onto the same
+  command path as the console and marks the result *pending*.
+- `VREQ_STATUS` (`bRequest = 0x02`, IN): 5 bytes
+  `[version, pd_state, flags, last_result, seq]`. `flags` bit0 = target
+  attached, bit1 = CC2 (flipped) polarity. `last_result`: `1` pending, `2` ok,
+  `3` no-target, `4` no-ack. Host sends a command then polls status until the
+  result settles.
+
+From the CLI:
+
+```
+restorekit dongle list                 # list dongles + what's cabled to each
+restorekit dongle dfu                   # DFU the Mac on the sole dongle
+restorekit dongle dfu --dongle DPL-1A2B3C4D
+restorekit dongle dfu --ecid 0xC60A81…  # pick the dongle that Mac is behind
+restorekit dongle reboot                # reboot the cabled Mac
+restorekit dongle status                # PD state, target attached, orientation
+```
+
+`--ecid` resolves to a dongle by USB topology: a Mac in DFU enumerates as a
+sibling of the dongle under the same hub, so the SDK matches them by shared bus +
+parent port path.
 
 ## Known M0 limitations (by design)
 
