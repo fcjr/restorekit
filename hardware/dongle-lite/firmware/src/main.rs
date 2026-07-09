@@ -36,11 +36,11 @@ use embassy_rp::flash::{Blocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{self, I2c};
 use embassy_rp::peripherals::{I2C0, PIO0, USB};
-use embassy_rp::pio::{self, Pio};
 use embassy_rp::peripherals::{PIN_12, PIN_13};
-use embassy_rp::watchdog::Watchdog;
+use embassy_rp::pio::{self, Pio};
 use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
+use embassy_rp::watchdog::Watchdog;
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -69,6 +69,12 @@ bind_interrupts!(struct Irqs {
 // --- Apple vendor-defined messages (SVID 0x05AC), matching macvdmtool. ---
 // All are sent over the SOP'' debug path.
 const VDM_DFU_HOLD: [u32; 3] = [0x5ac_8012, 0x0106, 0x8001_0000];
+// Intel T2 Macs NAK the Apple Silicon DFU action (0x0106); they enter DFU via
+// the reboot action (0x0105) with the PMU-reset + DFU-hold flag (0x8002_0000),
+// the "PMU Reset + DFU Hold" encoding from AsahiLinux/vdmtool. We can't read
+// the target's NAK over SOP'', so `dfu` sprays both and whichever the target
+// accepts lands.
+const VDM_DFU_HOLD_T2: [u32; 3] = [0x5ac_8012, 0x0105, 0x8002_0000];
 const VDM_REBOOT: [u32; 3] = [0x5ac_8012, 0x0105, 0x8000_0000];
 // Mux the debug UART onto SBU1/2 (0x01800306 | 1<<(2+16) for the SBU pin set).
 const VDM_SERIAL_SBU: [u32; 2] = [0x5ac_8012, 0x0184_0306];
@@ -264,7 +270,14 @@ async fn main(_spawner: Spawner) {
         let mut uid = [0u8; 8];
         let _ = flash.blocking_unique_id(&mut uid);
         let s = SERIAL.init(String::new());
-        let _ = core::write!(s, "DPL-{:02X}{:02X}{:02X}{:02X}", uid[4], uid[5], uid[6], uid[7]);
+        let _ = core::write!(
+            s,
+            "DPL-{:02X}{:02X}{:02X}{:02X}",
+            uid[4],
+            uid[5],
+            uid[6],
+            uid[7]
+        );
         s.as_str()
     };
 
@@ -315,7 +328,9 @@ async fn main(_spawner: Spawner) {
         let _alt = iface.alt_setting(0xFF, 0x00, 0x00, None);
         n
     };
-    builder.handler(VHANDLER.init(VendorHandler { iface: vendor_iface }));
+    builder.handler(VHANDLER.init(VendorHandler {
+        iface: vendor_iface,
+    }));
 
     let mut usb = builder.build();
 
@@ -363,9 +378,7 @@ async fn main(_spawner: Spawner) {
 
     let pd_fut = engine.run(&mut int);
 
-    let serial_fut = serial_bridge(
-        p.PIO0, p.PIN_12, p.PIN_13, target_serial,
-    );
+    let serial_fut = serial_bridge(p.PIO0, p.PIN_12, p.PIN_13, target_serial);
 
     join4(usb_fut, control_fut, pd_fut, serial_fut).await;
 }
@@ -374,9 +387,7 @@ async fn main(_spawner: Spawner) {
 // Control CDC: parse line-oriented commands, drain log lines back out.
 // ---------------------------------------------------------------------------
 
-async fn read_control<'d>(
-    rx: &mut embassy_usb::class::cdc_acm::Receiver<'d, Driver<'d, USB>>,
-) {
+async fn read_control<'d>(rx: &mut embassy_usb::class::cdc_acm::Receiver<'d, Driver<'d, USB>>) {
     let mut line: String<32> = String::new();
     let mut buf = [0u8; 64];
     loop {
@@ -605,7 +616,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 logline!("reconnect: firing pending {}", mode.name());
                 match mode {
                     PostReboot::Serial => self.enter_serial().await,
-                    PostReboot::DebugUsb => self.action("debugusb", &VDM_DEBUGUSB, true).await,
+                    PostReboot::DebugUsb => self.action("debugusb", &[&VDM_DEBUGUSB], true).await,
                 }
             } else {
                 logline!("reconnect window expired; dropping pending {}", mode.name());
@@ -637,7 +648,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
     /// We fire a few times for reliability over a marginal link and report it
     /// as sent; the real confirmation is the Mac re-enumerating in DFU on the
     /// host, which the recoverkit SDK watches for.
-    async fn action(&mut self, name: &str, words: &[u32], reprime: bool) {
+    async fn action(&mut self, name: &str, variants: &[&[u32]], reprime: bool) {
         if !self.connected() {
             logline!("err {} no-target", name);
             VENDOR_RESULT.store(RES_NOTARGET, Ordering::Relaxed);
@@ -655,9 +666,13 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         }
         // Spray the VDM over ~1.5 s. Booted macOS acts on the first, but a Mac
         // in the DFU bootrom processes these far less reliably, so repeat to
-        // land one in its window.
+        // land one in its window. When several variants are given (e.g. the
+        // Apple Silicon and T2 DFU encodings), send each per round — the target
+        // NAKs and ignores the ones it doesn't implement.
         for _ in 0..12 {
-            self.send_vdm(words).await;
+            for words in variants {
+                self.send_vdm(words).await;
+            }
             self.watchdog.feed(WATCHDOG_TIMEOUT);
             Timer::after_millis(120).await;
         }
@@ -825,10 +840,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 }
                 return;
             }
-            PdState::DfpVbusOn
-            | PdState::DfpConnected
-            | PdState::Idle
-            | PdState::DfpAccept => {
+            PdState::DfpVbusOn | PdState::DfpConnected | PdState::Idle | PdState::DfpAccept => {
                 // Keep the PD contract + SOP'' debug session alive even after a
                 // contract is up. The target can reboot underneath us without
                 // the CC line ever dropping, which resets its PD/debug state; a
@@ -872,9 +884,12 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 logline!("ok nop");
                 VENDOR_RESULT.store(RES_OK, Ordering::Relaxed);
             }
-            Command::Dfu => self.action("dfu", &VDM_DFU_HOLD, true).await,
-            Command::Reboot => self.action("reboot", &VDM_REBOOT, true).await,
-            Command::DebugUsb => self.action("debugusb", &VDM_DEBUGUSB, true).await,
+            Command::Dfu => {
+                self.action("dfu", &[&VDM_DFU_HOLD, &VDM_DFU_HOLD_T2], true)
+                    .await
+            }
+            Command::Reboot => self.action("reboot", &[&VDM_REBOOT], true).await,
+            Command::DebugUsb => self.action("debugusb", &[&VDM_DEBUGUSB], true).await,
             Command::Serial => self.enter_serial().await,
             Command::RebootThen(mode) => self.reboot_then(mode).await,
             Command::Status => {
@@ -930,7 +945,10 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
             self.sbu2_dir.set_level(DIR_TO_TARGET);
         }
         SERIAL_ENABLE.signal(self.cc_line as u8);
-        logline!("serial on SBU polarity CC{}; bridging to CDC1", self.cc_line as u8 + 1);
+        logline!(
+            "serial on SBU polarity CC{}; bridging to CDC1",
+            self.cc_line as u8 + 1
+        );
         logline!("ok serial");
         VENDOR_RESULT.store(RES_OK, Ordering::Relaxed);
     }
@@ -970,7 +988,10 @@ async fn serial_bridge(
     let polarity = SERIAL_ENABLE.wait().await;
 
     let Pio {
-        mut common, sm0, sm1, ..
+        mut common,
+        sm0,
+        sm1,
+        ..
     } = Pio::new(pio, Irqs);
 
     let tx_prog = PioUartTxProgram::new(&mut common);

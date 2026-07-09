@@ -32,7 +32,10 @@ fn print_dongles() {
                 dev.display_name(),
                 dev.mode
             ),
-            _ => println!("  {} ({}) — no target visible on this host", d.serial, d.product),
+            _ => println!(
+                "  {} ({}) — no target visible on this host",
+                d.serial, d.product
+            ),
         }
     }
     println!();
@@ -105,6 +108,7 @@ pub fn run(json: bool) -> Result<()> {
     let dfu_port = restorekit::dfu::dfu_port_label();
     for d in &devices {
         println!("  {} [{} mode]", d.display_name(), d.mode);
+        println!("    usb: {}", d.usb.summary());
         if let Some(id) = d.identifier() {
             println!("    identifier: {id}");
         }
@@ -117,7 +121,20 @@ pub fn run(json: bool) -> Result<()> {
         if let Some(srtg) = d.srtg() {
             println!("    iBoot: {srtg}");
         }
-        if d.identity.is_none() && !d.serial.is_empty() {
+        if d.is_billboard() {
+            if !d.serial.is_empty() {
+                println!(
+                    "    port controller UID: {} (not the Mac's serial)",
+                    d.serial
+                );
+            }
+            if let Some(alt) = d.billboard_alt_mode() {
+                println!("    alt mode tried: {alt}");
+            }
+            println!(
+                "    → port controller only; no model, serial, or ECID in this mode. Put it in DFU to read them."
+            );
+        } else if d.identity.is_none() && !d.serial.is_empty() {
             println!("    serial: {}", d.serial);
         }
         match restorekit::dongle::connection_for(d) {
