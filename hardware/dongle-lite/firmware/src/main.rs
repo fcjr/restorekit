@@ -268,7 +268,8 @@ async fn main(_spawner: Spawner) {
         s.as_str()
     };
 
-    let mut config = Config::new(0x2e8a, 0x000a);
+    // pid.codes 1209:5AFC — RecoverKit Dongle Proto Lite.
+    let mut config = Config::new(0x1209, 0x5afc);
     config.manufacturer = Some("RecoverKit");
     config.product = Some("Dongle-Proto-Lite");
     config.serial_number = Some(serial);

@@ -36,10 +36,12 @@ use nusb::{Interface, MaybeFuture};
 use crate::device::{self, Device, APPLE_VID};
 use crate::error::{Error, Result};
 
-/// USB vendor ID the dongle enumerates with (Raspberry Pi / RP2040 default).
-pub const DONGLE_VID: u16 = 0x2e8a;
-/// USB product ID the Dongle-Proto-Lite firmware presents.
-pub const DONGLE_PID: u16 = 0x000a;
+/// USB vendor ID the dongle enumerates with (pid.codes open-source VID).
+pub const DONGLE_VID: u16 = 0x1209;
+/// USB product IDs assigned to RecoverKit devices on pid.codes: 0x5AFC
+/// Dongle Proto Lite, 0x5AFD Dongle Lite, 0x5AFE Dongle Pro, 0x5AFF
+/// RecoverKit Pro.
+pub const DONGLE_PIDS: std::ops::RangeInclusive<u16> = 0x5AFC..=0x5AFF;
 
 // Vendor control protocol — must match the firmware (`src/main.rs`).
 const VENDOR_CLASS: u8 = 0xff;
@@ -152,7 +154,7 @@ pub fn list() -> Result<Vec<Dongle>> {
         .map_err(|e| Error::Usb(e.to_string()))?;
     let mut out = Vec::new();
     for info in infos {
-        if info.vendor_id() != DONGLE_VID || info.product_id() != DONGLE_PID {
+        if info.vendor_id() != DONGLE_VID || !DONGLE_PIDS.contains(&info.product_id()) {
             continue;
         }
         // Only ours if it exposes the vendor interface.
@@ -332,7 +334,7 @@ impl Dongle {
             .map_err(|e| Error::Usb(e.to_string()))?
             .find(|i| {
                 i.vendor_id() == DONGLE_VID
-                    && i.product_id() == DONGLE_PID
+                    && DONGLE_PIDS.contains(&i.product_id())
                     && i.serial_number() == Some(self.serial.as_str())
             })
             .ok_or(Error::NoDongle)?;
