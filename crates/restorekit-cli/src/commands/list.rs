@@ -44,7 +44,42 @@ pub fn run(json: bool) -> Result<()> {
     device::identify(&mut devices);
 
     if json {
-        println!("{}", serde_json::to_string(&devices).unwrap());
+        use serde_json::json;
+        // Each device carries how it reaches this host: direct (host DFU works),
+        // via a dongle (only dongle DFU works), or behind a plain hub (neither).
+        let devs: Vec<serde_json::Value> = devices
+            .iter()
+            .map(|d| {
+                let conn = restorekit::dongle::connection_for(d);
+                let host_dfu = conn.host_reachable() && d.port.as_ref().is_some_and(|p| p.dfu);
+                let mut v = serde_json::to_value(d).unwrap_or_else(|_| json!({}));
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("connection".into(), json!(conn.kind()));
+                    obj.insert("via_dongle".into(), json!(conn.dongle()));
+                    obj.insert("host_dfu_capable".into(), json!(host_dfu));
+                }
+                v
+            })
+            .collect();
+        let host_ports: Vec<serde_json::Value> = restorekit::dfu::ports()
+            .into_iter()
+            .map(|p| json!({ "rid": p.rid, "location": p.location, "dfu": p.dfu }))
+            .collect();
+        let dongles: Vec<serde_json::Value> = restorekit::dongle::list()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| {
+                json!({
+                    "serial": d.serial,
+                    "product": d.product,
+                    "target": d.attached_device().ok().flatten(),
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            json!({ "devices": devs, "host_ports": host_ports, "dongles": dongles })
+        );
         return Ok(());
     }
 
@@ -83,17 +118,41 @@ pub fn run(json: bool) -> Result<()> {
         if d.identity.is_none() && !d.serial.is_empty() {
             println!("    serial: {}", d.serial);
         }
-        if let Some(port) = &d.port {
-            let here = port.location.as_deref().unwrap_or("this port");
-            if port.dfu {
-                println!("    port: {here} [rid {}] (the DFU port)", port.rid);
-            } else {
-                match dfu_port.as_deref() {
-                    Some(name) => println!(
-                        "    port: {here} [rid {}] — move the cable to {name} to restore",
-                        port.rid
-                    ),
-                    None => println!("    port: {here} [rid {}] — not the DFU port", port.rid),
+        match restorekit::dongle::connection_for(d) {
+            restorekit::Connection::Dongle(id) => {
+                let here = d.port.as_ref().and_then(|p| p.location.as_deref());
+                match here {
+                    Some(loc) => println!("    connection: via dongle {id} on {loc}"),
+                    None => println!("    connection: via dongle {id}"),
+                }
+                println!(
+                    "    → host DFU can't reach it through the dongle; `restorekit dfu` triggers it over the dongle"
+                );
+            }
+            restorekit::Connection::Hub => {
+                let here = d.port.as_ref().and_then(|p| p.location.as_deref());
+                match here {
+                    Some(loc) => println!("    connection: behind a USB hub on {loc}"),
+                    None => println!("    connection: behind a USB hub"),
+                }
+                println!("    → no DFU path from this host; cable it straight to the DFU port");
+            }
+            restorekit::Connection::Direct => {
+                if let Some(port) = &d.port {
+                    let here = port.location.as_deref().unwrap_or("this port");
+                    if port.dfu {
+                        println!("    port: {here} [rid {}] (the DFU port)", port.rid);
+                    } else {
+                        match dfu_port.as_deref() {
+                            Some(name) => println!(
+                                "    port: {here} [rid {}] — move the cable to {name} to restore",
+                                port.rid
+                            ),
+                            None => {
+                                println!("    port: {here} [rid {}] — not the DFU port", port.rid)
+                            }
+                        }
+                    }
                 }
             }
         }

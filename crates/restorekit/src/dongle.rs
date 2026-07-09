@@ -242,6 +242,87 @@ fn shares_parent_hub(dongle: &Dongle, mac: &nusb::DeviceInfo) -> bool {
         && mac_chain[..mac_chain.len() - 1] == dongle.port_chain[..dongle.port_chain.len() - 1]
 }
 
+/// USB device class for a hub.
+const USB_CLASS_HUB: u8 = 0x09;
+
+/// How a device physically reaches this host, for DFU purposes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Connection {
+    /// Directly on a host port — the host's own USB-PD DFU trigger can reach it.
+    Direct,
+    /// Behind a RecoverKit dongle (its id). Host DFU can't drive the target's CC
+    /// through the dongle's hub — only dongle DFU works.
+    Dongle(String),
+    /// Behind a plain USB hub. Neither host nor dongle DFU can reach it.
+    Hub,
+}
+
+impl Connection {
+    /// Short kind label: `direct` | `dongle` | `hub`.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Connection::Direct => "direct",
+            Connection::Dongle(_) => "dongle",
+            Connection::Hub => "hub",
+        }
+    }
+
+    /// The dongle id when reached through one.
+    pub fn dongle(&self) -> Option<&str> {
+        match self {
+            Connection::Dongle(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Whether the host's own USB-PD DFU trigger can reach this target (only
+    /// when it's directly on a host port).
+    pub fn host_reachable(&self) -> bool {
+        matches!(self, Connection::Direct)
+    }
+}
+
+/// Determine how `dev` reaches this host by USB topology. Distinguishes a Mac
+/// cabled straight to a host port (host DFU works) from one reached through a
+/// dongle (only dongle DFU works) or a plain hub (neither works) — all three
+/// otherwise look like they're simply "on the DFU port".
+pub fn connection_for(dev: &Device) -> Connection {
+    let infos: Vec<_> = match nusb::list_devices().wait() {
+        Ok(it) => it.collect(),
+        Err(_) => return Connection::Direct,
+    };
+    let Some(me) = infos.iter().find(|i| {
+        i.vendor_id() == APPLE_VID && i.serial_number() == Some(dev.serial.as_str())
+    }) else {
+        return Connection::Direct;
+    };
+
+    // Behind a RecoverKit dongle? (Its hub also parents the dongle's MCU.)
+    if let Ok(dongles) = list() {
+        for d in dongles {
+            if shares_parent_hub(&d, me) {
+                return Connection::Dongle(d.serial);
+            }
+        }
+    }
+
+    // Behind any other external hub: a hub-class device on this bus whose port
+    // chain is a strict prefix of ours (a real ancestor, not the root).
+    let chain = me.port_chain();
+    let behind_hub = infos.iter().any(|h| {
+        h.class() == USB_CLASS_HUB
+            && h.bus_id() == me.bus_id()
+            && !h.port_chain().is_empty()
+            && h.port_chain().len() < chain.len()
+            && chain.starts_with(h.port_chain())
+    });
+    if behind_hub {
+        Connection::Hub
+    } else {
+        Connection::Direct
+    }
+}
+
 impl Dongle {
     /// Open the vendor interface for issuing commands.
     pub fn open(&self) -> Result<DongleHandle> {

@@ -79,7 +79,7 @@ pub use dfu::{
     host_can_trigger_dfu, manual_dfu_instructions, trigger_dfu, DfuOutcome, DfuTarget, DfuVia,
     HostPortInfo,
 };
-pub use dongle::{Dongle, DongleHandle, DongleStatus, DongleTarget, PdState};
+pub use dongle::{Connection, Dongle, DongleHandle, DongleStatus, DongleTarget, PdState};
 pub use error::{Error, Result};
 pub use firmware::Firmware;
 pub use progress::Event;
