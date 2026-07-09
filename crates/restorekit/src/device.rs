@@ -239,6 +239,123 @@ pub const MAC_MODELS: &[MacModel] = &[
         identifier: "Mac17,6",
         name: "MacBook Pro (16-inch, M5 Max)",
     },
+    // Intel Macs with the Apple T2 (CPID 0x8012). In DFU the T2 reports this
+    // CPID/BDID; `identifier` is the T2 bridge product type (`iBridge2,x`) — the
+    // key ipsw.me/idevicerestore use for a T2 (bridgeOS) restore, not the host
+    // Mac's model — and `board`/`name` are the T2 board and the host Mac model.
+    // Board IDs from AsahiLinux/libirecovery.
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x0a,
+        board: "J137AP",
+        identifier: "iBridge2,1",
+        name: "iMac Pro (2017)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x0b,
+        board: "J680AP",
+        identifier: "iBridge2,3",
+        name: "MacBook Pro (15-inch, 2018/2019)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x0c,
+        board: "J132AP",
+        identifier: "iBridge2,4",
+        name: "MacBook Pro (13-inch, 2018/2019, Four Thunderbolt 3 ports)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x0e,
+        board: "J174AP",
+        identifier: "iBridge2,5",
+        name: "Mac mini (2018)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x0f,
+        board: "J160AP",
+        identifier: "iBridge2,6",
+        name: "Mac Pro (2019)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x07,
+        board: "J780AP",
+        identifier: "iBridge2,7",
+        name: "MacBook Pro (15-inch, 2019)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x17,
+        board: "J140KAP",
+        identifier: "iBridge2,8",
+        name: "MacBook Air (Retina, 13-inch, 2018)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x18,
+        board: "J213AP",
+        identifier: "iBridge2,10",
+        name: "MacBook Pro (13-inch, 2019, Two Thunderbolt 3 ports)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x37,
+        board: "J140AAP",
+        identifier: "iBridge2,12",
+        name: "MacBook Air (Retina, 13-inch, 2019)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x3a,
+        board: "J152FAP",
+        identifier: "iBridge2,14",
+        name: "MacBook Pro (16-inch, 2019)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x3f,
+        board: "J230KAP",
+        identifier: "iBridge2,15",
+        name: "MacBook Air (Retina, 13-inch, 2020)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x3e,
+        board: "J214KAP",
+        identifier: "iBridge2,16",
+        name: "MacBook Pro (13-inch, 2020, Four Thunderbolt 3 ports)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x22,
+        board: "J185AP",
+        identifier: "iBridge2,19",
+        name: "iMac (Retina 5K, 27-inch, 2020)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x23,
+        board: "J185FAP",
+        identifier: "iBridge2,20",
+        name: "iMac (Retina 5K, 27-inch, 2020)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x3b,
+        board: "J223AP",
+        identifier: "iBridge2,21",
+        name: "MacBook Pro (13-inch, 2020, Two Thunderbolt 3 ports)",
+    },
+    MacModel {
+        cpid: 0x8012,
+        bdid: 0x38,
+        board: "J215AP",
+        identifier: "iBridge2,22",
+        name: "MacBook Pro (16-inch, 2019)",
+    },
     MacModel {
         cpid: 0x8103,
         bdid: 0x22,
@@ -441,6 +558,9 @@ pub fn model_from_device_version(bcd: u16) -> Option<&'static MacModel> {
 pub const APPLE_VID: u16 = 0x05ac;
 /// Product ID presented by an Apple SoC in DFU mode.
 pub const DFU_PID: u16 = 0x1227;
+/// Product ID a Mac's USB-C port controller presents as a USB Billboard device
+/// when an alternate mode (e.g. Thunderbolt) fails to enter over the link.
+pub const BILLBOARD_PID: u16 = 0x7304;
 
 /// The USB mode a connected Apple device is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -458,6 +578,13 @@ pub enum UsbMode {
     /// RemoteXPC/NCM sidecar) advertising its Apple serial number; its exact
     /// model and ECID are filled in separately by [`identify`].
     Booted,
+    /// A Mac's USB-C port controller presenting a USB Billboard device — the
+    /// fallback a port exposes after an alternate mode (e.g. Thunderbolt)
+    /// fails to enter, as happens over a USB 2.0-only dongle. This is the port
+    /// silicon talking, not the Mac's SoC: it carries no Apple serial, model,
+    /// or ECID, only the controller's own UID and the alt-mode SVID it tried.
+    /// Put the Mac in DFU to read its real identity.
+    Billboard,
     /// Any other Apple USB device (e.g. an iPhone in normal mode).
     Other,
 }
@@ -471,6 +598,9 @@ impl UsbMode {
             0x1338 | 0x1339 => UsbMode::Restore,
             // The RemoteXPC/NCM gadget a booted macOS exposes to a USB host.
             0x1902 => UsbMode::Booted,
+            // The USB Billboard a Mac's USB-C port controller presents when an
+            // alt mode (Thunderbolt) can't be entered over the link.
+            BILLBOARD_PID => UsbMode::Billboard,
             _ => UsbMode::Other,
         }
     }
@@ -484,6 +614,7 @@ impl fmt::Display for UsbMode {
             UsbMode::Wtf => "wtf",
             UsbMode::Restore => "restore",
             UsbMode::Booted => "booted",
+            UsbMode::Billboard => "billboard",
             UsbMode::Other => "other",
         })
     }
@@ -533,9 +664,72 @@ pub struct Device {
     /// `None` when undeterminable (non-macOS host, or the topology couldn't be
     /// read).
     pub port: Option<Port>,
+    /// For a [`UsbMode::Billboard`] device: the preferred alternate-mode SVID
+    /// its port controller advertised (e.g. `0x8087` Thunderbolt), read from
+    /// the Billboard capability descriptor by [`identify`]. `None` until read,
+    /// or when the device can't be opened.
+    pub billboard_svid: Option<u16>,
+    /// Raw USB descriptor identifiers (VID/PID, release, class triple) — the
+    /// low-level facts `lsusb`/`system_profiler` show, surfaced for any device.
+    pub usb: UsbId,
     /// Whether the OS driver lets restorekit open this device. Always true on
     /// macOS/Linux; on Windows, false until WinUSB is bound.
     pub driver_ready: bool,
+}
+
+/// Raw USB device-descriptor identifiers, straight off the wire.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct UsbId {
+    /// `idVendor` (always `0x05ac` for the Apple devices restorekit lists).
+    pub vid: u16,
+    /// `idProduct`.
+    pub pid: u16,
+    /// `bcdDevice` — the device release number (BCD, e.g. `0x2100` = "21.00").
+    pub device_version: u16,
+    /// `bDeviceClass` (e.g. `0x11` Billboard, `0x00` per-interface, `0xff`
+    /// vendor-specific).
+    pub class: u8,
+    /// `bDeviceSubClass`.
+    pub subclass: u8,
+    /// `bDeviceProtocol`.
+    pub protocol: u8,
+}
+
+impl UsbId {
+    /// A short name for the USB device class, when it's one restorekit expects.
+    pub fn class_name(&self) -> Option<&'static str> {
+        match self.class {
+            0x00 => Some("per-interface"),
+            0x09 => Some("hub"),
+            0x11 => Some("billboard"),
+            0xef => Some("misc"),
+            0xff => Some("vendor-specific"),
+            _ => None,
+        }
+    }
+
+    /// `bcdDevice` formatted the way descriptors read it, e.g. `0x2100` → "21.00".
+    pub fn version_str(&self) -> String {
+        format!(
+            "{:x}.{:02x}",
+            self.device_version >> 8,
+            self.device_version & 0xff
+        )
+    }
+
+    /// One-line summary: `05ac:7304 (class 0x11 billboard, rev 21.00)`.
+    pub fn summary(&self) -> String {
+        let class = match self.class_name() {
+            Some(name) => format!("class 0x{:02x} {name}", self.class),
+            None => format!("class 0x{:02x}", self.class),
+        };
+        format!(
+            "{:04x}:{:04x} ({class}, rev {})",
+            self.vid,
+            self.pid,
+            self.version_str()
+        )
+    }
 }
 
 /// The host USB-C port a [`Device`] is cabled to.
@@ -576,6 +770,22 @@ impl Device {
     /// iBoot version (`SRTG`), if the serial carried one.
     pub fn srtg(&self) -> Option<&str> {
         self.identity.as_ref()?.srtg.as_deref()
+    }
+
+    /// Whether this is a Mac's USB-C port controller presenting a billboard —
+    /// a mode with no readable SoC identity (see [`UsbMode::Billboard`]).
+    pub fn is_billboard(&self) -> bool {
+        self.mode == UsbMode::Billboard
+    }
+
+    /// For a billboard device, a human label for the alternate mode the port
+    /// tried to enter, from its advertised SVID. `None` if not yet read.
+    pub fn billboard_alt_mode(&self) -> Option<String> {
+        self.billboard_svid.map(|svid| match svid {
+            0x8087 => format!("SVID 0x{svid:04x} (Thunderbolt)"),
+            0x05ac => format!("SVID 0x{svid:04x} (Apple)"),
+            _ => format!("SVID 0x{svid:04x}"),
+        })
     }
 
     /// Human-readable name for display: the exact Apple marketing name when
@@ -672,6 +882,15 @@ pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
         identity,
         marketing_name: None,
         port: None,
+        billboard_svid: None,
+        usb: UsbId {
+            vid: info.vendor_id(),
+            pid: info.product_id(),
+            device_version: info.device_version(),
+            class: info.class(),
+            subclass: info.subclass(),
+            protocol: info.protocol(),
+        },
     }
 }
 
@@ -769,6 +988,10 @@ pub fn identify(devices: &mut [Device]) {
     // DFU-port detection applies to every device (macOS only).
     #[cfg(target_os = "macos")]
     crate::dfu::port::mark_ports(devices);
+
+    // Billboard devices carry no SoC identity, but their port controller does
+    // advertise which alternate mode it tried — read it for display.
+    enrich_billboards(devices);
 
     // The rest enriches booted Macs, which alone need it.
     let needs = |d: &Device| {
@@ -882,27 +1105,69 @@ const APPLE_ECID_UUID: [u8; 16] = [
 /// the Mac enters DFU — so on Windows we skip it rather than claim an interface
 /// just to read a descriptor.
 #[cfg(not(target_os = "windows"))]
+fn read_bos(dev: &nusb::Device) -> Option<Vec<u8>> {
+    dev.control_in(
+        nusb::transfer::ControlIn {
+            control_type: nusb::transfer::ControlType::Standard,
+            recipient: nusb::transfer::Recipient::Device,
+            request: 0x06, // GET_DESCRIPTOR
+            value: 0x0f00, // descriptor type 0x0F (BOS), index 0
+            index: 0,
+            length: 256,
+        },
+        Duration::from_millis(500),
+    )
+    .wait()
+    .ok()
+}
+
+#[cfg(not(target_os = "windows"))]
 fn read_bos_ecid(dev: &nusb::Device) -> Option<u64> {
-    let bos = dev
-        .control_in(
-            nusb::transfer::ControlIn {
-                control_type: nusb::transfer::ControlType::Standard,
-                recipient: nusb::transfer::Recipient::Device,
-                request: 0x06, // GET_DESCRIPTOR
-                value: 0x0f00, // descriptor type 0x0F (BOS), index 0
-                index: 0,
-                length: 256,
-            },
-            Duration::from_millis(500),
-        )
-        .wait()
-        .ok()?;
-    ecid_from_bos(&bos)
+    ecid_from_bos(&read_bos(dev)?)
 }
 
 #[cfg(target_os = "windows")]
 fn read_bos_ecid(_dev: &nusb::Device) -> Option<u64> {
     None
+}
+
+/// Fill in each billboard device's advertised alternate-mode SVID by opening it
+/// and reading its Billboard capability descriptor. Best-effort: a device we
+/// can't open (or one whose descriptor omits the capability) keeps
+/// `billboard_svid == None`.
+#[cfg(not(target_os = "windows"))]
+fn enrich_billboards(devices: &mut [Device]) {
+    let needs = |d: &Device| d.mode == UsbMode::Billboard && d.billboard_svid.is_none();
+    if !devices.iter().any(needs) {
+        return;
+    }
+    let Ok(infos) = nusb::list_devices().wait() else {
+        return;
+    };
+    let apple: Vec<nusb::DeviceInfo> = infos.filter(|i| i.vendor_id() == APPLE_VID).collect();
+    for d in devices.iter_mut() {
+        if !needs(d) {
+            continue;
+        }
+        let Some(info) = apple.iter().find(|i| {
+            i.product_id() == BILLBOARD_PID && i.serial_number() == Some(d.serial.as_str())
+        }) else {
+            continue;
+        };
+        d.billboard_svid = info
+            .open()
+            .wait()
+            .ok()
+            .and_then(|dev| read_bos_billboard_svid(&dev));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn enrich_billboards(_devices: &mut [Device]) {}
+
+#[cfg(not(target_os = "windows"))]
+fn read_bos_billboard_svid(dev: &nusb::Device) -> Option<u16> {
+    billboard_svid_from_bos(&read_bos(dev)?)
 }
 
 /// Parse a BOS descriptor and return the ECID from Apple's platform-capability
@@ -923,6 +1188,35 @@ fn ecid_from_bos(bos: &[u8]) -> Option<u64> {
         // UUID + 8-byte payload.
         if cap[1] == 0x10 && cap[2] == 0x05 && len >= 28 && cap[4..20] == APPLE_ECID_UUID {
             return Some(u64::from_le_bytes(cap[20..28].try_into().unwrap()));
+        }
+        i += len;
+    }
+    None
+}
+
+/// Parse a BOS descriptor and return the preferred alternate-mode SVID from its
+/// USB Billboard capability descriptor (`bDevCapabilityType` = 0x0D BILLBOARD).
+///
+/// The billboard capability has a fixed 44-byte prefix — including a 1-byte
+/// `bPreferredAlternateMode` index at offset 5 — followed by an array of 4-byte
+/// alternate-mode entries (`wSVID`, `bAlternateMode`, `iAlternateModeString`).
+/// We return the `wSVID` of the preferred entry.
+// Only reached via the billboard reader (skipped on Windows) and the parser test.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
+fn billboard_svid_from_bos(bos: &[u8]) -> Option<u16> {
+    let mut i = 5;
+    while i + 3 <= bos.len() {
+        let len = bos[i] as usize;
+        if len < 3 || i + len > bos.len() {
+            break;
+        }
+        let cap = &bos[i..i + len];
+        // DEVICE_CAPABILITY (0x10), BILLBOARD (0x0D).
+        if cap[1] == 0x10 && cap[2] == 0x0d {
+            let preferred = *cap.get(5)? as usize;
+            let base = 44 + preferred * 4;
+            let svid = u16::from_le_bytes([*cap.get(base)?, *cap.get(base + 1)?]);
+            return Some(svid);
         }
         i += len;
     }
@@ -992,6 +1286,61 @@ mod tests {
             Some("Mac14,15")
         );
         assert_eq!(model_from_device_version(0x9999), None);
+    }
+
+    #[test]
+    fn usb_id_summary_formats_billboard() {
+        let id = UsbId {
+            vid: 0x05ac,
+            pid: 0x7304,
+            device_version: 0x2100,
+            class: 0x11,
+            subclass: 0,
+            protocol: 0,
+        };
+        assert_eq!(id.version_str(), "21.00");
+        assert_eq!(id.class_name(), Some("billboard"));
+        assert_eq!(id.summary(), "05ac:7304 (class 0x11 billboard, rev 21.00)");
+
+        let dfu = UsbId {
+            vid: 0x05ac,
+            pid: 0x1227,
+            device_version: 0x0110,
+            class: 0,
+            subclass: 0,
+            protocol: 0,
+        };
+        assert_eq!(
+            dfu.summary(),
+            "05ac:1227 (class 0x00 per-interface, rev 1.10)"
+        );
+    }
+
+    #[test]
+    fn billboard_svid_from_bos_reads_preferred() {
+        // BOS header (5 bytes) + one Billboard capability with two alt modes,
+        // preferred index 1 (Thunderbolt, SVID 0x8087).
+        let mut cap = vec![
+            0u8,  // bLength, patched below
+            0x10, // DEVICE CAPABILITY
+            0x0d, // BILLBOARD
+            0,    // iAdditionalInfoURL
+            2,    // bNumberOfAlternateModes
+            1,    // bPreferredAlternateMode -> index 1
+            0, 0, // VCONNPower
+        ];
+        cap.extend_from_slice(&[0u8; 32]); // bmConfigured
+        cap.extend_from_slice(&[0x21, 0x01]); // bcdVersion 1.21
+        cap.push(0); // bAdditionalFailureInfo
+        cap.push(0); // bReserved
+        cap.extend_from_slice(&[0xac, 0x05, 0x00, 0x00]); // alt 0: SVID 0x05ac (Apple)
+        cap.extend_from_slice(&[0x87, 0x80, 0x00, 0x00]); // alt 1: SVID 0x8087 (Thunderbolt)
+        cap[0] = cap.len() as u8;
+
+        let mut bos = vec![0x05, 0x0f, 0, 0, 1]; // BOS header, 1 capability
+        bos.extend_from_slice(&cap);
+        assert_eq!(billboard_svid_from_bos(&bos), Some(0x8087));
+        assert_eq!(billboard_svid_from_bos(&bos[..5]), None);
     }
 
     #[test]
@@ -1067,6 +1416,15 @@ mod tests {
             }),
             marketing_name: None,
             port: None,
+            billboard_svid: None,
+            usb: UsbId {
+                vid: APPLE_VID,
+                pid: DFU_PID,
+                device_version: 0,
+                class: 0,
+                subclass: 0,
+                protocol: 0,
+            },
             driver_ready: true,
         }
     }

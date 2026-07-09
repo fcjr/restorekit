@@ -244,7 +244,10 @@ impl Hpm {
         Ok(())
     }
 
-    fn send_vdm(&self, vdm: &[u32]) -> Result<()> {
+    /// Send a VDM and return the target's reply header. Errors only on a
+    /// transport failure or a missing reply; an ACK/NAK distinction is left to
+    /// the caller (an Apple action VDM ACKs with `command | 0x40`).
+    fn send_vdm(&self, vdm: &[u32]) -> Result<u32> {
         let start = self.read_register(0x4d)?;
         let rxst = start[0];
 
@@ -271,11 +274,14 @@ impl Hpm {
         }
 
         // Reply layout: [status_byte, vdm_header (u32 LE), ...].
-        let vdmhdr = u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]]);
-        if vdmhdr != (vdm[0] | 0x40) {
-            return Err(Error::Vdm(format!("VDM rejected (reply: 0x{vdmhdr:08x})")));
-        }
-        Ok(())
+        Ok(u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]]))
+    }
+
+    /// Send an Apple action VDM and confirm the target ACKed it (reply
+    /// `command | 0x40`). Returns `Ok(false)` on a NAK (`command | 0x80`), so
+    /// the caller can fall back to a different action encoding.
+    fn send_action(&self, vdm: &[u32]) -> Result<bool> {
+        Ok(self.send_vdm(vdm)? == (vdm[0] | 0x40))
     }
 
     /// Bring the controller into debug mode (DBMa), unlocking first if needed.
@@ -525,8 +531,24 @@ pub fn enter_dfu(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
     progress(Event::DfuTriggerStage {
         stage: "rebooting target into DFU".into(),
     });
-    hpm.send_vdm(&[0x05ac_8012, 0x106, 0x8001_0000])?;
-    Ok(())
+    // Apple Silicon exposes a dedicated DFU action (0x106). Send it first.
+    if hpm.send_action(&[0x05ac_8012, 0x106, 0x8001_0000])? {
+        return Ok(());
+    }
+    // Older Intel T2 Macs NAK 0x106 — they don't have that action. They enter
+    // DFU via the reboot action (0x105) with the PMU-reset + DFU-hold flag
+    // (0x80020000), the encoding AsahiLinux/vdmtool documents as "PMU Reset +
+    // DFU Hold". Fall back to it so both target generations work.
+    progress(Event::DfuTriggerStage {
+        stage: "target rejected the DFU action; trying the T2 encoding".into(),
+    });
+    let t2 = [0x05ac_8012, 0x105, 0x8002_0000];
+    if hpm.send_action(&t2)? {
+        return Ok(());
+    }
+    Err(Error::Vdm(
+        "target rejected both the Apple Silicon and T2 DFU actions".into(),
+    ))
 }
 
 /// Reboot the cabled target Mac into normal mode (undo a DFU trigger).
@@ -535,7 +557,10 @@ pub fn reboot(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
     progress(Event::DfuTriggerStage {
         stage: "rebooting target".into(),
     });
-    hpm.send_vdm(&[0x05ac_8012, 0x105, 0x8000_0000])?;
+    let vdm = [0x05ac_8012, 0x105, 0x8000_0000];
+    if !hpm.send_action(&vdm)? {
+        return Err(Error::Vdm("target rejected the reboot action".into()));
+    }
     Ok(())
 }
 
