@@ -1,0 +1,631 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "68ec5c06-6e69-4def-8e31-d338e4fb5fa5")
+	(paper "A3")
+	(lib_symbols
+		(symbol "dongle-lite:0402WGF4701TCE"
+		    (in_bom yes)
+		    (on_board yes)
+		    (property
+		      "Reference"
+		      "R"
+		      (id 0)
+		      (at 0 5.08 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Value"
+		      "0402WGF4701TCE"
+		      (id 1)
+		      (at 0 -5.08 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Footprint"
+		      "dongle-lite:R0402"
+		      (id 2)
+		      (at 0 -7.62 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Datasheet"
+		      "https://lcsc.com/product-detail/Chip-Resistor-Surface-Mount-UniOhm_4-7KR-4701-1_C25900.html"
+		      (id 3)
+		      (at 0 -10.16 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Manufacturer"
+		      "UNI-ROYAL(厚声)"
+		      (id 4)
+		      (at 0 -12.70 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "MPN"
+		      "0402WGF4701TCE"
+		      (id 5)
+		      (at 0 -15.24 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "LCSC Part"
+		      "C25900"
+		      (id 6)
+		      (at 0 -17.78 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "ki_keywords"
+		      "Resistors"
+		      (id 8)
+		      (at 0 -20.32 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "ki_description"
+		      "4.7KΩ (4701) ±1%"
+		      (id 9)
+		      (at 0 -22.86 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (symbol "0402WGF4701TCE_0_1"
+		      (rectangle
+		        (start -2.54 1.02)
+		        (end 2.54 -1.02)
+		        (stroke (width 0) (type default))
+		        (fill (type background))
+		      )
+		      (pin input line
+		        (at 5.08 -0.00 180)
+		        (length 2.54)
+		        (name "2" (effects (font (size 1.27 1.27))))
+		        (number "2" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin input line
+		        (at -5.08 -0.00 0)
+		        (length 2.54)
+		        (name "1" (effects (font (size 1.27 1.27))))
+		        (number "1" (effects (font (size 1.27 1.27))))
+		      )
+		    )
+		  )
+		
+		(symbol "dongle-lite:CL05A105KA5NQNC"
+		    (in_bom yes)
+		    (on_board yes)
+		    (property
+		      "Reference"
+		      "C"
+		      (id 0)
+		      (at 0 5.08 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Value"
+		      "CL05A105KA5NQNC"
+		      (id 1)
+		      (at 0 -5.08 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Footprint"
+		      "dongle-lite:C0402"
+		      (id 2)
+		      (at 0 -7.62 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Datasheet"
+		      "https://lcsc.com/product-detail/Multilayer-Ceramic-Capacitors-MLCC-SMD-SMT_SAMSUNG_CL05A105KA5NQNC_1uF-105-10-25V_C52923.html"
+		      (id 3)
+		      (at 0 -10.16 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Manufacturer"
+		      "SAMSUNG(三星)"
+		      (id 4)
+		      (at 0 -12.70 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "MPN"
+		      "CL05A105KA5NQNC"
+		      (id 5)
+		      (at 0 -15.24 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "LCSC Part"
+		      "C52923"
+		      (id 6)
+		      (at 0 -17.78 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "ki_keywords"
+		      "Multilayer Ceramic Capacitors MLCC - SMD/SMT"
+		      (id 8)
+		      (at 0 -20.32 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "ki_description"
+		      "1uF (105) ±10% 25V"
+		      (id 9)
+		      (at 0 -22.86 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (symbol "CL05A105KA5NQNC_0_1"
+		      (polyline
+		        (pts
+		          (xy -0.51 -2.03) (xy -0.51 2.03)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (polyline
+		        (pts
+		          (xy 2.54 -0.00) (xy 0.51 -0.00)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (polyline
+		        (pts
+		          (xy 0.51 2.03) (xy 0.51 -2.03)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (polyline
+		        (pts
+		          (xy -0.51 -0.00) (xy -2.54 -0.00)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (pin unspecified line
+		        (at -5.08 -0.00 0)
+		        (length 2.54)
+		        (name "1" (effects (font (size 1.27 1.27))))
+		        (number "1" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 5.08 -0.00 180)
+		        (length 2.54)
+		        (name "2" (effects (font (size 1.27 1.27))))
+		        (number "2" (effects (font (size 1.27 1.27))))
+		      )
+		    )
+		  )
+		
+		(symbol "dongle-lite:CL05B104KO5NNNC"
+		    (in_bom yes)
+		    (on_board yes)
+		    (property
+		      "Reference"
+		      "C"
+		      (id 0)
+		      (at 0 5.08 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Value"
+		      "CL05B104KO5NNNC"
+		      (id 1)
+		      (at 0 -5.08 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Footprint"
+		      "dongle-lite:C0402"
+		      (id 2)
+		      (at 0 -7.62 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Datasheet"
+		      "https://lcsc.com/product-detail/Multilayer-Ceramic-Capacitors-MLCC-SMD-SMT_SAMSUNG_CL05B104KO5NNNC_100nF-104-10-16V_C1525.html"
+		      (id 3)
+		      (at 0 -10.16 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Manufacturer"
+		      "SAMSUNG(三星)"
+		      (id 4)
+		      (at 0 -12.70 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "MPN"
+		      "CL05B104KO5NNNC"
+		      (id 5)
+		      (at 0 -15.24 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "LCSC Part"
+		      "C1525"
+		      (id 6)
+		      (at 0 -17.78 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "ki_keywords"
+		      "Multilayer Ceramic Capacitors MLCC - SMD/SMT"
+		      (id 8)
+		      (at 0 -20.32 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "ki_description"
+		      "100nF (104) ±10% 16V"
+		      (id 9)
+		      (at 0 -22.86 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (symbol "CL05B104KO5NNNC_0_1"
+		      (polyline
+		        (pts
+		          (xy -0.51 -0.00) (xy -2.54 -0.00)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (polyline
+		        (pts
+		          (xy 0.51 2.03) (xy 0.51 -2.03)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (polyline
+		        (pts
+		          (xy 2.54 -0.00) (xy 0.51 -0.00)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (polyline
+		        (pts
+		          (xy -0.51 -2.03) (xy -0.51 2.03)
+		        )
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (pin unspecified line
+		        (at 5.08 -0.00 180)
+		        (length 2.54)
+		        (name "2" (effects (font (size 1.27 1.27))))
+		        (number "2" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at -5.08 -0.00 0)
+		        (length 2.54)
+		        (name "1" (effects (font (size 1.27 1.27))))
+		        (number "1" (effects (font (size 1.27 1.27))))
+		      )
+		    )
+		  )
+		
+		(symbol "dongle-lite:FUSB302BMPX"
+		    (in_bom yes)
+		    (on_board yes)
+		    (property
+		      "Reference"
+		      "U"
+		      (id 0)
+		      (at 0 13.97 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Value"
+		      "FUSB302BMPX"
+		      (id 1)
+		      (at 0 -13.97 0)
+		      (effects (font (size 1.27 1.27) ) )
+		    )
+		    (property
+		      "Footprint"
+		      "dongle-lite:MLP-14_L2.5-W2.5-P0.50-BL-EP"
+		      (id 2)
+		      (at 0 -16.51 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Datasheet"
+		      "https://lcsc.com/product-detail/USB_ON_FUSB302BMPX_FUSB302BMPX_C132291.html"
+		      (id 3)
+		      (at 0 -19.05 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "Manufacturer"
+		      "onsemi(安森美)"
+		      (id 4)
+		      (at 0 -21.59 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "MPN"
+		      "FUSB302BMPX"
+		      (id 5)
+		      (at 0 -24.13 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "LCSC Part"
+		      "C132291"
+		      (id 6)
+		      (at 0 -26.67 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (property
+		      "ki_keywords"
+		      "USB ICs"
+		      (id 8)
+		      (at 0 -29.21 0)
+		      (effects (font (size 1.27 1.27) ) hide)
+		    )
+		    (symbol "FUSB302BMPX_0_1"
+		      (rectangle
+		        (start -10.16 11.94)
+		        (end 10.16 -11.43)
+		        (stroke (width 0) (type default))
+		        (fill (type background))
+		      )
+		      (circle
+		        (center -8.89 10.67)
+		        (radius 0.38)
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (circle
+		        (center -8.89 10.67)
+		        (radius 0.38)
+		        (stroke (width 0) (type default))
+		        (fill (type none))
+		      )
+		      (pin unspecified line
+		        (at -12.70 8.89 0)
+		        (length 2.54)
+		        (name "CC2" (effects (font (size 1.27 1.27))))
+		        (number "1" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at -12.70 6.35 0)
+		        (length 2.54)
+		        (name "VBUS" (effects (font (size 1.27 1.27))))
+		        (number "2" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at -12.70 3.81 0)
+		        (length 2.54)
+		        (name "VDD" (effects (font (size 1.27 1.27))))
+		        (number "3" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at -12.70 1.27 0)
+		        (length 2.54)
+		        (name "VDD" (effects (font (size 1.27 1.27))))
+		        (number "4" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at -12.70 -1.27 0)
+		        (length 2.54)
+		        (name "INT_N" (effects (font (size 1.27 1.27))))
+		        (number "5" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at -12.70 -3.81 0)
+		        (length 2.54)
+		        (name "SCL" (effects (font (size 1.27 1.27))))
+		        (number "6" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at -12.70 -6.35 0)
+		        (length 2.54)
+		        (name "SDA" (effects (font (size 1.27 1.27))))
+		        (number "7" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 -6.35 180)
+		        (length 2.54)
+		        (name "GND" (effects (font (size 1.27 1.27))))
+		        (number "8" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 -3.81 180)
+		        (length 2.54)
+		        (name "GND" (effects (font (size 1.27 1.27))))
+		        (number "9" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 -1.27 180)
+		        (length 2.54)
+		        (name "CC1" (effects (font (size 1.27 1.27))))
+		        (number "10" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 1.27 180)
+		        (length 2.54)
+		        (name "CC1" (effects (font (size 1.27 1.27))))
+		        (number "11" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 3.81 180)
+		        (length 2.54)
+		        (name "VCONN" (effects (font (size 1.27 1.27))))
+		        (number "12" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 6.35 180)
+		        (length 2.54)
+		        (name "VCONN" (effects (font (size 1.27 1.27))))
+		        (number "13" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 8.89 180)
+		        (length 2.54)
+		        (name "CC2" (effects (font (size 1.27 1.27))))
+		        (number "14" (effects (font (size 1.27 1.27))))
+		      )
+		      (pin unspecified line
+		        (at 12.70 -8.89 180)
+		        (length 2.54)
+		        (name "EP" (effects (font (size 1.27 1.27))))
+		        (number "15" (effects (font (size 1.27 1.27))))
+		      )
+		    )
+		  )
+		
+	)
+	(symbol
+		(lib_id "dongle-lite:FUSB302BMPX")
+		(at 50.8 38.1 0)
+		(unit 1)
+		(exclude_from_sim no)(in_bom yes)(on_board yes)(dnp no)
+		(uuid "db56e925-5137-4ef3-871f-df57c87a9cd1")
+		(property "Reference" "U2" (at 50.8 41.1 0) (effects (font (size 1.27 1.27))))
+		(property "Value" "FUSB302BMPX" (at 50.8 35.1 0) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "dongle-lite:MLP-14_L2.5-W2.5-P0.50-BL-EP" (at 50.8 33.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(property "LCSC" "C132291" (at 50.8 38.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(instances (project "dongle-lite-hw" (path "/7c5a94cd-cc22-4462-b8d9-511240d4c1f7" (reference "U2") (unit 1))))
+	)
+	(global_label "TGT_CC2" (shape bidirectional) (at 38.1 29.21 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "a5ebd3dc-3a1a-4863-8902-3bd88d3961a9"))
+	(no_connect (at 38.1 31.75) (uuid "2e28200a-8966-4a5e-9991-cc477206e0a0"))
+	(global_label "+3V3" (shape bidirectional) (at 38.1 34.29 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "46b590e0-c356-4393-aabb-343809cc87f8"))
+	(global_label "+3V3" (shape bidirectional) (at 38.1 36.83 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "66d8dec1-2d1b-44a0-9ac6-9974733820ae"))
+	(global_label "FUSB_INT" (shape bidirectional) (at 38.1 39.37 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "00404975-a6a2-4210-a221-21ffd8980eeb"))
+	(global_label "I2C_SCL" (shape bidirectional) (at 38.1 41.91 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "555bdfde-508b-4d24-86fd-8ac2a03175ff"))
+	(global_label "I2C_SDA" (shape bidirectional) (at 38.1 44.45 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "9334c063-09eb-43af-aa54-2958110c2613"))
+	(global_label "GND" (shape bidirectional) (at 63.5 44.45 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "d7abad5d-c10d-4992-9691-0621b2a60b23"))
+	(global_label "GND" (shape bidirectional) (at 63.5 41.91 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "d99c8bd5-cfa8-4fd1-a144-66d90fa2301e"))
+	(global_label "TGT_CC1" (shape bidirectional) (at 63.5 39.37 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "9f2b89b1-02ca-4985-8fa8-62e0c6838dcc"))
+	(global_label "TGT_CC1" (shape bidirectional) (at 63.5 36.83 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "3dc8fefe-377e-4fe7-a217-ba6a31077272"))
+	(no_connect (at 63.5 34.29) (uuid "c878d5f4-4fa0-42ab-8fb9-5417acb548cb"))
+	(no_connect (at 63.5 31.75) (uuid "7bc62a6d-d880-4033-87a2-0e977df20b52"))
+	(global_label "TGT_CC2" (shape bidirectional) (at 63.5 29.21 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "b2ebad5e-111a-4649-ae5d-21e747e66dde"))
+	(global_label "GND" (shape bidirectional) (at 63.5 46.99 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "5704aa26-db61-450c-84a8-fdd11f70d6be"))
+	(symbol
+		(lib_id "dongle-lite:0402WGF4701TCE")
+		(at 114.3 38.1 0)
+		(unit 1)
+		(exclude_from_sim no)(in_bom yes)(on_board yes)(dnp no)
+		(uuid "4db9ed3f-365f-4650-8e1d-094c93e90b48")
+		(property "Reference" "R2" (at 114.3 41.1 0) (effects (font (size 1.27 1.27))))
+		(property "Value" "4.7k" (at 114.3 35.1 0) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "dongle-lite:R0402" (at 114.3 33.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(property "LCSC" "C25900" (at 114.3 38.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(instances (project "dongle-lite-hw" (path "/7c5a94cd-cc22-4462-b8d9-511240d4c1f7" (reference "R2") (unit 1))))
+	)
+	(global_label "+3V3" (shape bidirectional) (at 119.38 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "d8044d67-03a1-43a8-8073-bf5f0fe4fdfb"))
+	(global_label "I2C_SDA" (shape bidirectional) (at 109.22 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "f945474e-1328-4631-a8e4-68e5a6ac2bd3"))
+	(symbol
+		(lib_id "dongle-lite:0402WGF4701TCE")
+		(at 177.8 38.1 0)
+		(unit 1)
+		(exclude_from_sim no)(in_bom yes)(on_board yes)(dnp no)
+		(uuid "2c84c98e-a7d5-463d-bdaa-a133b7428326")
+		(property "Reference" "R3" (at 177.8 41.1 0) (effects (font (size 1.27 1.27))))
+		(property "Value" "4.7k" (at 177.8 35.1 0) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "dongle-lite:R0402" (at 177.8 33.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(property "LCSC" "C25900" (at 177.8 38.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(instances (project "dongle-lite-hw" (path "/7c5a94cd-cc22-4462-b8d9-511240d4c1f7" (reference "R3") (unit 1))))
+	)
+	(global_label "+3V3" (shape bidirectional) (at 182.88 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "fa138176-05e6-4b95-98d5-84ab5e2b4d12"))
+	(global_label "I2C_SCL" (shape bidirectional) (at 172.72 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "81e043c5-f107-42b5-a334-af7a26918d1b"))
+	(symbol
+		(lib_id "dongle-lite:0402WGF4701TCE")
+		(at 241.3 38.1 0)
+		(unit 1)
+		(exclude_from_sim no)(in_bom yes)(on_board yes)(dnp no)
+		(uuid "781d1626-0768-4f98-b565-8012c9146b61")
+		(property "Reference" "R4" (at 241.3 41.1 0) (effects (font (size 1.27 1.27))))
+		(property "Value" "4.7k" (at 241.3 35.1 0) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "dongle-lite:R0402" (at 241.3 33.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(property "LCSC" "C25900" (at 241.3 38.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(instances (project "dongle-lite-hw" (path "/7c5a94cd-cc22-4462-b8d9-511240d4c1f7" (reference "R4") (unit 1))))
+	)
+	(global_label "+3V3" (shape bidirectional) (at 246.38 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "c55cbd47-7ca2-47eb-a244-3d107cf5b6ea"))
+	(global_label "FUSB_INT" (shape bidirectional) (at 236.22 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "974cdc3b-8b5e-4b0a-9653-40fb2d9bd455"))
+	(symbol
+		(lib_id "dongle-lite:CL05B104KO5NNNC")
+		(at 304.8 38.1 0)
+		(unit 1)
+		(exclude_from_sim no)(in_bom yes)(on_board yes)(dnp no)
+		(uuid "4ef19c0f-6e92-49bd-ba41-997745563743")
+		(property "Reference" "C13" (at 304.8 41.1 0) (effects (font (size 1.27 1.27))))
+		(property "Value" "100nF" (at 304.8 35.1 0) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "dongle-lite:C0402" (at 304.8 33.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(property "LCSC" "C1525" (at 304.8 38.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(instances (project "dongle-lite-hw" (path "/7c5a94cd-cc22-4462-b8d9-511240d4c1f7" (reference "C13") (unit 1))))
+	)
+	(global_label "GND" (shape bidirectional) (at 309.88 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "20378802-d809-4251-a0d3-63170464b0d1"))
+	(global_label "+3V3" (shape bidirectional) (at 299.72 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "ba9d02d9-bf36-4fea-ae4a-0fafb6db9058"))
+	(symbol
+		(lib_id "dongle-lite:CL05A105KA5NQNC")
+		(at 368.3 38.1 0)
+		(unit 1)
+		(exclude_from_sim no)(in_bom yes)(on_board yes)(dnp no)
+		(uuid "512762a3-85e7-4b0d-bf5a-30210e5332d5")
+		(property "Reference" "C14" (at 368.3 41.1 0) (effects (font (size 1.27 1.27))))
+		(property "Value" "1uF" (at 368.3 35.1 0) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "dongle-lite:C0402" (at 368.3 33.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(property "LCSC" "C52923" (at 368.3 38.1 0) (effects (font (size 1.27 1.27)) (hide yes)))
+		(instances (project "dongle-lite-hw" (path "/7c5a94cd-cc22-4462-b8d9-511240d4c1f7" (reference "C14") (unit 1))))
+	)
+	(global_label "+3V3" (shape bidirectional) (at 363.22 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "14cf998c-88c3-4035-a830-3f51cf1ff37f"))
+	(global_label "GND" (shape bidirectional) (at 373.38 38.1 0)
+		(effects (font (size 1.27 1.27)) (justify left))
+		(uuid "835bf9ed-2aa6-4f7f-bde2-77f88b02c4d6"))
+	(sheet_instances (path "/7c5a94cd-cc22-4462-b8d9-511240d4c1f7" (page "3")))
+	(embedded_fonts no)
+)
