@@ -110,6 +110,7 @@ pub const STATUS1_RX_EMPTY: u8 = 1 << 5;
 pub const INT_VBUSOK: u8 = 1 << 7;
 
 // INTERRUPTA bits.
+pub const INTA_RETRYFAIL: u8 = 1 << 4;
 pub const INTA_HARDSENT: u8 = 1 << 3;
 pub const INTA_TX_SUCCESS: u8 = 1 << 2;
 pub const INTA_HARDRESET: u8 = 1 << 0;
@@ -181,6 +182,23 @@ pub enum TxSop {
     DebugPrimePrime,
 }
 
+/// Outcome of a transmit: did the port partner acknowledge with a GoodCRC?
+#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
+pub enum TxResult {
+    /// TX_SUCCESS: message sent and GoodCRC received (after auto-retry).
+    Ok,
+    /// RETRYFAIL: no GoodCRC after all retries — nothing is listening.
+    NoAck,
+    /// Neither bit set within the poll window.
+    Timeout,
+}
+
+impl TxResult {
+    pub fn is_ok(self) -> bool {
+        matches!(self, TxResult::Ok)
+    }
+}
+
 pub struct Fusb302<I2C> {
     i2c: I2C,
     cc_polarity: i8,
@@ -190,6 +208,10 @@ pub struct Fusb302<I2C> {
     mdac_vnc: u8,
     mdac_rd: u8,
     control1: u8,
+    /// Consecutive I2C errors; reset on any success. The engine watches this to
+    /// recover (reset) when the FUSB302 goes unreachable, since a failed read
+    /// otherwise returns 0 and masquerades as a real register value.
+    i2c_fail_streak: u32,
 }
 
 impl<I2C: I2c> Fusb302<I2C> {
@@ -203,6 +225,7 @@ impl<I2C: I2c> Fusb302<I2C> {
             mdac_vnc: mdac_mv(PD_SRC_DEF_VNC_MV),
             mdac_rd: mdac_mv(PD_SRC_DEF_RD_THRESH_MV),
             control1: 0,
+            i2c_fail_streak: 0,
         }
     }
 
@@ -210,20 +233,40 @@ impl<I2C: I2c> Fusb302<I2C> {
         self.cc_polarity
     }
 
+    /// Consecutive I2C failures since the last success.
+    pub fn i2c_fail_streak(&self) -> u32 {
+        self.i2c_fail_streak
+    }
+
+    fn note_i2c(&mut self, ok: bool) {
+        if ok {
+            self.i2c_fail_streak = 0;
+        } else {
+            self.i2c_fail_streak = self.i2c_fail_streak.saturating_add(1);
+        }
+    }
+
     async fn write(&mut self, reg: u8, val: u8) {
-        let _ = self.i2c.write(FUSB302_ADDR, &[reg, val]).await;
+        let ok = self.i2c.write(FUSB302_ADDR, &[reg, val]).await.is_ok();
+        self.note_i2c(ok);
     }
 
     async fn read(&mut self, reg: u8) -> u8 {
         let mut buf = [0u8; 1];
-        let _ = self.i2c.write_read(FUSB302_ADDR, &[reg], &mut buf).await;
+        let ok = self
+            .i2c
+            .write_read(FUSB302_ADDR, &[reg], &mut buf)
+            .await
+            .is_ok();
+        self.note_i2c(ok);
         buf[0]
     }
 
     /// Burst write starting at FIFOS: `buf` already contains the register
     /// address in position 0.
     async fn write_raw(&mut self, buf: &[u8]) {
-        let _ = self.i2c.write(FUSB302_ADDR, buf).await;
+        let ok = self.i2c.write(FUSB302_ADDR, buf).await.is_ok();
+        self.note_i2c(ok);
     }
 
     pub async fn device_id(&mut self) -> u8 {
@@ -279,7 +322,6 @@ impl<I2C: I2c> Fusb302<I2C> {
         let mut reg = self.read(REG_CONTROL3).await;
         reg |= C3_AUTO_RETRY;
         reg |= (PD_RETRY_COUNT & 0x3) << C3_N_RETRIES_POS;
-        reg |= C3_SEND_HARDRESET;
         self.write(REG_CONTROL3, reg).await;
 
         // Interrupt masks: unmask the events we act on.
@@ -540,16 +582,19 @@ impl<I2C: I2c> Fusb302<I2C> {
         loop {
             // Read the SOP token + 2 header bytes.
             let mut hdr3 = [0u8; 3];
-            let _ = self
+            let ok = self
                 .i2c
                 .write_read(FUSB302_ADDR, &[REG_FIFOS], &mut hdr3)
-                .await;
+                .await
+                .is_ok();
+            self.note_i2c(ok);
             head = (hdr3[1] as u16) | ((hdr3[2] as u16) << 8);
 
             len = Self::num_bytes(head) - 2;
             // Read payload + 4 CRC bytes.
             let total = len + 4;
-            let _ = self.i2c.read(FUSB302_ADDR, &mut buf[..total]).await;
+            let ok = self.i2c.read(FUSB302_ADDR, &mut buf[..total]).await.is_ok();
+            self.note_i2c(ok);
 
             if !(packet_is_good_crc(head) && !self.rx_fifo_is_empty().await) {
                 break;
@@ -572,8 +617,20 @@ impl<I2C: I2c> Fusb302<I2C> {
         Some((head, words))
     }
 
-    /// Transmit a PD message. `data` is the payload words (may be empty).
-    pub async fn transmit(&mut self, sop: TxSop, header: u16, data: &[u32]) {
+    /// Transmit a PD message and wait for the port partner's GoodCRC.
+    ///
+    /// `data` is the payload words (may be empty). Returns whether the send was
+    /// acknowledged. Only `REG_INTERRUPTA` (the TX-ack register) is polled here;
+    /// `REG_INTERRUPT` (VBUSOK) and `REG_INTERRUPTB` (GCRCSENT / inbound
+    /// messages) are left for the main loop's `handle_irq`, so attach and RX
+    /// events are never consumed by a transmit.
+    pub async fn transmit(&mut self, sop: TxSop, header: u16, data: &[u32]) -> TxResult {
+        // The 40-byte FIFO staging buffer holds reg + SOP(4) + PACKSYM(1) +
+        // header(2) + payload + CRC(4), so at most 7 payload words fit. PD data
+        // messages are always <= 7 words; reject longer rather than overflow.
+        if data.len() > 7 {
+            return TxResult::Timeout;
+        }
         self.flush_tx_fifo().await;
 
         let header = header | ((self.msgid as u16) << 9);
@@ -601,8 +658,10 @@ impl<I2C: I2c> Fusb302<I2C> {
             }
         }
 
-        // Payload framing: PACKSYM | len, then header, then data words.
-        let len = Self::num_bytes(header); // header + data bytes
+        // Payload framing: PACKSYM | byte count (2 header + 4 per payload word),
+        // matching exactly what we stage into the FIFO regardless of the
+        // header's count field.
+        let len = 2 + data.len() * 4;
         buf[p] = TKN_PACKSYM | ((len as u8) & 0x1F);
         p += 1;
         buf[p] = (header & 0xFF) as u8;
@@ -623,7 +682,19 @@ impl<I2C: I2c> Fusb302<I2C> {
         p += 4;
 
         self.write_raw(&buf[..p]).await;
-        // Wait for the GoodCRC before the caller changes state.
-        Timer::after_micros(1200).await;
+
+        // Poll INTERRUPTA for the TX outcome. Auto-retry runs a few ~1 ms
+        // attempts, so give it up to ~30 ms before declaring a timeout.
+        for _ in 0..60 {
+            Timer::after_micros(500).await;
+            let ia = self.read(REG_INTERRUPTA).await;
+            if ia & INTA_TX_SUCCESS != 0 {
+                return TxResult::Ok;
+            }
+            if ia & INTA_RETRYFAIL != 0 {
+                return TxResult::NoAck;
+            }
+        }
+        TxResult::Timeout
     }
 }

@@ -62,6 +62,7 @@
 
 pub mod device;
 pub mod dfu;
+pub mod dongle;
 #[cfg(target_os = "windows")]
 pub mod driver;
 pub mod error;
@@ -74,7 +75,11 @@ pub mod restore;
 pub mod usbmuxd;
 
 pub use device::{Device, Port, Target, UsbMode};
-pub use dfu::{host_can_trigger_dfu, manual_dfu_instructions, DfuTarget, HostPortInfo};
+pub use dfu::{
+    host_can_trigger_dfu, manual_dfu_instructions, trigger_dfu, DfuOutcome, DfuTarget, DfuVia,
+    HostPortInfo,
+};
+pub use dongle::{Dongle, DongleHandle, DongleStatus, DongleTarget, PdState};
 pub use error::{Error, Result};
 pub use firmware::Firmware;
 pub use progress::Event;

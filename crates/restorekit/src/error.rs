@@ -37,6 +37,18 @@ pub enum Error {
     #[error("VDM error: {0}")]
     Vdm(String),
 
+    #[error("no Dongle-Proto-Lite found")]
+    NoDongle,
+
+    #[error("multiple dongles found ({0}); select one with --dongle (see `restorekit dongle list`)")]
+    MultipleDongles(usize),
+
+    #[error("no target Mac is attached to the dongle")]
+    DongleNoTarget,
+
+    #[error("dongle: {0}")]
+    Dongle(String),
+
     #[error("unknown Mac model (CPID:{cpid:04x} BDID:{bdid:02x}); no firmware mapping")]
     UnknownModel { cpid: u16, bdid: u8 },
 

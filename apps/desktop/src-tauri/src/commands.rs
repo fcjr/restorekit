@@ -1,6 +1,7 @@
 use restorekit::device::{self, parse_serial, Device};
+use restorekit::dongle::{self, DongleTarget};
 use restorekit::restore::Mode;
-use restorekit::{dfu, firmware, restore, Firmware};
+use restorekit::{dfu, firmware, restore, DongleStatus, Firmware};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -71,6 +72,63 @@ pub fn list_devices() -> Result<Vec<DeviceView>, String> {
 #[tauri::command]
 pub fn host_can_trigger() -> bool {
     dfu::host_can_trigger_dfu()
+}
+
+/// A connected RecoverKit dongle: its id, live status, and the Mac (if any)
+/// cabled to it and visible on USB here.
+#[derive(Serialize)]
+pub struct DongleView {
+    pub serial: String,
+    pub product: String,
+    /// Live PD status, if the vendor interface could be read.
+    pub status: Option<DongleStatus>,
+    /// The Mac cabled to this dongle, if its USB data reaches this host.
+    pub target: Option<DeviceView>,
+}
+
+fn dongle_view(d: restorekit::Dongle) -> DongleView {
+    // Best-effort: reading status claims the vendor interface; the topology
+    // lookup enumerates USB. Either may fail without failing the whole list.
+    let status = d.status().ok();
+    let target = d.attached_device().ok().flatten().map(view);
+    DongleView {
+        serial: d.serial,
+        product: d.product,
+        status,
+        target,
+    }
+}
+
+/// Every connected RecoverKit dongle, with live status and its cabled Mac.
+/// Dongle DFU is plain USB — no root, no helper, works on any host OS.
+#[tauri::command]
+pub fn list_dongles() -> Result<Vec<DongleView>, String> {
+    let dongles = dongle::list().map_err(|e| e.to_string())?;
+    Ok(dongles.into_iter().map(dongle_view).collect())
+}
+
+/// Put the Mac cabled to dongle `serial` into DFU mode (plain USB, no helper).
+#[tauri::command]
+pub async fn dongle_dfu(serial: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        dongle::find(DongleTarget::Id(serial))
+            .and_then(|d| d.dfu())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Reboot the Mac cabled to dongle `serial` (plain USB, no helper).
+#[tauri::command]
+pub async fn dongle_reboot(serial: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        dongle::find(DongleTarget::Id(serial))
+            .and_then(|d| d.reboot())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Whether this build includes the serial-capture history feature.

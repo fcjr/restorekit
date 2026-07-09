@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod dfu;
+pub mod dongle;
 pub mod download;
 #[cfg(feature = "history")]
 pub mod history;

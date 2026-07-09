@@ -27,9 +27,10 @@ struct Cli {
 enum Command {
     /// List every connected Apple device, with its mode and ECID.
     List,
-    /// Reboot the cabled target Mac into DFU mode (Apple Silicon macOS host, root).
+    /// Put the cabled target Mac into DFU mode — via a dongle (any host) or the
+    /// host's own port (Apple Silicon macOS, root). See `--dongle` / `--ecid`.
     Dfu(TargetArgs),
-    /// Reboot the cabled target Mac back into normal mode.
+    /// Reboot the cabled target Mac back into normal mode (dongle or host).
     Reboot(TargetArgs),
     /// Resolve and download firmware for the detected (or specified) Mac.
     Download {
@@ -59,6 +60,12 @@ enum Command {
         #[arg(long)]
         path: bool,
     },
+    /// Inspect RecoverKit dongles (list, live status). Use the top-level `dfu` /
+    /// `reboot` with `--dongle` or `--ecid` to act on the cabled Mac.
+    Dongle {
+        #[command(subcommand)]
+        action: DongleAction,
+    },
     /// Show, export, or clear the capture/restore history.
     #[cfg(feature = "history")]
     History {
@@ -77,25 +84,51 @@ enum Command {
     },
 }
 
-/// Which cabled target `dfu` / `reboot` should act on. With neither flag, the
-/// host's sole DFU-capable port is used.
+/// Which target `dfu` / `reboot` should act on, and how to reach it. With no
+/// flags: a connected dongle is used if one is present, otherwise the host's
+/// own sole DFU-capable port.
 #[derive(clap::Args)]
 struct TargetArgs {
-    /// Target the Mac with this ECID (hex like 0xc60a812345678, or decimal),
-    /// resolving the DFU port it's cabled to. See `restorekit list`.
+    /// Trigger via a specific dongle by its id (USB serial, e.g. DPL-1A2B3C4D).
+    /// See `restorekit dongle list`.
+    #[arg(long, conflicts_with_all = ["ecid", "port"])]
+    dongle: Option<String>,
+    /// Target the Mac with this ECID (hex like 0xc60a812345678, or decimal).
+    /// Auto-routes through the dongle it's cabled to, else the host DFU port.
     #[arg(long, value_parser = parse_ecid, conflicts_with = "port")]
     ecid: Option<u64>,
-    /// Target a specific DFU-capable port by its RID. See `restorekit list`.
+    /// Target a specific host DFU-capable port by its RID (host trigger only).
     #[arg(long)]
     port: Option<i32>,
 }
 
-impl TargetArgs {
-    fn into_target(self) -> restorekit::DfuTarget {
-        match (self.ecid, self.port) {
-            (Some(e), _) => restorekit::DfuTarget::Ecid(e),
-            (_, Some(rid)) => restorekit::DfuTarget::Port(rid),
-            _ => restorekit::DfuTarget::Auto,
+#[derive(Subcommand)]
+enum DongleAction {
+    /// List connected dongles and what each has cabled to it.
+    List,
+    /// Show a dongle's live status (target attached, PD state, orientation).
+    Status(DongleSelect),
+}
+
+/// Which dongle to act on. With neither flag, the sole connected dongle is used.
+#[derive(clap::Args)]
+struct DongleSelect {
+    /// Target a specific dongle by its id (USB serial, e.g. DPL-1A2B3C4D). See
+    /// `restorekit dongle list`.
+    #[arg(long, conflicts_with = "ecid")]
+    dongle: Option<String>,
+    /// Target the dongle the Mac with this ECID is cabled to (hex like
+    /// 0xc60a812345678, or decimal), resolved by USB topology.
+    #[arg(long, value_parser = parse_ecid)]
+    ecid: Option<u64>,
+}
+
+impl DongleSelect {
+    fn into_target(self) -> restorekit::DongleTarget {
+        match (self.dongle, self.ecid) {
+            (Some(id), _) => restorekit::DongleTarget::Id(id),
+            (_, Some(e)) => restorekit::DongleTarget::Ecid(e),
+            _ => restorekit::DongleTarget::Auto,
         }
     }
 }
@@ -130,6 +163,10 @@ struct FirmwareArgs {
     /// when several are in DFU mode. See `restorekit list`.
     #[arg(long, value_parser = parse_ecid)]
     ecid: Option<u64>,
+    /// Trigger DFU entry via a specific dongle by its id (USB serial). Lets you
+    /// restore from any host OS. See `restorekit dongle list`.
+    #[arg(long)]
+    dongle: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -175,6 +212,7 @@ impl FirmwareArgs {
             os_version: self.os_version,
             identifier: self.identifier,
             ecid: self.ecid,
+            dongle: self.dongle,
             yes,
             cache_dir,
             json,
@@ -203,8 +241,8 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::List => commands::list::run(cli.json),
-        Command::Dfu(t) => commands::dfu::enter(cli.json, t.into_target()),
-        Command::Reboot(t) => commands::dfu::reboot(cli.json, t.into_target()),
+        Command::Dfu(t) => commands::dfu::enter(cli.json, t.dongle, t.ecid, t.port),
+        Command::Reboot(t) => commands::dfu::reboot(cli.json, t.dongle, t.ecid, t.port),
         Command::Download {
             identifier,
             os_version,
@@ -225,6 +263,10 @@ fn main() {
             cli.verbose,
         )),
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
+        Command::Dongle { action } => match action {
+            DongleAction::List => commands::dongle::list(cli.json),
+            DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
+        },
         #[cfg(feature = "history")]
         Command::History { action } => match action {
             HistoryAction::List => commands::history::list(cli.json),
