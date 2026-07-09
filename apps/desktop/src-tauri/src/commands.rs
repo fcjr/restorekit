@@ -1,9 +1,13 @@
 use restorekit::device::{self, parse_serial, Device};
-use restorekit::dongle::{self, DongleTarget};
+use restorekit::dongle;
 use restorekit::restore::Mode;
-use restorekit::{dfu, firmware, restore, DongleStatus, Firmware};
+use restorekit::{dfu, firmware, restore, DfuOutcome, DfuVia, DongleStatus, Firmware};
 use serde::Serialize;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+
+/// How long to wait for a dongle-triggered DFU to be observed on this host.
+const DONGLE_DFU_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// One connected Apple device and the USB mode it's in. ECID is a hex string
 /// (a u64 as a JSON number would lose precision in JS); `serial` is the raw DFU
@@ -30,10 +34,25 @@ pub struct DeviceView {
     /// Whether the OS driver lets restorekit open this device. Always true on
     /// macOS/Linux; on Windows, false until WinUSB is bound (see `setup_driver`).
     pub driver_ready: bool,
+    /// How this device reaches the host: "direct" | "dongle" | "hub".
+    pub connection: String,
+    /// The dongle id when the device is reached through one; `None` otherwise.
+    /// The UI routes DFU/reboot over this dongle instead of the host trigger.
+    pub via_dongle: Option<String>,
+    /// Whether the host's own USB-PD trigger can put this device into DFU — only
+    /// when it's cabled straight to the host's DFU port (not via a dongle/hub).
+    pub host_dfu_capable: bool,
 }
 
 fn view(d: Device) -> DeviceView {
+    let conn = dongle::connection_for(&d);
+    let host_dfu_capable = conn.host_reachable() && d.port.as_ref().is_some_and(|p| p.dfu);
+    let via_dongle = conn.dongle().map(str::to_string);
+    let connection = conn.kind().to_string();
     DeviceView {
+        connection,
+        via_dongle,
+        host_dfu_capable,
         restorable: d.restorable(),
         driver_ready: d.driver_ready,
         mode: d.mode.to_string(),
@@ -108,24 +127,25 @@ pub fn list_dongles() -> Result<Vec<DongleView>, String> {
 }
 
 /// Put the Mac cabled to dongle `serial` into DFU mode (plain USB, no helper).
+/// Uses the same routed flow as the CLI (CC-cycle + retries).
 #[tauri::command]
 pub async fn dongle_dfu(serial: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        dongle::find(DongleTarget::Id(serial))
-            .and_then(|d| d.dfu())
+        dfu::trigger_dfu(DfuVia::Dongle(serial), DONGLE_DFU_TIMEOUT, &mut |_| {})
+            .map(|_| ())
             .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Reboot the Mac cabled to dongle `serial` (plain USB, no helper).
+/// Reboot the Mac cabled to dongle `serial` (plain USB, no helper). Uses the
+/// same routed flow as the CLI, including the retry loop that boots a target
+/// back out of DFU (the bootrom acts on the reboot VDM only intermittently).
 #[tauri::command]
 pub async fn dongle_reboot(serial: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        dongle::find(DongleTarget::Id(serial))
-            .and_then(|d| d.reboot())
-            .map_err(|e| e.to_string())
+        dfu::reboot(DfuVia::Dongle(serial), &mut |_| {}).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -163,13 +183,32 @@ pub fn manual_instructions() -> String {
     dfu::manual_dfu_instructions().to_string()
 }
 
-/// Trigger DFU on the cabled target via the elevated helper (Touch ID prompt)
-/// and return the Mac that newly entered DFU. macOS-only: electronic DFU entry
-/// needs an Apple Silicon Mac host.
+/// Trigger DFU on the target and return the Mac that newly entered DFU.
+///
+/// When `dongle` is set the target is behind that dongle, so DFU is routed over
+/// it (plain USB — no helper, works on any host OS). Otherwise it uses the host's
+/// electronic trigger via the elevated helper (Touch ID prompt), which needs an
+/// Apple Silicon Mac host.
 #[tauri::command]
-pub async fn trigger_dfu() -> Result<DeviceView, String> {
+pub async fn trigger_dfu(dongle: Option<String>) -> Result<DeviceView, String> {
+    if let Some(serial) = dongle {
+        return tauri::async_runtime::spawn_blocking(move || {
+            match dfu::trigger_dfu(DfuVia::Dongle(serial), DONGLE_DFU_TIMEOUT, &mut |_| {}) {
+                Ok(DfuOutcome::Entered(dev)) => Ok(view(dev)),
+                Ok(DfuOutcome::Sent) => Err("DFU trigger sent over the dongle, but this Mac's \
+                     USB data isn't cabled to this host to confirm it entered DFU."
+                    .into()),
+                Err(e) => Err(e.to_string()),
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
     #[cfg(not(target_os = "macos"))]
-    return Err(NO_TRIGGER.into());
+    {
+        Err(NO_TRIGGER.into())
+    }
 
     #[cfg(target_os = "macos")]
     {
@@ -195,11 +234,23 @@ pub async fn trigger_dfu() -> Result<DeviceView, String> {
     }
 }
 
-/// Reboot the cabled target out of DFU via the elevated helper (macOS-only).
+/// Reboot the target back out of DFU. When `dongle` is set, routes over it using
+/// the CLI's retry-until-it-leaves-DFU flow (plain USB, any host OS); otherwise
+/// uses the elevated helper (macOS-only).
 #[tauri::command]
-pub async fn reboot_target() -> Result<(), String> {
+pub async fn reboot_target(dongle: Option<String>) -> Result<(), String> {
+    if let Some(serial) = dongle {
+        return tauri::async_runtime::spawn_blocking(move || {
+            dfu::reboot(DfuVia::Dongle(serial), &mut |_| {}).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
     #[cfg(not(target_os = "macos"))]
-    return Err(NO_TRIGGER.into());
+    {
+        Err(NO_TRIGGER.into())
+    }
 
     #[cfg(target_os = "macos")]
     {

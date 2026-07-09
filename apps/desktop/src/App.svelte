@@ -185,7 +185,9 @@
   // or manual instructions.
   function deviceMode(d: Device): "restore" | "usb" | "dfu" | "manual" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
-    return canTrigger ? "dfu" : "manual";
+    // A Mac behind a dongle can be put into DFU over the dongle from any host,
+    // even when this host can't trigger electronically.
+    return canTrigger || d.via_dongle ? "dfu" : "manual";
   }
   const mMode = $derived(selected ? deviceMode(selected) : "restore");
 
@@ -576,11 +578,11 @@
       configuratorErr = String(e);
     }
   }
-  async function autoEnterDfu() {
+  async function autoEnterDfu(dongle?: string) {
     if (autoTriggering) return;
     autoTriggering = true;
     try {
-      await api.triggerDfu();
+      await api.triggerDfu(dongle);
       await refresh();
     } catch {
       /* best-effort; user can trigger manually */
@@ -588,16 +590,21 @@
       autoTriggering = false;
     }
   }
-  // Auto-DFU: when enabled and the helper is ready, put a freshly detected
-  // booted/recovery Mac into DFU without a click (de-bounced per device).
+  // Auto-DFU: put a freshly detected booted/recovery Mac into DFU without a
+  // click (de-bounced per device). A Mac behind a dongle is triggered over the
+  // dongle on any host; a directly-cabled one needs the approved host helper.
   $effect(() => {
-    if (!autoDfu || !canTrigger || helperState !== "enabled" || running || autoTriggering) return;
+    if (!autoDfu || running || autoTriggering) return;
+    const hostReady = canTrigger && helperState === "enabled";
     const target = devices.find(
-      (d) => (d.mode === "booted" || d.mode === "recovery") && !autoTriggered.has(d.serial),
+      (d) =>
+        (d.mode === "booted" || d.mode === "recovery") &&
+        !autoTriggered.has(d.serial) &&
+        (d.via_dongle ? true : hostReady),
     );
     if (!target) return;
     autoTriggered.add(target.serial);
-    void autoEnterDfu();
+    void autoEnterDfu(target.via_dongle ?? undefined);
   });
 
   const JOB_COLOR: Record<string, string> = {
@@ -738,13 +745,15 @@
 
   async function enterDfu() {
     error = "";
+    const dongle = selected?.via_dongle ?? undefined;
     busy = "Triggering DFU…";
     try {
-      const dfuDev = await api.triggerDfu();
+      const dfuDev = await api.triggerDfu(dongle);
       await refresh();
       if (dfuDev) selectedKey = dfuDev.ecid || dfuDev.serial;
     } catch (e) {
-      if (String(e).includes(APPROVAL_REQUIRED)) requestApproval("dfu");
+      // The host helper needs one-time approval; the dongle path never does.
+      if (!dongle && String(e).includes(APPROVAL_REQUIRED)) requestApproval("dfu");
       else error = String(e);
     } finally {
       busy = "";
@@ -753,12 +762,13 @@
 
   async function rebootTarget() {
     error = "";
+    const dongle = selected?.via_dongle ?? undefined;
     busy = "Rebooting…";
     try {
-      await api.rebootTarget();
+      await api.rebootTarget(dongle);
       await refresh();
     } catch (e) {
-      if (String(e).includes(APPROVAL_REQUIRED)) requestApproval("reboot");
+      if (!dongle && String(e).includes(APPROVAL_REQUIRED)) requestApproval("reboot");
       else error = String(e);
     } finally {
       busy = "";
@@ -1087,8 +1097,15 @@
                 <div class="k">Port</div>
                 <div class="v">
                   <button class="cellcopy" onclick={() => copy(selected.port?.location ?? "")}>{selected.port.location ?? "unknown"}</button>
-                  {#if selected.port.dfu}<span class="tag ok">DFU port</span>{:else}<span class="tag">not DFU</span>{/if}
+                  {#if selected.host_dfu_capable}<span class="tag ok">DFU port</span>{:else if selected.via_dongle}<span class="tag ok">via dongle</span>{:else if selected.connection === "hub"}<span class="tag">via hub</span>{:else}<span class="tag">not DFU</span>{/if}
                 </div>
+              {/if}
+              {#if selected.via_dongle}
+                <div class="k">Connection</div>
+                <div class="v">through dongle <button class="cellcopy" onclick={() => copy(selected.via_dongle ?? "")}>{selected.via_dongle}</button></div>
+              {:else if selected.connection === "hub"}
+                <div class="k">Connection</div>
+                <div class="v">behind a USB hub — no DFU path from this host</div>
               {/if}
             </div>
           {:else if selectedRow.ecid}
@@ -1177,9 +1194,13 @@
             </div>
           {:else if mMode === "dfu"}
             <div class="block">
-              <p class="lede">Restore needs DFU mode. Put this Mac into DFU to continue — the trigger asks for permission once; only that step runs as root.</p>
+              {#if selected.via_dongle}
+                <p class="lede">Restore needs DFU mode. This Mac is connected through dongle {selected.via_dongle}, so RestoreKit triggers DFU over the dongle — no password needed.</p>
+              {:else}
+                <p class="lede">Restore needs DFU mode. Put this Mac into DFU to continue — the trigger asks for permission once; only that step runs as root.</p>
+              {/if}
               <div class="actions">
-                <button class="btn primary" onclick={enterDfu} disabled={!!busy}>{busy ? "Authorizing…" : "Enter DFU mode"}</button>
+                <button class="btn primary" onclick={enterDfu} disabled={!!busy}>{busy ? (selected.via_dongle ? "Triggering…" : "Authorizing…") : "Enter DFU mode"}</button>
                 <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
               </div>
             </div>
@@ -1211,7 +1232,7 @@
                 <div class="dcard-meta">
                   {#if r.device && serialFor(r.device)}<span>serial {serialFor(r.device)}</span>{/if}
                   <span>ecid {r.ecid ?? "—"}</span>
-                  {#if r.device}<span>{r.device.mode}{r.device.port?.location ? ` · ${r.device.port.location}` : ""}</span>{:else}<span>disconnected</span>{/if}
+                  {#if r.device}<span>{r.device.mode}{r.device.port?.location ? ` · ${r.device.port.location}` : ""}{r.device.via_dongle ? " · via dongle" : ""}</span>{:else}<span>disconnected</span>{/if}
                 </div>
                 {#if r.job && jobActive(r.job)}
                   <div class="dcard-prog">

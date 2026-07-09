@@ -29,6 +29,14 @@ export interface Device {
   port: Port | null;
   /** Windows: false until WinUSB is bound. Always true on macOS/Linux. */
   driver_ready: boolean;
+  /** How this device reaches the host, by USB topology. */
+  connection: "direct" | "dongle" | "hub";
+  /** The dongle id when reached through one; null otherwise. DFU/reboot route
+   *  over this dongle instead of the host trigger. */
+  via_dongle: string | null;
+  /** Whether the host's own USB-PD trigger can put it into DFU (direct + on the
+   *  DFU port). False when reached via a dongle or plain hub. */
+  host_dfu_capable: boolean;
 }
 
 /** Live PD status read from a dongle over its vendor USB interface. */
@@ -136,8 +144,11 @@ export const api = {
   historyEnabled: () => call<boolean>("history_enabled"),
   manualInstructions: () => call<string>("manual_instructions"),
   listDevices: () => call<Device[]>("list_devices"),
-  triggerDfu: () => call<Device>("trigger_dfu"),
-  rebootTarget: () => call<void>("reboot_target"),
+  /** Trigger DFU. Pass a dongle id to route over that dongle (any host OS, no
+   *  helper); omit to use the host's electronic trigger (Apple Silicon macOS). */
+  triggerDfu: (dongle?: string) => call<Device>("trigger_dfu", { dongle: dongle ?? null }),
+  /** Reboot the target. Pass a dongle id to route over it; omit for the host. */
+  rebootTarget: (dongle?: string) => call<void>("reboot_target", { dongle: dongle ?? null }),
   listDongles: () => call<Dongle[]>("list_dongles"),
   dongleDfu: (serial: string) => call<void>("dongle_dfu", { serial }),
   dongleReboot: (serial: string) => call<void>("dongle_reboot", { serial }),
@@ -210,9 +221,9 @@ export const exportSeenCsv = () => saveCsv("export_seen_csv", "restorekit-device
 
 function browserMock(cmd: string): Promise<unknown> {
   const devices: Device[] = [
-    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", serial_number: null, restorable: true, port: { dfu: true, location: "left-back" }, driver_ready: true },
-    { mode: "recovery", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: false, location: "right" }, driver_ready: true },
-    { mode: "other", name: "Apple device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", serial_number: null, restorable: false, port: null, driver_ready: true },
+    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", serial_number: null, restorable: true, port: { dfu: true, location: "left-back" }, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: true },
+    { mode: "booted", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: true, location: "left-back" }, driver_ready: true, connection: "dongle", via_dongle: "DPL-1A2B3C4D", host_dfu_capable: false },
+    { mode: "other", name: "Apple device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", serial_number: null, restorable: false, port: null, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: false },
   ];
   const history: HistoryEntry[] = [
     { serial_number: "C02XX1234567", ecid: "0x77aa22bb44cc", model_identifier: "Mac14,2", name: "MacBook Air (M2, 2022)", mode: "recovery", status: "captured", timestamp_rfc3339: "2026-07-07T15:04:00.000Z" },
