@@ -69,10 +69,12 @@ pub fn run(json: bool) -> Result<()> {
             .unwrap_or_default()
             .into_iter()
             .map(|d| {
+                // `targets` is an array: current dongles drive one target, but
+                // multi-port models (RecoverKit Pro) will drive several.
                 json!({
                     "serial": d.serial,
                     "product": d.product,
-                    "target": d.attached_device().ok().flatten(),
+                    "targets": d.attached_device().ok().flatten().into_iter().collect::<Vec<_>>(),
                 })
             })
             .collect();
