@@ -44,6 +44,11 @@ pub const VENDOR_CLASS: u8 = 0xFF;
 pub const VREQ_CMD: u8 = 0x01;
 /// Control IN: read the status struct.
 pub const VREQ_STATUS: u8 = 0x02;
+/// Control IN: the firmware version as a UTF-8 string (the firmware crate's
+/// `CARGO_PKG_VERSION`), at most [`FW_VERSION_MAX_LEN`] bytes.
+pub const VREQ_VERSION: u8 = 0x03;
+/// Longest firmware version string a host needs to request.
+pub const FW_VERSION_MAX_LEN: usize = 32;
 
 // Command codes carried in wValue on `VREQ_CMD`.
 pub const VCMD_NOP: u16 = 0;
@@ -78,9 +83,6 @@ pub const RES_NONE: u8 = 0;
 pub const RES_PENDING: u8 = 1;
 pub const RES_OK: u8 = 2;
 pub const RES_NOTARGET: u8 = 3;
-/// Reserved; emitted only by old firmware. Apple action VDMs don't return a
-/// GoodCRC, so absence of one is no longer treated as a failure.
-pub const RES_NOACK: u8 = 4;
 
 // Firmware update over the vendor interface (no bootrom, no RPI-RP2 drive).
 // The dongle runs behind an embassy-boot bootloader with A/B slots: the host
@@ -103,36 +105,6 @@ pub const VREQ_FW_DONE: u8 = 0x12;
 /// Update chunk size: one RP2040 flash erase sector.
 pub const FW_CHUNK: usize = 4096;
 
-/// Pack a `MAJOR.MINOR.PATCH` firmware version into the USB `bcdDevice`
-/// field, so hosts can read the version without opening the device. Layout:
-/// major in the high byte, minor and patch in one nibble each — so minor and
-/// patch must stay ≤ 15 (bump the major instead of running past it).
-pub const fn encode_bcd_version(v: &str) -> u16 {
-    let b = v.as_bytes();
-    let mut parts = [0u16; 3];
-    let mut part = 0;
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'.' {
-            part += 1;
-        } else {
-            parts[part] = parts[part] * 10 + (b[i] - b'0') as u16;
-        }
-        i += 1;
-    }
-    assert!(parts[0] <= 0xFF && parts[1] <= 0xF && parts[2] <= 0xF);
-    (parts[0] << 8) | (parts[1] << 4) | parts[2]
-}
-
-/// The inverse of [`encode_bcd_version`]: `(major, minor, patch)`.
-pub const fn decode_bcd_version(bcd: u16) -> (u8, u8, u8) {
-    (
-        (bcd >> 8) as u8,
-        ((bcd >> 4) & 0xF) as u8,
-        (bcd & 0xF) as u8,
-    )
-}
-
 /// CRC-32 (IEEE 802.3, the zlib/`crc32fast` polynomial), used to verify a
 /// streamed firmware image. Bitwise and dependency-free so the dongle and the
 /// host compute it from the same code.
@@ -151,13 +123,6 @@ pub fn crc32(data: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn bcd_version_roundtrip() {
-        assert_eq!(decode_bcd_version(encode_bcd_version("0.1.0")), (0, 1, 0));
-        assert_eq!(decode_bcd_version(encode_bcd_version("2.15.9")), (2, 15, 9));
-        assert_eq!(decode_bcd_version(encode_bcd_version("99.0.3")), (99, 0, 3));
-    }
 
     #[test]
     fn crc32_matches_ieee() {

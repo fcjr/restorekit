@@ -68,6 +68,7 @@ use restorekit_dongle_proto::{
     crc32, FLAG_POLARITY_CC2, FLAG_TARGET_ATTACHED, FW_CHUNK, RES_NONE, RES_NOTARGET, RES_OK,
     RES_PENDING, STATUS_LEN, STATUS_VERSION, VCMD_BOOTSEL, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP,
     VCMD_REBOOT, VCMD_SERIAL, VREQ_CMD, VREQ_FW_BEGIN, VREQ_FW_DATA, VREQ_FW_DONE, VREQ_STATUS,
+    VREQ_VERSION,
 };
 
 use fusb302::*;
@@ -346,16 +347,23 @@ impl Handler for VendorHandler {
         if !self.is_ours(&req) {
             return None;
         }
-        if req.request != VREQ_STATUS {
-            return Some(InResponse::Rejected);
+        match req.request {
+            VREQ_STATUS => {
+                // Status struct: [version, pd_state, flags, last_result, seq].
+                buf[0] = STATUS_VERSION;
+                buf[1] = VENDOR_STATE.load(Ordering::Relaxed);
+                buf[2] = VENDOR_FLAGS.load(Ordering::Relaxed);
+                buf[3] = VENDOR_RESULT.load(Ordering::Relaxed);
+                buf[4] = VENDOR_SEQ.load(Ordering::Relaxed);
+                Some(InResponse::Accepted(&buf[..STATUS_LEN]))
+            }
+            VREQ_VERSION => {
+                let v = env!("CARGO_PKG_VERSION").as_bytes();
+                buf[..v.len()].copy_from_slice(v);
+                Some(InResponse::Accepted(&buf[..v.len()]))
+            }
+            _ => Some(InResponse::Rejected),
         }
-        // Status struct: [version, pd_state, flags, last_result, seq].
-        buf[0] = STATUS_VERSION;
-        buf[1] = VENDOR_STATE.load(Ordering::Relaxed);
-        buf[2] = VENDOR_FLAGS.load(Ordering::Relaxed);
-        buf[3] = VENDOR_RESULT.load(Ordering::Relaxed);
-        buf[4] = VENDOR_SEQ.load(Ordering::Relaxed);
-        Some(InResponse::Accepted(&buf[..STATUS_LEN]))
     }
 }
 
@@ -421,9 +429,6 @@ async fn main(_spawner: Spawner) {
     config.manufacturer = Some(proto::MANUFACTURER);
     config.product = Some(proto::PRODUCT_LITE);
     config.serial_number = Some(serial);
-    // bcdDevice carries this crate's version so hosts can read the firmware
-    // version without opening the device (see proto::decode_bcd_version).
-    config.device_release = proto::encode_bcd_version(env!("CARGO_PKG_VERSION"));
     config.max_power = 250;
     config.max_packet_size_0 = 64;
     // Composite device with IADs.

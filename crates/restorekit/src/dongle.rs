@@ -198,8 +198,6 @@ pub struct Dongle {
     pub product: String,
     /// Which RecoverKit model this is, derived from the product string.
     pub model: DongleModel,
-    /// Firmware version, e.g. `0.1.0`, from the USB bcdDevice field.
-    pub fw_version: String,
     /// USB bus this dongle is on (used to correlate a Mac to its dongle).
     #[serde(skip)]
     bus_id: String,
@@ -300,12 +298,10 @@ pub fn list() -> Result<Vec<Dongle>> {
         else {
             continue;
         };
-        let (major, minor, patch) = proto::decode_bcd_version(info.device_version());
         out.push(Dongle {
             serial: info.serial_number().unwrap_or("").to_string(),
             product: product.to_string(),
             model,
-            fw_version: format!("{major}.{minor}.{patch}"),
             bus_id: info.bus_id().to_string(),
             port_chain: info.port_chain().to_vec(),
             vendor_iface,
@@ -512,6 +508,11 @@ impl Dongle {
         self.open()?.bootsel()
     }
 
+    /// The firmware version the dongle reports, e.g. `0.1.0`.
+    pub fn fw_version(&self) -> Result<String> {
+        self.open()?.fw_version()
+    }
+
     /// The Apple device currently cabled to this dongle and USB-visible on this
     /// host (in DFU or any mode), matched by USB topology — the forward of
     /// [`find_for_ecid`]. `None` if the target's USB data isn't routed to this
@@ -662,22 +663,32 @@ impl DongleHandle {
 
     /// Read a live status snapshot.
     pub fn status(&self) -> Result<DongleStatus> {
-        let buf = self
-            .iface
+        let buf = self.vendor_in(proto::VREQ_STATUS, proto::STATUS_LEN as u16)?;
+        DongleStatus::parse(&buf)
+    }
+
+    /// The firmware version the dongle reports, e.g. `0.1.0`.
+    pub fn fw_version(&self) -> Result<String> {
+        let buf = self.vendor_in(proto::VREQ_VERSION, proto::FW_VERSION_MAX_LEN as u16)?;
+        String::from_utf8(buf).map_err(|_| Error::Dongle("firmware version is not UTF-8".into()))
+    }
+
+    /// Vendor control IN from the dongle's interface.
+    fn vendor_in(&self, request: u8, length: u16) -> Result<Vec<u8>> {
+        self.iface
             .control_in(
                 ControlIn {
                     control_type: ControlType::Vendor,
                     recipient: Recipient::Interface,
-                    request: proto::VREQ_STATUS,
+                    request,
                     value: 0,
                     index: self.iface_num as u16,
-                    length: 8,
+                    length,
                 },
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(|e| Error::Dongle(e.to_string()))?;
-        DongleStatus::parse(&buf)
+            .map_err(|e| Error::Dongle(e.to_string()))
     }
 
     /// Send a command and block until the firmware reports its outcome.
@@ -692,11 +703,6 @@ impl DongleHandle {
                 proto::RES_PENDING => {}
                 proto::RES_OK => return Ok(()),
                 proto::RES_NOTARGET => return Err(Error::DongleNoTarget),
-                // Older firmware may still report no-ack; newer treats action
-                // VDMs as fire-and-forget (no GoodCRC is expected).
-                proto::RES_NOACK => {
-                    return Err(Error::Dongle(format!("{name}: target did not acknowledge")))
-                }
                 _ => {}
             }
             if Instant::now() >= deadline {
