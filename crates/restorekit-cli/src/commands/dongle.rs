@@ -1,12 +1,16 @@
 use restorekit::dongle::{self, DongleTarget};
 use restorekit::Result;
 
-/// `restorekit dongle list`
-pub fn list(json: bool) -> Result<()> {
-    let dongles = dongle::list()?;
+/// `restorekit dongle list [ID]` — every connected dongle in full detail, or
+/// just the one selected.
+pub fn list(json: bool, target: Option<DongleTarget>) -> Result<()> {
+    let dongles = match target {
+        Some(t) => vec![dongle::find(t)?],
+        None => dongle::list()?,
+    };
 
     if json {
-        // Enrich each dongle with a best-effort live status for machine callers.
+        // Enrich each dongle with best-effort live detail for machine callers.
         let rows: Vec<_> = dongles
             .iter()
             .map(|d| {
@@ -16,6 +20,7 @@ pub fn list(json: bool) -> Result<()> {
                     "model": d.model,
                     "fw_version": d.fw_version().ok(),
                     "status": d.status().ok(),
+                    "target": d.attached_device().ok().flatten(),
                 })
             })
             .collect();
@@ -28,70 +33,33 @@ pub fn list(json: bool) -> Result<()> {
         return Ok(());
     }
 
-    println!(
-        "Found {} dongle{}:\n",
-        dongles.len(),
-        if dongles.len() == 1 { "" } else { "s" }
-    );
     for d in &dongles {
         let fw = d.fw_version().unwrap_or_else(|_| "?".into());
-        println!("  {} ({}, fw {})", d.serial, d.product, fw);
+        println!("{} ({}, fw {})", d.serial, d.product, fw);
         match d.status() {
-            Ok(s) if s.target_attached => {
-                let orient = if s.polarity_cc2 { "flipped" } else { "normal" };
-                println!("    target attached ({:?}, cable {orient})", s.pd_state);
+            Ok(s) => {
+                println!("  pd state: {:?}", s.pd_state);
+                if s.target_attached {
+                    let target = match d.attached_device().ok().flatten() {
+                        Some(dev) => format!("{} [{} mode]", dev.display_name(), dev.mode),
+                        None => "attached (its USB isn't visible to this host)".into(),
+                    };
+                    println!("  target: {target}");
+                    println!(
+                        "  cable orientation: {}",
+                        if s.polarity_cc2 {
+                            "CC2 (flipped)"
+                        } else {
+                            "CC1 (normal)"
+                        }
+                    );
+                } else {
+                    println!("  target: none");
+                }
             }
-            Ok(_) => println!("    no target Mac attached"),
-            Err(e) => println!("    (status unavailable: {e})"),
+            Err(e) => println!("  (status unavailable: {e})"),
         }
         println!();
-    }
-    Ok(())
-}
-
-/// `restorekit dongle status`
-pub fn status(json: bool, target: DongleTarget) -> Result<()> {
-    let d = dongle::find(target)?;
-    let s = d.status()?;
-    let dev = d.attached_device().ok().flatten();
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "serial": d.serial,
-                "fw_version": d.fw_version().ok(),
-                "status": s,
-                "target": dev,
-            })
-        );
-        return Ok(());
-    }
-
-    println!("{} ({})", d.serial, d.product);
-    println!(
-        "  firmware: {}",
-        d.fw_version().unwrap_or_else(|_| "?".into())
-    );
-    println!("  pd state: {:?}", s.pd_state);
-    let target_line = if !s.target_attached {
-        "none".to_string()
-    } else {
-        match &dev {
-            Some(dev) => format!("{} [{} mode]", dev.display_name(), dev.mode),
-            None => "attached (its USB isn't visible to this host)".into(),
-        }
-    };
-    println!("  target: {target_line}");
-    if s.target_attached {
-        println!(
-            "  cable orientation: {}",
-            if s.polarity_cc2 {
-                "CC2 (flipped)"
-            } else {
-                "CC1 (normal)"
-            }
-        );
     }
     Ok(())
 }
