@@ -76,7 +76,9 @@ enum Command {
         action: HistoryAction,
     },
     /// Generate shell completions on stdout (e.g. `restorekit completions
-    /// zsh > "${fpath[1]}/_restorekit"`).
+    /// zsh > "${fpath[1]}/_restorekit"`). Hidden: the packaged installs
+    /// (brew, tarball) ship these pre-generated.
+    #[command(hide = true)]
     Completions {
         /// The shell to generate completions for.
         shell: clap_complete::Shell,
