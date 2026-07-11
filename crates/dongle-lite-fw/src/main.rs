@@ -161,8 +161,10 @@ extern "C" {
 // NoopRawMutex: flash is only ever touched from the single thread-mode
 // executor (UID read at startup, updater calls from the USB task).
 type AppFlash = Flash<'static, embassy_rp::peripherals::FLASH, Blocking, FLASH_SIZE>;
-type FlashMutex =
-    embassy_sync::blocking_mutex::Mutex<embassy_sync::blocking_mutex::raw::NoopRawMutex, RefCell<AppFlash>>;
+type FlashMutex = embassy_sync::blocking_mutex::Mutex<
+    embassy_sync::blocking_mutex::raw::NoopRawMutex,
+    RefCell<AppFlash>,
+>;
 type FlashPartition =
     BlockingPartition<'static, embassy_sync::blocking_mutex::raw::NoopRawMutex, AppFlash>;
 type Updater = BlockingFirmwareUpdater<'static, FlashPartition, FlashPartition>;
@@ -244,7 +246,10 @@ impl VendorHandler {
 
     /// Start a streamed firmware update: data = image size (u32 LE).
     fn fw_begin(&mut self, data: &[u8]) -> Option<OutResponse> {
-        let Some(size) = data.get(..4).map(|b| u32::from_le_bytes(b.try_into().unwrap())) else {
+        let Some(size) = data
+            .get(..4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        else {
             return self.fw_abort();
         };
         if size == 0 || size > self.dfu_len {
@@ -279,15 +284,19 @@ impl VendorHandler {
 
     /// Verify the staged image (data = CRC-32 LE), mark it, and reboot.
     fn fw_done(&mut self, data: &[u8]) -> Option<OutResponse> {
-        let Some(crc) = data.get(..4).map(|b| u32::from_le_bytes(b.try_into().unwrap())) else {
+        let Some(crc) = data
+            .get(..4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        else {
             return self.fw_abort();
         };
         if self.fw_size == 0 || self.fw_staged < self.fw_size {
             return self.fw_abort();
         }
         // The DFU slot is memory-mapped; read it back straight from XIP.
-        let staged =
-            unsafe { core::slice::from_raw_parts(self.dfu_addr as *const u8, self.fw_size as usize) };
+        let staged = unsafe {
+            core::slice::from_raw_parts(self.dfu_addr as *const u8, self.fw_size as usize)
+        };
         if crc32(staged) != crc {
             logline!("err update: CRC mismatch, not applying");
             return self.fw_abort();
