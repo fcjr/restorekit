@@ -64,11 +64,11 @@ If you are on windows, next run `restorekit setup-driver` to install our custom 
 Then run:
 
 ```sh
-sudo restorekit restore
+sudo restorekit erase
 # or by eid
-sudo restorekit restore --ecid 0xc60a812345678 
+sudo restorekit erase --ecid 0xc60a812345678 
 # or with no prompts
-sudo restorekit restore --yes
+sudo restorekit erase --yes
 
 # or use it to just enable dfu (macOS Only):
 sudo restorekit dfu

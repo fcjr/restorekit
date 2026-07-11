@@ -314,20 +314,45 @@ pub fn list() -> Result<Vec<Dongle>> {
 /// [`device::find`](crate::device::find).
 pub fn find(target: DongleTarget) -> Result<Dongle> {
     match target {
-        DongleTarget::Id(id) => list()?
-            .into_iter()
-            .find(|d| d.serial == id)
-            .ok_or(Error::NoDongle),
+        DongleTarget::Id(id) => select_by_id(list()?, &id),
         DongleTarget::Ecid(ecid) => find_for_ecid(ecid),
         DongleTarget::Auto => {
             let mut ds = list()?;
             match ds.len() {
                 0 => Err(Error::NoDongle),
                 1 => Ok(ds.remove(0)),
-                n => Err(Error::MultipleDongles(n)),
+                _ => Err(Error::MultipleDongles(serials(&ds))),
             }
         }
     }
+}
+
+/// Pick a dongle by serial: an exact match wins, otherwise any unambiguous
+/// case-insensitive fragment of it (`5f41` for `DL-5F417536`).
+fn select_by_id(ds: Vec<Dongle>, id: &str) -> Result<Dongle> {
+    if let Some(i) = ds.iter().position(|d| d.serial.eq_ignore_ascii_case(id)) {
+        let mut ds = ds;
+        return Ok(ds.swap_remove(i));
+    }
+    let needle = id.to_ascii_lowercase();
+    let mut matches: Vec<Dongle> = ds
+        .into_iter()
+        .filter(|d| d.serial.to_ascii_lowercase().contains(&needle))
+        .collect();
+    match matches.len() {
+        0 => Err(Error::Dongle(format!(
+            "no dongle matching '{id}' (see `restorekit dongle list`)"
+        ))),
+        1 => Ok(matches.remove(0)),
+        _ => Err(Error::MultipleDongles(serials(&matches))),
+    }
+}
+
+fn serials(ds: &[Dongle]) -> String {
+    ds.iter()
+        .map(|d| d.serial.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Block until a dongle matching `target` is connected, or `timeout` elapses.
@@ -712,5 +737,48 @@ impl DongleHandle {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dongle(serial: &str) -> Dongle {
+        Dongle {
+            serial: serial.into(),
+            product: proto::PRODUCT_LITE.into(),
+            model: DongleModel::Lite,
+            bus_id: String::new(),
+            port_chain: Vec::new(),
+            vendor_iface: 0,
+        }
+    }
+
+    #[test]
+    fn select_by_id_matches_fragments() {
+        let ds = || vec![dongle("DL-5F417536"), dongle("DL-AA00BB11")];
+        // Exact, case-insensitive exact, unique fragment.
+        assert_eq!(
+            select_by_id(ds(), "DL-5F417536").unwrap().serial,
+            "DL-5F417536"
+        );
+        assert_eq!(
+            select_by_id(ds(), "dl-aa00bb11").unwrap().serial,
+            "DL-AA00BB11"
+        );
+        assert_eq!(select_by_id(ds(), "5f41").unwrap().serial, "DL-5F417536");
+        // Ambiguous fragment lists the candidates; no match names the id.
+        match select_by_id(ds(), "DL-") {
+            Err(Error::MultipleDongles(s)) => {
+                assert!(s.contains("DL-5F417536") && s.contains("DL-AA00BB11"))
+            }
+            other => panic!("expected MultipleDongles, got {other:?}"),
+        }
+        assert!(select_by_id(ds(), "zzz").is_err());
+        // An exact serial that is also a fragment of another must win.
+        let mut ds2 = ds();
+        ds2.push(dongle("DL-5F41"));
+        assert_eq!(select_by_id(ds2, "DL-5F41").unwrap().serial, "DL-5F41");
     }
 }
