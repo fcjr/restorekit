@@ -1,5 +1,6 @@
 # Standalone crate: this is a bare-metal thumbv6m target, kept out of the
-# host-side restorekit workspace.
+# host-side restorekit workspace (see `exclude` in the root Cargo.toml). It
+# shares the USB wire protocol with the SDK via restorekit-dongle-proto.
 [workspace]
 
 [package]
@@ -16,6 +17,8 @@ test = false
 bench = false
 
 [dependencies]
+restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }
+
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }

@@ -37,10 +37,12 @@ pub enum Error {
     #[error("VDM error: {0}")]
     Vdm(String),
 
-    #[error("no Dongle-Proto-Lite found")]
+    #[error("no RecoverKit dongle found")]
     NoDongle,
 
-    #[error("multiple dongles found ({0}); select one with --dongle (see `restorekit dongle list`)")]
+    #[error(
+        "multiple dongles found ({0}); select one with --dongle (see `restorekit dongle list`)"
+    )]
     MultipleDongles(usize),
 
     #[error("no target Mac is attached to the dongle")]

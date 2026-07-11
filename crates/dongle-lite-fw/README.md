@@ -76,6 +76,9 @@ PD signaling. GP19 drives the enable of a proper load switch on the real board.
 
 ## Build & flash
 
+Shortcut: `just fw-build` / `just fw-flash` from the repo root do everything
+below (flash includes the `bootsel` kick for a running dongle).
+
 Prereqs (already handled if you set up the repo toolchain):
 
 ```

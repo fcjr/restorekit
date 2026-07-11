@@ -58,6 +58,15 @@ use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
+// The USB contract shared with the host SDK (`restorekit::dongle`): VID/PID,
+// string descriptors, and the vendor control protocol.
+use restorekit_dongle_proto as proto;
+use restorekit_dongle_proto::{
+    FLAG_POLARITY_CC2, FLAG_TARGET_ATTACHED, RES_NONE, RES_NOTARGET, RES_OK, RES_PENDING,
+    STATUS_LEN, STATUS_VERSION, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP, VCMD_REBOOT, VCMD_SERIAL,
+    VREQ_CMD, VREQ_STATUS,
+};
+
 use fusb302::*;
 
 bind_interrupts!(struct Irqs {
@@ -121,33 +130,13 @@ const DIR_FROM_TARGET: Level = Level::Low;
 // into the same command path. ---
 const FLASH_SIZE: usize = 2 * 1024 * 1024; // Pico: 2 MiB QSPI flash.
 
-// bRequest values (vendor, interface recipient).
-const VREQ_CMD: u8 = 0x01; // control OUT: wValue = command code below.
-const VREQ_STATUS: u8 = 0x02; // control IN: returns the status struct.
+// The VREQ_*/VCMD_*/RES_*/FLAG_* wire constants live in the shared
+// restorekit-dongle-proto crate (imported above).
 
 // Vendor code (device recipient) Windows uses to fetch the MS OS 2.0 descriptor
 // that auto-binds WinUSB to the vendor interface. Distinct recipient from the
-// VREQ_* interface requests above, so no collision.
+// VREQ_* interface requests, so no collision.
 const MSOS_VENDOR_CODE: u8 = 0x17;
-
-// Command codes carried in wValue on VREQ_CMD.
-const VCMD_NOP: u16 = 0;
-const VCMD_DFU: u16 = 1;
-const VCMD_REBOOT: u16 = 2;
-const VCMD_SERIAL: u16 = 3;
-const VCMD_DEBUGUSB: u16 = 4;
-
-// Result codes reported in the status struct.
-const RES_NONE: u8 = 0;
-const RES_PENDING: u8 = 1;
-const RES_OK: u8 = 2;
-const RES_NOTARGET: u8 = 3;
-// Note: code 4 (no-ack) is reserved in the protocol but no longer emitted —
-// Apple action VDMs don't return a GoodCRC, so absence of one isn't a failure.
-
-// Status flag bits.
-const FLAG_TARGET_ATTACHED: u8 = 1 << 0;
-const FLAG_POLARITY_CC2: u8 = 1 << 1;
 
 // Published by the PD engine, read by the vendor STATUS control-IN handler.
 static VENDOR_STATE: AtomicU8 = AtomicU8::new(0);
@@ -244,13 +233,13 @@ impl Handler for VendorHandler {
         if req.request != VREQ_STATUS {
             return Some(InResponse::Rejected);
         }
-        // 5-byte status: [version, pd_state, flags, last_result, seq].
-        buf[0] = 1;
+        // Status struct: [version, pd_state, flags, last_result, seq].
+        buf[0] = STATUS_VERSION;
         buf[1] = VENDOR_STATE.load(Ordering::Relaxed);
         buf[2] = VENDOR_FLAGS.load(Ordering::Relaxed);
         buf[3] = VENDOR_RESULT.load(Ordering::Relaxed);
         buf[4] = VENDOR_SEQ.load(Ordering::Relaxed);
-        Some(InResponse::Accepted(&buf[..5]))
+        Some(InResponse::Accepted(&buf[..STATUS_LEN]))
     }
 }
 
@@ -272,7 +261,8 @@ async fn main(_spawner: Spawner) {
         let s = SERIAL.init(String::new());
         let _ = core::write!(
             s,
-            "DPL-{:02X}{:02X}{:02X}{:02X}",
+            "{}{:02X}{:02X}{:02X}{:02X}",
+            proto::SERIAL_PREFIX_PROTO_LITE,
             uid[4],
             uid[5],
             uid[6],
@@ -281,10 +271,12 @@ async fn main(_spawner: Spawner) {
         s.as_str()
     };
 
-    // pid.codes 1209:5AFC — RecoverKit Dongle Proto Lite.
-    let mut config = Config::new(0x1209, 0x5afc);
-    config.manufacturer = Some("RecoverKit");
-    config.product = Some("Dongle-Proto-Lite");
+    // RecoverKit's VID/PID (16D0:14F0, assigned via MCS Electronics). Every
+    // RecoverKit model shares it; the host tells models apart by the iProduct
+    // string (see DongleModel in the SDK's dongle.rs).
+    let mut config = Config::new(proto::VID, proto::PID);
+    config.manufacturer = Some(proto::MANUFACTURER);
+    config.product = Some(proto::PRODUCT_PROTO_LITE);
     config.serial_number = Some(serial);
     config.max_power = 250;
     config.max_packet_size_0 = 64;
@@ -543,11 +535,11 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
     /// Publish the current PD state + flags for the vendor STATUS request.
     fn publish_status(&self) {
         let st = match self.state {
-            PdState::Disconnected => 0,
-            PdState::DfpVbusOn => 1,
-            PdState::DfpConnected => 2,
-            PdState::DfpAccept => 3,
-            PdState::Idle => 4,
+            PdState::Disconnected => proto::PD_DISCONNECTED,
+            PdState::DfpVbusOn => proto::PD_VBUS_ON,
+            PdState::DfpConnected => proto::PD_CONNECTED,
+            PdState::DfpAccept => proto::PD_ACCEPT,
+            PdState::Idle => proto::PD_IDLE,
         };
         VENDOR_STATE.store(st, Ordering::Relaxed);
         let mut flags = 0u8;
