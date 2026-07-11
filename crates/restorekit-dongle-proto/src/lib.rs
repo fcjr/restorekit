@@ -81,3 +81,39 @@ pub const RES_NOTARGET: u8 = 3;
 /// Reserved; emitted only by old firmware. Apple action VDMs don't return a
 /// GoodCRC, so absence of one is no longer treated as a failure.
 pub const RES_NOACK: u8 = 4;
+
+// Firmware update over the vendor interface (no bootrom, no RPI-RP2 drive).
+// The dongle runs behind an embassy-boot bootloader with A/B slots: the host
+// streams the new image into the inactive slot, the dongle verifies its CRC,
+// marks it for swap, and reboots; the bootloader swaps power-fail-safely and
+// reverts unless the new firmware boots far enough to mark itself healthy.
+//
+// Flow: FW_BEGIN (image size) -> FW_DATA x N (sequential [`FW_CHUNK`]-sized
+// chunks, the last one padded with 0xFF) -> FW_DONE (CRC-32 of the unpadded
+// image). Each request completes only once its bytes are in flash, so the
+// transfer is self-flow-controlled. A rejected request aborts the update.
+/// Control OUT: start an update; data = image size in bytes (u32 LE).
+pub const VREQ_FW_BEGIN: u8 = 0x10;
+/// Control OUT: one image chunk; wValue = chunk index (sequential from 0),
+/// data = exactly [`FW_CHUNK`] bytes.
+pub const VREQ_FW_DATA: u8 = 0x11;
+/// Control OUT: finish; data = CRC-32 (u32 LE, [`crc32`]) of the image. On
+/// success the dongle marks the update and reboots into the new firmware.
+pub const VREQ_FW_DONE: u8 = 0x12;
+/// Update chunk size: one RP2040 flash erase sector.
+pub const FW_CHUNK: usize = 4096;
+
+/// CRC-32 (IEEE 802.3, the zlib/`crc32fast` polynomial), used to verify a
+/// streamed firmware image. Bitwise and dependency-free so the dongle and the
+/// host compute it from the same code.
+pub fn crc32(data: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}

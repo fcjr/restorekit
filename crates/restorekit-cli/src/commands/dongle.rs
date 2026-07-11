@@ -97,3 +97,55 @@ pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
     }
     Ok(())
 }
+
+/// `restorekit dongle update <image.bin>` — stream new firmware over the
+/// vendor interface (no bootloader mode, no RPI-RP2 drive).
+pub fn update(json: bool, target: DongleTarget, file: &std::path::Path) -> Result<()> {
+    let image = std::fs::read(file)?;
+    let d = dongle::find(target)?;
+    if !json {
+        println!(
+            "Updating {} with {} ({} KiB)...",
+            d.serial,
+            file.display(),
+            image.len().div_ceil(1024)
+        );
+    }
+    d.open()?.update(&image, |staged, total| {
+        if !json {
+            print!("\r  staging: {}%", staged * 100 / total);
+            use std::io::Write as _;
+            let _ = std::io::stdout().flush();
+        }
+    })?;
+    if !json {
+        println!("\r  staged and verified; the dongle is rebooting to swap it in.");
+    }
+
+    // The swap takes a moment; report when it's back on the bus.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let back = loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if dongle::list()?.iter().any(|x| x.serial == d.serial) {
+            break true;
+        }
+        if std::time::Instant::now() >= deadline {
+            break false;
+        }
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "serial": d.serial, "updated": true, "reenumerated": back })
+        );
+    } else if back {
+        println!("{} is back on the new firmware.", d.serial);
+    } else {
+        println!(
+            "{} did not re-enumerate within 20s — check the board; the bootloader \
+             reverts to the old firmware if the new one fails to boot.",
+            d.serial
+        );
+    }
+    Ok(())
+}

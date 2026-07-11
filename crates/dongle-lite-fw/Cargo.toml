@@ -19,6 +19,8 @@ bench = false
 [dependencies]
 restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }
 
+embassy-boot-rp = "0.10.0"
+embassy-embedded-hal = "0.6.0"
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }
