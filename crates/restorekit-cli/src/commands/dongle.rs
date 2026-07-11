@@ -14,7 +14,7 @@ pub fn list(json: bool) -> Result<()> {
                     "serial": d.serial,
                     "product": d.product,
                     "model": d.model,
-                    "fw_version": d.fw_version,
+                    "fw_version": d.fw_version().ok(),
                     "status": d.status().ok(),
                 })
             })
@@ -34,7 +34,8 @@ pub fn list(json: bool) -> Result<()> {
         if dongles.len() == 1 { "" } else { "s" }
     );
     for d in &dongles {
-        println!("  {} ({}, fw {})", d.serial, d.product, d.fw_version);
+        let fw = d.fw_version().unwrap_or_else(|_| "?".into());
+        println!("  {} ({}, fw {})", d.serial, d.product, fw);
         match d.status() {
             Ok(s) if s.target_attached => {
                 let orient = if s.polarity_cc2 { "flipped" } else { "normal" };
@@ -59,7 +60,10 @@ pub fn status(json: bool, target: DongleTarget) -> Result<()> {
     }
 
     println!("{} ({})", d.serial, d.product);
-    println!("  firmware: {}", d.fw_version);
+    println!(
+        "  firmware: {}",
+        d.fw_version().unwrap_or_else(|_| "?".into())
+    );
     println!("  pd state: {:?}", s.pd_state);
     println!(
         "  target: {}",
@@ -106,13 +110,18 @@ pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
 /// file, install the latest published release if it's newer.
 pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) -> Result<()> {
     let d = dongle::find(target)?;
+    let handle = d.open()?;
+    // Informational only — a version that can't be read (e.g. firmware too
+    // broken to answer) must never block the update that would fix it; the
+    // release check treats an unknown version as out of date.
+    let current = handle.fw_version().unwrap_or_else(|_| "unknown".into());
     let image = match file {
         Some(path) => {
             if !json {
                 println!(
                     "Updating {} (fw {}) with {}...",
                     d.serial,
-                    d.fw_version,
+                    current,
                     path.display()
                 );
             }
@@ -123,23 +132,23 @@ pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) 
                 if json {
                     println!(
                         "{}",
-                        serde_json::json!({ "serial": d.serial, "fw_version": d.fw_version, "updated": false, "error": "no published firmware releases" })
+                        serde_json::json!({ "serial": d.serial, "fw_version": current, "updated": false, "error": "no published firmware releases" })
                     );
                 } else {
                     println!("No published firmware releases for this model yet.");
                 }
                 return Ok(());
             };
-            if !release.newer_than(&d.fw_version) {
+            if !release.newer_than(&current) {
                 if json {
                     println!(
                         "{}",
-                        serde_json::json!({ "serial": d.serial, "fw_version": d.fw_version, "latest": release.version, "updated": false })
+                        serde_json::json!({ "serial": d.serial, "fw_version": current, "latest": release.version, "updated": false })
                     );
                 } else {
                     println!(
                         "{} firmware {} is up to date (latest release is {}).",
-                        d.serial, d.fw_version, release.version
+                        d.serial, current, release.version
                     );
                 }
                 return Ok(());
@@ -147,19 +156,22 @@ pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) 
             if !json {
                 println!(
                     "Updating {} from firmware {} to {} ({})...",
-                    d.serial, d.fw_version, release.version, release.tag
+                    d.serial, current, release.version, release.tag
                 );
             }
             release.download()?
         }
     };
-    d.open()?.update(&image, |staged, total| {
+    handle.update(&image, |staged, total| {
         if !json {
             print!("\r  staging: {}%", staged * 100 / total);
             use std::io::Write as _;
             let _ = std::io::stdout().flush();
         }
     })?;
+    // The claimed interface is stale once the dongle reboots; release it
+    // before polling for re-enumeration.
+    drop(handle);
     if !json {
         println!("\r  staged and verified; the dongle is rebooting to swap it in.");
     }
@@ -179,7 +191,7 @@ pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) 
     let new_version = dongle::list()?
         .into_iter()
         .find(|x| x.serial == d.serial)
-        .map(|x| x.fw_version);
+        .and_then(|x| x.fw_version().ok());
     if json {
         println!(
             "{}",
