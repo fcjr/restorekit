@@ -355,6 +355,12 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("dongle-lite M0 firmware boot");
 
+    // Boot beacon: LED on the moment the app is alive, off once the PD engine
+    // starts and takes the LED over. With no debug probe attached, a board
+    // stuck with the LED lit died between here and the engine (e.g. in the
+    // updater); one that never lights it never left the bootloader.
+    let led = Output::new(p.PIN_25, Level::High);
+
     // --- USB composite device: two CDC-ACM ports + a vendor interface. ---
     let driver = Driver::new(p.USB, Irqs);
 
@@ -473,10 +479,10 @@ async fn main(_spawner: Spawner) {
     let i2c = I2c::new_async(p.I2C0, scl, sda, Irqs, i2c_cfg);
     let fusb = Fusb302::new(i2c);
 
-    // FUSB302 INT (active low), target VBUS enable, status LED.
+    // FUSB302 INT (active low), target VBUS enable. The boot-beacon LED from
+    // the top of main is handed to the engine, which manages it from here on.
     let mut int = Input::new(p.PIN_20, Pull::Up);
     let vbus = Output::new(p.PIN_19, Level::Low);
-    let led = Output::new(p.PIN_25, Level::Low);
 
     // SBU level-translator control.
     let shifter_supply = Output::new(p.PIN_14, Level::Low);
