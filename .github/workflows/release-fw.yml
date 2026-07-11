@@ -62,7 +62,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#dongle-lite-fw-v}"
+          # --latest=false: the repo's "Latest" release must stay on the
+          # newest app/CLI release — the desktop updater fetches
+          # releases/latest/download/latest.json, and humans landing on
+          # /releases/latest expect the software, not dongle firmware.
           gh release create "$GITHUB_REF_NAME" \
+            --latest=false \
             --title "Dongle Lite firmware $version" \
             --notes "Install on a connected dongle with \`restorekit dongle update\`. \
           \`dongle-lite-full.uf2\` is the factory/recovery image (bootloader + app) for the RP2040 bootrom." \
