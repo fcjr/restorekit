@@ -72,15 +72,24 @@ fw-flash-full: fw-build
         crates/dongle-lite-boot/target/dongle-lite-boot.uf2 \
         crates/dongle-lite-fw/target/dongle-lite-fw.uf2 \
         crates/dongle-lite-fw/target/dongle-lite-full.uf2
-    mount=$({{wait_rpi_rp2}})
-    # The bootrom reboots the instant the last block lands, so on macOS cp can
-    # report an I/O error after the flash already completed — treat the drive
-    # vanishing as success.
-    if ! cp crates/dongle-lite-fw/target/dongle-lite-full.uf2 "$mount/" 2>/dev/null; then
-        sleep 2
-        if [ -d "$mount" ]; then
-            echo "error: copying the UF2 failed and the board did not reboot" >&2
-            exit 1
+    # Prefer picotool: it writes over PICOBOOT and verifies the readback,
+    # unlike the drive copy, which macOS corrupts often enough to matter
+    # (reordered writes to the FAT bootrom volume).
+    if command -v picotool > /dev/null; then
+        ( {{wait_rpi_rp2}} ) > /dev/null
+        picotool load -v -x crates/dongle-lite-fw/target/dongle-lite-full.uf2
+    else
+        echo "note: install picotool for verified flashing; falling back to the drive copy" >&2
+        mount=$({{wait_rpi_rp2}})
+        # The bootrom reboots the instant the last block lands, so on macOS cp
+        # can report an I/O error after the flash already completed — treat
+        # the drive vanishing as success.
+        if ! cp crates/dongle-lite-fw/target/dongle-lite-full.uf2 "$mount/" 2>/dev/null; then
+            sleep 2
+            if [ -d "$mount" ]; then
+                echo "error: copying the UF2 failed and the board did not reboot" >&2
+                exit 1
+            fi
         fi
     fi
     echo "flashed; waiting for the dongle to enumerate..."
