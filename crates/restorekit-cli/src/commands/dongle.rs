@@ -98,7 +98,7 @@ pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
     } else {
         println!(
             "{} is rebooting into its USB bootloader; push new firmware with \
-             picotool (or `just fw-flash-full`).",
+             picotool or by copying a UF2 onto the RPI-RP2 drive.",
             d.serial
         );
     }
@@ -115,10 +115,11 @@ pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) 
     // broken to answer) must never block the update that would fix it; the
     // release check treats an unknown version as out of date.
     let current = handle.fw_version().unwrap_or_else(|_| "unknown".into());
+    // Progress and narration go to stderr; stdout carries only the result.
     let image = match file {
         Some(path) => {
             if !json {
-                println!(
+                eprintln!(
                     "Updating {} (fw {}) with {}...",
                     d.serial,
                     current,
@@ -154,7 +155,7 @@ pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) 
                 return Ok(());
             }
             if !json {
-                println!(
+                eprintln!(
                     "Updating {} from firmware {} to {} ({})...",
                     d.serial, current, release.version, release.tag
                 );
@@ -164,16 +165,16 @@ pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) 
     };
     handle.update(&image, |staged, total| {
         if !json {
-            print!("\r  staging: {}%", staged * 100 / total);
+            eprint!("\r  staging: {}%", staged * 100 / total);
             use std::io::Write as _;
-            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
         }
     })?;
     // The claimed interface is stale once the dongle reboots; release it
     // before polling for re-enumeration.
     drop(handle);
     if !json {
-        println!("\r  staged and verified; the dongle is rebooting to swap it in.");
+        eprintln!("\r  staged and verified; the dongle is rebooting to swap it in.");
     }
 
     // The swap takes a moment; report when it's back on the bus.
@@ -203,12 +204,13 @@ pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) 
             d.serial,
             new_version.as_deref().unwrap_or("?")
         );
-    } else {
-        println!(
+    }
+    if !back {
+        return Err(restorekit::Error::Dongle(format!(
             "{} did not re-enumerate within 20s — check the board; the bootloader \
-             reverts to the old firmware if the new one fails to boot.",
+             reverts to the old firmware if the new one fails to boot",
             d.serial
-        );
+        )));
     }
     Ok(())
 }

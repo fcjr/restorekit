@@ -60,11 +60,12 @@ enum Command {
         #[arg(long)]
         path: bool,
     },
-    /// Inspect RecoverKit dongles (list, live status). Use the top-level `dfu` /
-    /// `reboot` with `--dongle` or `--ecid` to act on the cabled Mac.
+    /// Inspect and manage RecoverKit dongles; lists them when no subcommand
+    /// is given. Use the top-level `dfu` / `reboot` with `--dongle` or
+    /// `--ecid` to act on the cabled Mac.
     Dongle {
         #[command(subcommand)]
-        action: DongleAction,
+        action: Option<DongleAction>,
     },
     /// Show, export, or clear the capture/restore history.
     #[cfg(feature = "history")]
@@ -110,9 +111,12 @@ enum DongleAction {
     Status(DongleSelect),
     /// Reboot a dongle into its USB bootloader to update its firmware.
     Bootsel(DongleSelect),
-    /// Update a dongle's firmware over USB (a raw image staged to its spare
-    /// flash slot; no bootloader mode, no drive appears). With no --file, the
-    /// latest published firmware release is fetched and installed if newer.
+    /// Update a dongle's firmware over USB (no bootloader mode, no drive).
+    ///
+    /// The image is staged to the dongle's spare flash slot, verified, and
+    /// swapped in by its bootloader; an image that fails to boot is rolled
+    /// back. With no --file, the latest published firmware release is
+    /// fetched and installed if it's newer than what the dongle runs.
     Update {
         /// A raw firmware image (.bin) to install, instead of the latest
         /// published release.
@@ -129,9 +133,6 @@ struct DongleSelect {
     /// The dongle's id (USB serial, e.g. DL-1A2B3C4D). See
     /// `restorekit dongle list`.
     id: Option<String>,
-    /// Same as the positional id, for scripting symmetry with `dfu --dongle`.
-    #[arg(long, conflicts_with_all = ["ecid", "id"])]
-    dongle: Option<String>,
     /// Target the dongle the Mac with this ECID is cabled to (hex like
     /// 0xc60a812345678, or decimal), resolved by USB topology.
     #[arg(long, value_parser = parse_ecid, conflicts_with = "id")]
@@ -140,7 +141,7 @@ struct DongleSelect {
 
 impl DongleSelect {
     fn into_target(self) -> restorekit::DongleTarget {
-        match (self.id.or(self.dongle), self.ecid) {
+        match (self.id, self.ecid) {
             (Some(id), _) => restorekit::DongleTarget::Id(id),
             (_, Some(e)) => restorekit::DongleTarget::Ecid(e),
             _ => restorekit::DongleTarget::Auto,
@@ -278,7 +279,7 @@ fn main() {
             cli.verbose,
         )),
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
-        Command::Dongle { action } => match action {
+        Command::Dongle { action } => match action.unwrap_or(DongleAction::List) {
             DongleAction::List => commands::dongle::list(cli.json),
             DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
             DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
