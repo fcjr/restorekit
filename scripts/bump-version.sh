@@ -52,6 +52,8 @@ replace Cargo.toml \
   's/^version = "\Q$ENV{CUR}\E"$/version = "$ENV{NEW}"/'
 replace crates/restorekit/Cargo.toml \
   's/^(restorekit-sys = \{.*version = ")\Q$ENV{CUR}\E(")/$1$ENV{NEW}$2/'
+replace crates/restorekit/Cargo.toml \
+  's/^(restorekit-dongle-proto = \{.*version = ")\Q$ENV{CUR}\E(")/$1$ENV{NEW}$2/'
 replace crates/restorekit-cli/Cargo.toml \
   's/^(restorekit = \{.*version = ")\Q$ENV{CUR}\E(")/$1$ENV{NEW}$2/'
 replace apps/desktop/src-tauri/Cargo.toml \

@@ -1,0 +1,54 @@
+name: bump-release-fw
+
+# One-click dongle-firmware release from the Actions tab: bump the firmware
+# crate version, commit, tag dongle-lite-fw-vX.Y.Z, and push — the tag then
+# triggers release-fw.yml, which builds and publishes the update image that
+# `restorekit dongle update` installs. Runs with a GitHub App token because
+# pushes made with the default GITHUB_TOKEN don't trigger other workflows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: "Version bump type"
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+
+# Serialize workflows that commit to the repo.
+concurrency:
+  group: repo-commits
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "Frank Chiarulli Jr."
+          git config user.email "frank@frankchiarulli.com"
+
+      - name: Bump firmware version
+        id: bump
+        run: |
+          scripts/bump-fw-version.sh "${{ inputs.version_type }}"
+          version=$(perl -ne 'print $1 and exit if /^version = "([^"]+)"$/' crates/dongle-lite-fw/Cargo.toml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and push
+        run: |
+          git tag "dongle-lite-fw-v${{ steps.bump.outputs.version }}"
+          git push --no-verify origin HEAD "dongle-lite-fw-v${{ steps.bump.outputs.version }}"

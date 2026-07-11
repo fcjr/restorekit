@@ -25,6 +25,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           cargo publish -p restorekit-sys --no-verify
+          cargo publish -p restorekit-dongle-proto --no-verify
           cargo publish -p restorekit --no-verify
           cargo publish -p restorekit-cli --no-verify
 
