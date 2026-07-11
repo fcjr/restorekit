@@ -24,7 +24,7 @@ pub enum DfuVia {
     /// DFU port. The zero-config default.
     #[default]
     Auto,
-    /// A specific dongle by its id (USB serial, e.g. `DPL-1A2B3C4D`).
+    /// A specific dongle by its id (USB serial, e.g. `DL-1A2B3C4D`).
     Dongle(String),
     /// The Mac with this ECID — via the dongle it's cabled to if it's behind
     /// one (resolved by USB topology), otherwise the host's own port.

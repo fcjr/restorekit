@@ -10,7 +10,7 @@
 //!
 //! # Addressing
 //!
-//! Each dongle carries a unique USB serial (e.g. `DPL-1A2B3C4D`), used as its id.
+//! Each dongle carries a unique USB serial (e.g. `DL-1A2B3C4D`), used as its id.
 //! A Mac in DFU enumerates as a USB sibling of the dongle under the same hub, so
 //! [`find_for_ecid`] maps a Mac (by ECID) to the dongle it is plugged into via
 //! USB topology. [`find`] ties both together for callers.
@@ -47,7 +47,7 @@ pub const DONGLE_PID: u16 = proto::PID;
 
 /// Which RecoverKit device this is, derived from its USB iProduct string.
 ///
-/// Adding a new model (e.g. Dongle Lite, Dongle Pro, RecoverKit Pro):
+/// Adding a new model (e.g. Dongle Pro, RecoverKit Pro):
 /// 1. Add its iProduct string to `restorekit-dongle-proto` and set it in that
 ///    model's firmware (`config.product`), keeping the shared VID/PID.
 /// 2. Add a variant here and a match arm in [`DongleModel::from_product`].
@@ -57,16 +57,16 @@ pub const DONGLE_PID: u16 = proto::PID;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DongleModel {
-    /// `Dongle-Proto-Lite`
-    ProtoLite,
+    /// `Dongle-Lite`
+    Lite,
 }
 
 impl DongleModel {
-    /// Identify the model from a USB iProduct string, e.g.
-    /// `Dongle-Proto-Lite`. `None` if the string isn't one of ours.
+    /// Identify the model from a USB iProduct string, e.g. `Dongle-Lite`.
+    /// `None` if the string isn't one of ours.
     pub fn from_product(product: &str) -> Option<Self> {
         match product {
-            proto::PRODUCT_PROTO_LITE => Some(Self::ProtoLite),
+            proto::PRODUCT_LITE => Some(Self::Lite),
             _ => None,
         }
     }
@@ -84,9 +84,9 @@ const FW_DONE_TIMEOUT: Duration = Duration::from_secs(10);
 /// [`Dongle::dfu`] / [`Dongle::reboot`]) to act on the cabled Mac.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Dongle {
-    /// USB serial number, e.g. `DPL-1A2B3C4D`. The stable dongle id.
+    /// USB serial number, e.g. `DL-1A2B3C4D`. The stable dongle id.
     pub serial: String,
-    /// USB product string, e.g. `Dongle-Proto-Lite`.
+    /// USB product string, e.g. `Dongle-Lite`.
     pub product: String,
     /// Which RecoverKit model this is, derived from the product string.
     pub model: DongleModel,

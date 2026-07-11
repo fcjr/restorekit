@@ -1,8 +1,8 @@
-# Dongle-Proto-Lite — KiCad hardware
+# Dongle-Lite — KiCad hardware
 
 Schematic for the RP2040 + FUSB302B USB-PD dongle that forces an Apple Silicon /
-T2 Mac into DFU over USB-PD. See `../dongle-lite/PRD.md` for the product spec and
-`../dongle-lite/BOM-sourcing.md` for the parts sourcing.
+T2 Mac into DFU over USB-PD. See `./PRD.md` for the product spec and
+`./BOM-sourcing.md` for the parts sourcing.
 
 ## Status
 
