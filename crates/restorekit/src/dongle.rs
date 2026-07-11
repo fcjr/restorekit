@@ -451,7 +451,17 @@ impl DongleHandle {
     /// Fire-and-forget: the dongle drops off the bus and re-enumerates as the
     /// RP2040 bootloader, so there is no status to poll.
     pub fn bootsel(&self) -> Result<()> {
-        self.vendor_out(proto::VREQ_CMD, proto::VCMD_BOOTSEL, &[], CTRL_TIMEOUT)
+        self.vendor_out_raw(proto::VREQ_CMD, proto::VCMD_BOOTSEL, &[], CTRL_TIMEOUT)
+            .map_err(|e| match e {
+                // A stall is the firmware rejecting the request: it predates
+                // USB bootsel.
+                nusb::transfer::TransferError::Stall => Error::Dongle(
+                    "this dongle's firmware predates USB bootsel; type `bootsel` on its \
+                     serial console (CDC0) or replug it with the BOOTSEL button held"
+                        .into(),
+                ),
+                e => Error::Dongle(e.to_string()),
+            })
     }
 
     /// Stream a new firmware image to the dongle over the vendor interface —
@@ -468,13 +478,21 @@ impl DongleHandle {
             return Err(Error::Dongle("empty firmware image".into()));
         }
         let total = image.len();
-        self.vendor_out(
+        self.vendor_out_raw(
             proto::VREQ_FW_BEGIN,
             0,
             &(total as u32).to_le_bytes(),
             CTRL_TIMEOUT,
         )
-        .map_err(|e| Error::Dongle(format!("update rejected (image too big?): {e}")))?;
+        .map_err(|e| match e {
+            nusb::transfer::TransferError::Stall => Error::Dongle(
+                "the dongle rejected the update: its firmware predates USB updates \
+                 (flash it once over the bootrom with `just fw-flash-full`), or the \
+                 image is too big for its spare slot"
+                    .into(),
+            ),
+            e => Error::Dongle(format!("starting the update: {e}")),
+        })?;
         let mut chunk_buf = vec![0xFFu8; proto::FW_CHUNK];
         for (i, chunk) in image.chunks(proto::FW_CHUNK).enumerate() {
             chunk_buf.fill(0xFF);
@@ -501,6 +519,19 @@ impl DongleHandle {
 
     /// Vendor control OUT to the dongle's interface.
     fn vendor_out(&self, request: u8, value: u16, data: &[u8], timeout: Duration) -> Result<()> {
+        self.vendor_out_raw(request, value, data, timeout)
+            .map_err(|e| Error::Dongle(e.to_string()))
+    }
+
+    /// Like [`Self::vendor_out`], but keeps the raw transfer error so callers
+    /// can tell a firmware rejection (stall) from a transport failure.
+    fn vendor_out_raw(
+        &self,
+        request: u8,
+        value: u16,
+        data: &[u8],
+        timeout: Duration,
+    ) -> std::result::Result<(), nusb::transfer::TransferError> {
         self.iface
             .control_out(
                 ControlOut {
@@ -513,8 +544,7 @@ impl DongleHandle {
                 },
                 timeout,
             )
-            .wait()
-            .map_err(|e| Error::Dongle(e.to_string()))?;
+            .wait()?;
         Ok(())
     }
 

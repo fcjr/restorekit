@@ -61,7 +61,7 @@ fw-update: fw-build
 fw-flash-full: fw-build
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo run -q -p restorekit-cli -- dongle bootsel || true
+    {{bootsel_kick}}
     elf2uf2-rs crates/dongle-lite-boot/target/thumbv6m-none-eabi/release/dongle-lite-boot \
                crates/dongle-lite-boot/target/dongle-lite-boot.uf2
     elf2uf2-rs crates/dongle-lite-fw/target/thumbv6m-none-eabi/release/dongle-lite-fw \
@@ -77,13 +77,20 @@ fw-flash-full: fw-build
 fw-flash: fw-build
     #!/usr/bin/env bash
     set -euo pipefail
-    # If a dongle is up, drop it into the bootloader over its vendor USB
-    # interface — no button needed. A fresh Pico (no firmware yet) must be
-    # plugged in with BOOTSEL held instead, so a missing dongle isn't an error.
-    cargo run -q -p restorekit-cli -- dongle bootsel || true
+    {{bootsel_kick}}
     ( {{wait_rpi_rp2}} ) > /dev/null
     cd crates/dongle-lite-fw
     elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw
+
+# Shell snippet: reboot a running dongle into the RP2040 bootrom over its
+# vendor USB interface; on failure explain the manual paths and keep going.
+bootsel_kick := '''
+    if ! cargo run -q -p restorekit-cli -- dongle bootsel; then
+        echo "note: couldn't reboot the dongle into its bootloader over USB." >&2
+        echo "      if it isn't already in BOOTSEL: type 'bootsel' on its serial console" >&2
+        echo "      (CDC0), or replug it with the BOOTSEL button held. waiting for the drive..." >&2
+    fi
+'''
 
 # Shell snippet: wait for the RP2040 bootrom drive, print its mount point.
 wait_rpi_rp2 := '''
