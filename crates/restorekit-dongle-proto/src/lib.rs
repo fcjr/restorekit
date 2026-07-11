@@ -51,6 +51,10 @@ pub const VCMD_DFU: u16 = 1;
 pub const VCMD_REBOOT: u16 = 2;
 pub const VCMD_SERIAL: u16 = 3;
 pub const VCMD_DEBUGUSB: u16 = 4;
+/// Reboot the dongle itself into its USB bootloader for a firmware update.
+/// Fire-and-forget: the device drops off the bus instead of reporting a
+/// result, so hosts must not poll the status after sending it.
+pub const VCMD_BOOTSEL: u16 = 5;
 
 // `VREQ_STATUS` response: [version, pd_state, flags, last_result, seq].
 /// Current status struct version (byte 0).

@@ -63,8 +63,8 @@ use {defmt_rtt as _, panic_probe as _};
 use restorekit_dongle_proto as proto;
 use restorekit_dongle_proto::{
     FLAG_POLARITY_CC2, FLAG_TARGET_ATTACHED, RES_NONE, RES_NOTARGET, RES_OK, RES_PENDING,
-    STATUS_LEN, STATUS_VERSION, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP, VCMD_REBOOT, VCMD_SERIAL,
-    VREQ_CMD, VREQ_STATUS,
+    STATUS_LEN, STATUS_VERSION, VCMD_BOOTSEL, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP, VCMD_REBOOT,
+    VCMD_SERIAL, VREQ_CMD, VREQ_STATUS,
 };
 
 use fusb302::*;
@@ -217,6 +217,8 @@ impl Handler for VendorHandler {
             VCMD_REBOOT => Command::Reboot,
             VCMD_SERIAL => Command::Serial,
             VCMD_DEBUGUSB => Command::DebugUsb,
+            // Resets into the bootloader, so its result is never published.
+            VCMD_BOOTSEL => Command::Bootsel,
             _ => return Some(OutResponse::Rejected),
         };
         // Mark pending and enqueue; the engine resolves the result.

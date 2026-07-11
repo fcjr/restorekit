@@ -50,15 +50,11 @@ fw-build:
 fw-flash: fw-build
     #!/usr/bin/env bash
     set -euo pipefail
+    # If a dongle is up, drop it into the bootloader over its vendor USB
+    # interface — no button needed. A fresh Pico (no firmware yet) must be
+    # plugged in with BOOTSEL held instead, so a missing dongle isn't an error.
+    cargo run -q -p restorekit-cli -- dongle bootsel || true
     cd crates/dongle-lite-fw
-    # If a dongle is up, its `bootsel` console command reboots it into the
-    # bootloader — no button needed. A fresh Pico (no firmware yet) must be
-    # plugged in with BOOTSEL held instead. Writes to CDC1 are harmless, so
-    # don't bother picking the control port out of the pair.
-    shopt -s nullglob
-    for port in /dev/cu.usbmodem*DPL* /dev/serial/by-id/*Dongle*; do
-        printf 'bootsel\r' > "$port" 2>/dev/null || true
-    done
     # Wait for the bootloader drive, then deploy (elf2uf2-rs converts the
     # ELF, copies it over, and the board reboots into the new image).
     for _ in $(seq 1 30); do

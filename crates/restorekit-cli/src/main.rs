@@ -108,6 +108,8 @@ enum DongleAction {
     List,
     /// Show a dongle's live status (target attached, PD state, orientation).
     Status(DongleSelect),
+    /// Reboot a dongle into its USB bootloader to update its firmware.
+    Bootsel(DongleSelect),
 }
 
 /// Which dongle to act on. With neither flag, the sole connected dongle is used.
@@ -266,6 +268,7 @@ fn main() {
         Command::Dongle { action } => match action {
             DongleAction::List => commands::dongle::list(cli.json),
             DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
+            DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
         },
         #[cfg(feature = "history")]
         Command::History { action } => match action {
