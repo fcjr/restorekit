@@ -78,3 +78,22 @@ pub fn status(json: bool, target: DongleTarget) -> Result<()> {
     }
     Ok(())
 }
+
+/// `restorekit dongle bootsel`
+pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
+    let d = dongle::find(target)?;
+    d.bootsel()?;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "serial": d.serial, "bootsel": true })
+        );
+    } else {
+        println!(
+            "{} is rebooting into its USB bootloader; push new firmware with \
+             elf2uf2-rs/picotool (or `just fw-flash`).",
+            d.serial
+        );
+    }
+    Ok(())
+}

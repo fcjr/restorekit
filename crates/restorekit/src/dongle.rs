@@ -391,6 +391,11 @@ impl Dongle {
         self.open()?.status()
     }
 
+    /// Reboot the dongle itself into its USB bootloader (for firmware update).
+    pub fn bootsel(&self) -> Result<()> {
+        self.open()?.bootsel()
+    }
+
     /// The Apple device currently cabled to this dongle and USB-visible on this
     /// host (in DFU or any mode), matched by USB topology — the forward of
     /// [`find_for_ecid`]. `None` if the target's USB data isn't routed to this
@@ -436,6 +441,27 @@ impl DongleHandle {
     /// Liveness check: no-op that confirms the dongle is responding.
     pub fn nop(&self) -> Result<()> {
         self.command(proto::VCMD_NOP, "nop")
+    }
+
+    /// Reboot the dongle itself into its USB bootloader for a firmware update.
+    /// Fire-and-forget: the dongle drops off the bus and re-enumerates as the
+    /// RP2040 bootloader, so there is no status to poll.
+    pub fn bootsel(&self) -> Result<()> {
+        self.iface
+            .control_out(
+                ControlOut {
+                    control_type: ControlType::Vendor,
+                    recipient: Recipient::Interface,
+                    request: proto::VREQ_CMD,
+                    value: proto::VCMD_BOOTSEL,
+                    index: self.iface_num as u16,
+                    data: &[],
+                },
+                CTRL_TIMEOUT,
+            )
+            .wait()
+            .map_err(|e| Error::Dongle(e.to_string()))?;
+        Ok(())
     }
 
     /// Read a live status snapshot.

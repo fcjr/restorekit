@@ -108,10 +108,11 @@ defmt logs.
 You only need the BOOTSEL button for the **first** flash of a build that has the
 `bootsel` console command. After that, updates are button-free:
 
-1. On **CDC0**, type `bootsel`. The firmware replies `ok bootsel; entering USB
-   bootloader`, then reboots into the RP2040 bootrom via `reset_to_usb_boot` -
-   the device drops off the bus and reappears as the `RPI-RP2` drive (and the
-   picoboot interface).
+1. On **CDC0**, type `bootsel` (or run `restorekit dongle bootsel`, which sends
+   the same command over the vendor interface). The firmware replies `ok
+   bootsel; entering USB bootloader`, then reboots into the RP2040 bootrom via
+   `reset_to_usb_boot` - the device drops off the bus and reappears as the
+   `RPI-RP2` drive (and the picoboot interface).
 2. Push the new image, any of:
    - `elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw` - builds
      nothing, just deploys the ELF to the mounted drive and the board reboots
