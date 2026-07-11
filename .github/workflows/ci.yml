@@ -80,6 +80,50 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  # The RP2040 dongle firmware is a standalone bare-metal crate (excluded from
+  # the workspace), so the workspace jobs never touch it; build it on its own.
+  firmware:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_INCREMENTAL: 0
+    defaults:
+      run:
+        working-directory: crates/dongle-lite-fw
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        id: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update \
+            --component rustfmt
+          rustup default stable
+          rustup target add thumbv6m-none-eabi
+          echo "version=$(rustc --version | tr ' ' '-' | tr -d '()')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/flip-link
+            crates/dongle-lite-fw/target
+          key: rust-fw-${{ steps.toolchain.outputs.version }}-${{ hashFiles('crates/dongle-lite-fw/Cargo.lock') }}
+          restore-keys: |
+            rust-fw-${{ steps.toolchain.outputs.version }}-
+
+      # The firmware links through flip-link (see .cargo/config.toml).
+      - name: Install flip-link
+        run: command -v flip-link || cargo install flip-link --locked
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Build
+        run: cargo build --release
+
   # Windows is a separate job (not a `test` matrix entry) because it needs the
   # GNU toolchain and an MSYS2 MINGW64 shell: the vendored C stack is built with
   # autotools, which can't target MSVC.
