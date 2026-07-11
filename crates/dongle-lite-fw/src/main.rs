@@ -364,10 +364,10 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("dongle-lite M0 firmware boot");
 
-    // Boot beacon: LED on the moment the app is alive, off once the PD engine
-    // starts and takes the LED over. With no debug probe attached, a board
-    // stuck with the LED lit died between here and the engine (e.g. in the
-    // updater); one that never lights it never left the bootloader.
+    // Boot beacon: the bootloader pulses the LED and hands it over dark; light
+    // it again to show the app is alive, until the PD engine takes it over.
+    // With no debug probe: one pulse then dark = the app never got here;
+    // pulse + relight then stuck on = app died before the engine.
     let led = Output::new(p.PIN_25, Level::High);
 
     // --- USB composite device: two CDC-ACM ports + a vendor interface. ---
