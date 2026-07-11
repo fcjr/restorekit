@@ -71,7 +71,26 @@ fw-flash-full: fw-build
         crates/dongle-lite-fw/target/dongle-lite-fw.uf2 \
         crates/dongle-lite-fw/target/dongle-lite-full.uf2
     mount=$({{wait_rpi_rp2}})
-    cp crates/dongle-lite-fw/target/dongle-lite-full.uf2 "$mount/"
+    # The bootrom reboots the instant the last block lands, so on macOS cp can
+    # report an I/O error after the flash already completed — treat the drive
+    # vanishing as success.
+    if ! cp crates/dongle-lite-fw/target/dongle-lite-full.uf2 "$mount/" 2>/dev/null; then
+        sleep 2
+        if [ -d "$mount" ]; then
+            echo "error: copying the UF2 failed and the board did not reboot" >&2
+            exit 1
+        fi
+    fi
+    echo "flashed; waiting for the dongle to enumerate..."
+    for _ in $(seq 1 20); do
+        sleep 0.5
+        if cargo run -q -p restorekit-cli -- dongle list --json 2>/dev/null | grep -q serial; then
+            cargo run -q -p restorekit-cli -- dongle list
+            exit 0
+        fi
+    done
+    echo "the dongle did not come back within 10s — check the board" >&2
+    exit 1
 
 # Flash the app over the RP2040 bootrom (first time: use fw-flash-full)
 fw-flash: fw-build
