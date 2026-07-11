@@ -1672,14 +1672,9 @@
     border-bottom: 1px solid var(--line);
     flex: none;
   }
-  /* Keep the tabs centered against the whole bar, not the space between the
-     brand and the (variable-width) right-side controls. */
-  .titlebar .tabs {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-  }
+  /* The tabs center between the grow spacers rather than against the whole
+     bar: absolute centering looked steadier but slid the tabs under the
+     right-side controls (Detail/List, host label) on narrow windows. */
   .brand {
     display: flex;
     align-items: center;
