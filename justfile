@@ -20,6 +20,10 @@ release-fw kind="patch": (_dispatch "bump-release-fw.yml" kind)
 _dispatch workflow kind:
     #!/usr/bin/env bash
     set -euo pipefail
+    case "{{kind}}" in
+        patch|minor|major) ;;
+        *) echo "kind must be patch, minor, or major (got '{{kind}}')" >&2; exit 1 ;;
+    esac
     gh workflow run {{workflow}} -f version_type={{kind}}
     echo "dispatched {{workflow}} ({{kind}}); waiting for the run to register..."
     sleep 5
