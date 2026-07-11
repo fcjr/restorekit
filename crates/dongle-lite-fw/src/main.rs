@@ -421,6 +421,9 @@ async fn main(_spawner: Spawner) {
     config.manufacturer = Some(proto::MANUFACTURER);
     config.product = Some(proto::PRODUCT_LITE);
     config.serial_number = Some(serial);
+    // bcdDevice carries this crate's version so hosts can read the firmware
+    // version without opening the device (see proto::decode_bcd_version).
+    config.device_release = proto::encode_bcd_version(env!("CARGO_PKG_VERSION"));
     config.max_power = 250;
     config.max_packet_size_0 = 64;
     // Composite device with IADs.

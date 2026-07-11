@@ -1,0 +1,70 @@
+name: release-fw
+
+# Publish dongle firmware. Tag the commit `dongle-lite-fw-v<version>` (matching
+# crates/dongle-lite-fw's crate version, which is embedded in the USB
+# bcdDevice field) and this attaches:
+#   - dongle-lite-fw.bin   the raw update image `restorekit dongle update`
+#                          fetches when it finds a newer release
+#   - dongle-lite-full.uf2 the factory/recovery image (bootloader + app)
+
+on:
+  push:
+    tags: ["dongle-lite-fw-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The embedded version comes from the crate; a tag that doesn't match it
+      # would publish a release that misreports itself to every dongle.
+      - name: Check tag matches the crate version
+        run: |
+          tag_version="${GITHUB_REF_NAME#dongle-lite-fw-v}"
+          crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/dongle-lite-fw/Cargo.toml)
+          if [ "$tag_version" != "$crate_version" ]; then
+            echo "tag is v$tag_version but crates/dongle-lite-fw is v$crate_version" >&2
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update --component llvm-tools
+          rustup default stable
+          rustup target add thumbv6m-none-eabi
+          cargo install flip-link elf2uf2-rs cargo-binutils --locked
+
+      - name: Build firmware and bootloader
+        run: |
+          cd crates/dongle-lite-fw && cargo build --release --locked
+          cd ../dongle-lite-boot && cargo build --release --locked
+
+      - name: Stage release assets
+        run: |
+          cd crates/dongle-lite-fw
+          cargo objcopy --release -- -O binary --remove-section=.boot2 target/dongle-lite-fw.bin
+          cd ../..
+          elf2uf2-rs crates/dongle-lite-boot/target/thumbv6m-none-eabi/release/dongle-lite-boot \
+                     crates/dongle-lite-boot/target/dongle-lite-boot.uf2
+          elf2uf2-rs crates/dongle-lite-fw/target/thumbv6m-none-eabi/release/dongle-lite-fw \
+                     crates/dongle-lite-fw/target/dongle-lite-fw.uf2
+          node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
+              crates/dongle-lite-boot/target/dongle-lite-boot.uf2 \
+              crates/dongle-lite-fw/target/dongle-lite-fw.uf2 \
+              crates/dongle-lite-fw/target/dongle-lite-full.uf2
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#dongle-lite-fw-v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Dongle Lite firmware $version" \
+            --notes "Install on a connected dongle with \`restorekit dongle update\`. \
+          \`dongle-lite-full.uf2\` is the factory/recovery image (bootloader + app) for the RP2040 bootrom." \
+            crates/dongle-lite-fw/target/dongle-lite-fw.bin \
+            crates/dongle-lite-fw/target/dongle-lite-full.uf2

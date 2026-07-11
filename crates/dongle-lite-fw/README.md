@@ -85,7 +85,14 @@ Repo-root shortcuts (prereqs: `just install`):
   stages it to the spare slot, CRC-checks it, reboots, and the bootloader
   swaps it in - no bootrom, no `RPI-RP2` drive, and an image that fails to
   boot is rolled back. The same flow is exposed as
-  `restorekit dongle update <image.bin>`.
+  `restorekit dongle update --file <image.bin>`; without `--file` it fetches
+  the latest published release if it's newer than what the dongle reports.
+
+The crate version is embedded in the USB `bcdDevice` field, so hosts see each
+dongle's firmware version without opening it (`restorekit dongle list`). To
+publish a release: bump this crate's version, then tag the commit
+`dongle-lite-fw-v<version>` - CI (release-fw.yml) builds and attaches the
+update image and the factory UF2.
 - `just fw-flash-full` - factory / recovery only: bootloader + app in one
   merged UF2 over the RP2040 bootrom (hold BOOTSEL when plugging in a fresh
   board; flashed with picotool when installed, else the RPI-RP2 drive).

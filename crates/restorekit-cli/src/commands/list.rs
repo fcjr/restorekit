@@ -78,6 +78,7 @@ pub fn run(json: bool) -> Result<()> {
                     "serial": d.serial,
                     "product": d.product,
                     "model": d.model,
+                    "fw_version": d.fw_version,
                     "targets": d.attached_device().ok().flatten().into_iter().collect::<Vec<_>>(),
                 })
             })
