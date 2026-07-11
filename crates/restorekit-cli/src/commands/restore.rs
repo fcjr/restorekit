@@ -71,7 +71,9 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
                 url: fw.url.clone(),
             });
         } else {
-            println!("  macOS {} (build {})", fw.version, fw.build);
+            // A T2 IPSW carries bridgeOS, not macOS — label it accordingly.
+            let os = if device.is_t2() { "bridgeOS" } else { "macOS" };
+            println!("  {os} {} (build {})", fw.version, fw.build);
         }
 
         let bar = ProgressBar::hidden();
@@ -119,11 +121,23 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
         &mut |event| restore_render(&bar, event, json),
     )?;
     bar.finish_and_clear();
-    say(
-        json,
-        "Restore complete. The target should boot to Setup Assistant.",
-    );
+    say(json, completion_message(device, mode));
     Ok(())
+}
+
+/// The closing status line, tailored to what the target will actually do next.
+/// A T2 erase restore reinstalls bridgeOS only, so macOS must be recovered
+/// separately; a T2 revive preserves macOS; Apple Silicon restores fully.
+fn completion_message(device: &Device, mode: Mode) -> &'static str {
+    match (device.is_t2(), mode) {
+        (true, Mode::Erase) => {
+            "bridgeOS restore complete. Reinstall macOS via internet recovery (hold Cmd-R at boot)."
+        }
+        (true, Mode::Revive) => {
+            "bridgeOS revive complete. macOS and your data are preserved; the Mac should boot normally."
+        }
+        _ => "Restore complete. The target should boot to Setup Assistant.",
+    }
 }
 
 /// Print a human status line, suppressed in `--json` mode.
@@ -150,6 +164,18 @@ fn confirm(device: &Device, mode: Mode, yes: bool, json: bool) -> Result<bool> {
         device.display_name(),
         device.ecid_hex().unwrap_or_default()
     );
+    // A T2 erase restore only reinstalls bridgeOS — unlike Apple Silicon, it does
+    // not put macOS back. Make that explicit so the user isn't left with a Mac
+    // that won't boot. Use `revive` instead to update bridgeOS without erasing.
+    if device.is_t2() {
+        println!(
+            "  This T2 Mac will be wiped and restored to bridgeOS only — macOS is NOT reinstalled."
+        );
+        println!(
+            "  Afterward you must reinstall macOS via internet recovery (hold Cmd-R at boot)."
+        );
+        println!("  To update bridgeOS without erasing, run `restorekit revive` instead.");
+    }
     print!("  Type ERASE to continue: ");
     std::io::stdout().flush()?;
     let mut input = String::new();
