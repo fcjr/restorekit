@@ -99,6 +99,8 @@ pub fn host_can_trigger() -> bool {
 pub struct DongleView {
     pub serial: String,
     pub product: String,
+    /// Firmware version the dongle reports; `None` if it couldn't be read.
+    pub fw_version: Option<String>,
     /// Live PD status, if the vendor interface could be read.
     pub status: Option<DongleStatus>,
     /// The Mac cabled to this dongle, if its USB data reaches this host.
@@ -108,11 +110,13 @@ pub struct DongleView {
 fn dongle_view(d: restorekit::Dongle) -> DongleView {
     // Best-effort: reading status claims the vendor interface; the topology
     // lookup enumerates USB. Either may fail without failing the whole list.
+    let fw_version = d.fw_version().ok();
     let status = d.status().ok();
     let target = d.attached_device().ok().flatten().map(view);
     DongleView {
         serial: d.serial,
         product: d.product,
+        fw_version,
         status,
         target,
     }
@@ -146,6 +150,93 @@ pub async fn dongle_dfu(serial: String) -> Result<(), String> {
 pub async fn dongle_reboot(serial: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         dfu::reboot(DfuVia::Dongle(serial), &mut |_| {}).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Firmware-update availability for one dongle, against the published
+/// releases (network).
+#[derive(Serialize)]
+pub struct DongleFwCheck {
+    /// The version the dongle reports; `None` when unreadable.
+    pub current: Option<String>,
+    /// The newest published release for its model; `None` when none exist.
+    pub latest: Option<String>,
+    /// Whether `latest` should be installed (an unreadable current counts).
+    pub available: bool,
+}
+
+/// Check whether a newer firmware release is published for dongle `serial`.
+#[tauri::command]
+pub async fn dongle_fw_check(serial: String) -> Result<DongleFwCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let d = dongle::find(restorekit::DongleTarget::Id(serial)).map_err(|e| e.to_string())?;
+        let current = d.fw_version().ok();
+        let latest = dongle::latest_firmware(d.model).map_err(|e| e.to_string())?;
+        let available = latest
+            .as_ref()
+            .is_some_and(|r| r.newer_than(current.as_deref().unwrap_or("unknown")));
+        Ok(DongleFwCheck {
+            current,
+            latest: latest.map(|r| r.version),
+            available,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Streamed firmware-update progress, emitted as `dongle_fw_progress` events.
+#[derive(Clone, Serialize)]
+struct DongleFwProgress {
+    serial: String,
+    staged: usize,
+    total: usize,
+}
+
+/// Download the latest published firmware and stream it onto dongle `serial`
+/// over its vendor interface. The dongle verifies, reboots, and its
+/// bootloader swaps the image in (rolling back if it fails to boot). Emits
+/// `dongle_fw_progress` events; resolves with the version running afterward.
+#[tauri::command]
+pub async fn dongle_fw_update(app: AppHandle, serial: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let d = dongle::find(restorekit::DongleTarget::Id(serial)).map_err(|e| e.to_string())?;
+        let release = dongle::latest_firmware(d.model)
+            .map_err(|e| e.to_string())?
+            .ok_or("no published firmware releases for this model")?;
+        let image = release.download().map_err(|e| e.to_string())?;
+        let handle = d.open().map_err(|e| e.to_string())?;
+        handle
+            .update(&image, |staged, total| {
+                let _ = app.emit(
+                    "dongle_fw_progress",
+                    DongleFwProgress {
+                        serial: d.serial.clone(),
+                        staged,
+                        total,
+                    },
+                );
+            })
+            .map_err(|e| e.to_string())?;
+        // The claimed interface is stale once the dongle reboots to swap.
+        drop(handle);
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            if let Some(back) = dongle::list()
+                .ok()
+                .and_then(|ds| ds.into_iter().find(|x| x.serial == d.serial))
+            {
+                return Ok(back.fw_version().unwrap_or(release.version));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err("the dongle did not come back after the update; \
+                     its bootloader reverts a firmware that fails to boot"
+                    .into());
+            }
+        }
     })
     .await
     .map_err(|e| e.to_string())?

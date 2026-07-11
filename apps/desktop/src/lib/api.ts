@@ -51,10 +51,29 @@ export interface DongleStatus {
 export interface Dongle {
   serial: string;
   product: string;
+  /** Firmware version the dongle reports; null if it couldn't be read. */
+  fw_version: string | null;
   /** Live status; null if the vendor interface couldn't be read. */
   status: DongleStatus | null;
   /** The cabled Mac, if its USB data reaches this host; null otherwise. */
   target: Device | null;
+}
+
+/** Firmware-update availability for a dongle, from the published releases. */
+export interface DongleFwCheck {
+  /** What the dongle reports now; null when unreadable. */
+  current: string | null;
+  /** Newest published release for its model; null when none exist. */
+  latest: string | null;
+  /** Whether `latest` should be installed. */
+  available: boolean;
+}
+
+/** Progress of a streaming dongle firmware update. */
+export interface DongleFwProgress {
+  serial: string;
+  staged: number;
+  total: number;
 }
 
 export interface Firmware {
@@ -152,6 +171,11 @@ export const api = {
   listDongles: () => call<Dongle[]>("list_dongles"),
   dongleDfu: (serial: string) => call<void>("dongle_dfu", { serial }),
   dongleReboot: (serial: string) => call<void>("dongle_reboot", { serial }),
+  /** Check the published releases for newer dongle firmware (network). */
+  dongleFwCheck: (serial: string) => call<DongleFwCheck>("dongle_fw_check", { serial }),
+  /** Install the latest published firmware on a dongle; resolves with the
+   *  version running afterward. Progress arrives via onDongleFwProgress. */
+  dongleFwUpdate: (serial: string) => call<string>("dongle_fw_update", { serial }),
   helperStatus: () => call<string>("helper_status"),
   approveHelper: () => call<void>("approve_helper"),
   setupDriver: () => call<void>("setup_driver"),
@@ -191,6 +215,12 @@ export function onRestoreJobUpdate(cb: (j: JobView) => void): Promise<UnlistenFn
   return listen<JobView>("restore_job_update", (ev) => cb(ev.payload));
 }
 
+/** Streaming dongle firmware-update progress. No-op outside Tauri. */
+export function onDongleFwProgress(cb: (p: DongleFwProgress) => void): Promise<UnlistenFn> {
+  if (!inTauri) return Promise.resolve(() => {});
+  return listen<DongleFwProgress>("dongle_fw_progress", (ev) => cb(ev.payload));
+}
+
 /** Live restore-job log lines. No-op outside Tauri. */
 export function onRestoreJobLog(
   cb: (l: { id: number; level: number; line: string }) => void,
@@ -222,7 +252,7 @@ export const exportSeenCsv = () => saveCsv("export_seen_csv", "restorekit-device
 function browserMock(cmd: string): Promise<unknown> {
   const devices: Device[] = [
     { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", serial_number: null, restorable: true, port: { dfu: true, location: "left-back" }, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: true },
-    { mode: "booted", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: true, location: "left-back" }, driver_ready: true, connection: "dongle", via_dongle: "DPL-1A2B3C4D", host_dfu_capable: false },
+    { mode: "booted", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: true, location: "left-back" }, driver_ready: true, connection: "dongle", via_dongle: "DL-1A2B3C4D", host_dfu_capable: false },
     { mode: "other", name: "Apple device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", serial_number: null, restorable: false, port: null, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: false },
   ];
   const history: HistoryEntry[] = [
@@ -230,8 +260,8 @@ function browserMock(cmd: string): Promise<unknown> {
     { serial_number: "C02YY7654321", ecid: "0x1a2b3c4d5e6f", model_identifier: "MacBookPro17,1", name: "MacBook Pro (M1, Late 2020)", mode: "booted", status: "restored", timestamp_rfc3339: "2026-07-07T14:12:00.000Z" },
   ];
   const dongles: Dongle[] = [
-    { serial: "DPL-1A2B3C4D", product: "Dongle-Proto-Lite", status: { pd_state: "connected", target_attached: true, polarity_cc2: true }, target: devices[0] },
-    { serial: "DPL-99887766", product: "Dongle-Proto-Lite", status: { pd_state: "disconnected", target_attached: false, polarity_cc2: false }, target: null },
+    { serial: "DL-1A2B3C4D", product: "Dongle-Lite", fw_version: "0.1.0", status: { pd_state: "connected", target_attached: true, polarity_cc2: true }, target: devices[0] },
+    { serial: "DL-99887766", product: "Dongle-Lite", fw_version: "0.1.0", status: { pd_state: "disconnected", target_attached: false, polarity_cc2: false }, target: null },
   ];
   const map: Record<string, unknown> = {
     host_can_trigger: true,
@@ -239,6 +269,8 @@ function browserMock(cmd: string): Promise<unknown> {
     list_dongles: dongles,
     dongle_dfu: null,
     dongle_reboot: null,
+    dongle_fw_check: { current: "0.1.0", latest: "0.2.0", available: true },
+    dongle_fw_update: "0.2.0",
     manual_instructions: "1. Connect the target's DFU port.\n2. Disconnect power.\n3. Hold power, reconnect, keep holding ~10s.",
     list_devices: devices,
     trigger_dfu: devices[0],
