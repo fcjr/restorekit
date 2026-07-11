@@ -561,6 +561,9 @@ pub const DFU_PID: u16 = 0x1227;
 /// Product ID a Mac's USB-C port controller presents as a USB Billboard device
 /// when an alternate mode (e.g. Thunderbolt) fails to enter over the link.
 pub const BILLBOARD_PID: u16 = 0x7304;
+/// Chip ID (`CPID`) of the Apple T2, reported in the DFU serial by Intel Macs.
+/// A T2 restore reinstalls bridgeOS, not macOS (see the erase warning).
+pub const T2_CPID: u16 = 0x8012;
 
 /// The USB mode a connected Apple device is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -776,6 +779,12 @@ impl Device {
     /// a mode with no readable SoC identity (see [`UsbMode::Billboard`]).
     pub fn is_billboard(&self) -> bool {
         self.mode == UsbMode::Billboard
+    }
+
+    /// Whether this is an Intel Mac's Apple T2 (a bridgeOS restore target). A T2
+    /// DFU restore only reinstalls bridgeOS, not macOS — see the erase warning.
+    pub fn is_t2(&self) -> bool {
+        self.identity.as_ref().is_some_and(|i| i.cpid == T2_CPID)
     }
 
     /// For a billboard device, a human label for the alternate mode the port
