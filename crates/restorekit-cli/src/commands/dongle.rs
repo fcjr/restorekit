@@ -53,9 +53,18 @@ pub fn list(json: bool) -> Result<()> {
 pub fn status(json: bool, target: DongleTarget) -> Result<()> {
     let d = dongle::find(target)?;
     let s = d.status()?;
+    let dev = d.attached_device().ok().flatten();
 
     if json {
-        println!("{}", serde_json::json!({ "serial": d.serial, "status": s }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "serial": d.serial,
+                "fw_version": d.fw_version().ok(),
+                "status": s,
+                "target": dev,
+            })
+        );
         return Ok(());
     }
 
@@ -65,14 +74,15 @@ pub fn status(json: bool, target: DongleTarget) -> Result<()> {
         d.fw_version().unwrap_or_else(|_| "?".into())
     );
     println!("  pd state: {:?}", s.pd_state);
-    println!(
-        "  target: {}",
-        if s.target_attached {
-            "attached"
-        } else {
-            "none"
+    let target_line = if !s.target_attached {
+        "none".to_string()
+    } else {
+        match &dev {
+            Some(dev) => format!("{} [{} mode]", dev.display_name(), dev.mode),
+            None => "attached (its USB isn't visible to this host)".into(),
         }
-    );
+    };
+    println!("  target: {target_line}");
     if s.target_attached {
         println!(
             "  cable orientation: {}",
@@ -105,16 +115,51 @@ pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
     Ok(())
 }
 
-/// `restorekit dongle update [--file image.bin]` — stream new firmware over
-/// the vendor interface (no bootloader mode, no RPI-RP2 drive). Without a
-/// file, install the latest published release if it's newer.
-pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) -> Result<()> {
+/// `restorekit dongle update [--file image.bin] [--check]` — stream new
+/// firmware over the vendor interface (no bootloader mode, no RPI-RP2 drive).
+/// Without a file, install the latest published release if it's newer; with
+/// `--check`, only report whether one is available.
+pub fn update(
+    json: bool,
+    target: DongleTarget,
+    file: Option<&std::path::Path>,
+    check: bool,
+) -> Result<()> {
     let d = dongle::find(target)?;
     let handle = d.open()?;
     // Informational only — a version that can't be read (e.g. firmware too
     // broken to answer) must never block the update that would fix it; the
     // release check treats an unknown version as out of date.
     let current = handle.fw_version().unwrap_or_else(|_| "unknown".into());
+    if check {
+        let (latest, available) = match dongle::latest_firmware(d.model)? {
+            Some(r) => {
+                let available = r.newer_than(&current);
+                (Some(r.version), available)
+            }
+            None => (None, false),
+        };
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({ "serial": d.serial, "fw_version": current, "latest": latest, "update_available": available })
+            );
+        } else {
+            match latest {
+                Some(latest) if available => println!(
+                    "{}: update available, firmware {current} -> {latest} \
+                     (run `restorekit dongle update` to install)",
+                    d.serial
+                ),
+                Some(latest) => println!(
+                    "{}: firmware {current} is up to date (latest release is {latest}).",
+                    d.serial
+                ),
+                None => println!("No published firmware releases for this model yet."),
+            }
+        }
+        return Ok(());
+    }
     // Progress and narration go to stderr; stdout carries only the result.
     let image = match file {
         Some(path) => {

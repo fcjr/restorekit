@@ -68,7 +68,12 @@ fn resolve(via: DfuVia) -> Result<Route> {
             match ds.len() {
                 0 => Ok(Route::Host(DfuTarget::Auto)),
                 1 => Ok(Route::Dongle(ds.remove(0))),
-                n => Err(Error::MultipleDongles(n)),
+                _ => Err(Error::MultipleDongles(
+                    ds.iter()
+                        .map(|d| d.serial.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                )),
             }
         }
     }

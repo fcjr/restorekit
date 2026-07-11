@@ -47,7 +47,8 @@ enum Command {
     },
     /// Erase and restore the target Mac: triggers DFU entry if needed, then
     /// downloads firmware and restores. This wipes all data on the target.
-    Restore(RestoreArgs),
+    #[command(alias = "restore")]
+    Erase(RestoreArgs),
     /// Revive the target Mac: reinstall firmware without erasing user data —
     /// use this to recover a Mac bricked by a failed update.
     Revive(ReviveArgs),
@@ -60,18 +61,25 @@ enum Command {
         #[arg(long)]
         path: bool,
     },
-    /// Inspect and manage RecoverKit dongles; lists them when no subcommand
-    /// is given. Use the top-level `dfu` / `reboot` with `--dongle` or
+    /// Inspect and manage RecoverKit dongles (list, status, firmware
+    /// updates). Use the top-level `dfu` / `reboot` with `--dongle` or
     /// `--ecid` to act on the cabled Mac.
+    #[command(arg_required_else_help = true)]
     Dongle {
         #[command(subcommand)]
-        action: Option<DongleAction>,
+        action: DongleAction,
     },
     /// Show, export, or clear the capture/restore history.
     #[cfg(feature = "history")]
     History {
         #[command(subcommand)]
         action: HistoryAction,
+    },
+    /// Generate shell completions on stdout (e.g. `restorekit completions
+    /// zsh > "${fpath[1]}/_restorekit"`).
+    Completions {
+        /// The shell to generate completions for.
+        shell: clap_complete::Shell,
     },
     /// Bind the WinUSB driver so restorekit can reach the cabled Mac (elevates).
     #[cfg(target_os = "windows")]
@@ -90,8 +98,8 @@ enum Command {
 /// own sole DFU-capable port.
 #[derive(clap::Args)]
 struct TargetArgs {
-    /// Trigger via a specific dongle by its id (USB serial, e.g. DL-1A2B3C4D).
-    /// See `restorekit dongle list`.
+    /// Trigger via a specific dongle by its id (USB serial, e.g. DL-1A2B3C4D)
+    /// or any unambiguous fragment of it. See `restorekit dongle list`.
     #[arg(long, conflicts_with_all = ["ecid", "port"])]
     dongle: Option<String>,
     /// Target the Mac with this ECID (hex like 0xc60a812345678, or decimal).
@@ -122,6 +130,9 @@ enum DongleAction {
         /// published release.
         #[arg(long, short)]
         file: Option<std::path::PathBuf>,
+        /// Only report whether an update is available; don't install it.
+        #[arg(long, conflicts_with = "file")]
+        check: bool,
         #[command(flatten)]
         select: DongleSelect,
     },
@@ -130,8 +141,8 @@ enum DongleAction {
 /// Which dongle to act on. With no selector, the sole connected dongle is used.
 #[derive(clap::Args)]
 struct DongleSelect {
-    /// The dongle's id (USB serial, e.g. DL-1A2B3C4D). See
-    /// `restorekit dongle list`.
+    /// The dongle's id (USB serial, e.g. DL-1A2B3C4D) or any unambiguous
+    /// fragment of it (e.g. 1a2b). See `restorekit dongle list`.
     id: Option<String>,
     /// Target the dongle the Mac with this ECID is cabled to (hex like
     /// 0xc60a812345678, or decimal), resolved by USB topology.
@@ -179,8 +190,9 @@ struct FirmwareArgs {
     /// when several are in DFU mode. See `restorekit list`.
     #[arg(long, value_parser = parse_ecid)]
     ecid: Option<u64>,
-    /// Trigger DFU entry via a specific dongle by its id (USB serial). Lets you
-    /// restore from any host OS. See `restorekit dongle list`.
+    /// Trigger DFU entry via a specific dongle by its id (USB serial, or any
+    /// unambiguous fragment). Lets you restore from any host OS. See
+    /// `restorekit dongle list`.
     #[arg(long)]
     dongle: Option<String>,
 }
@@ -264,7 +276,7 @@ fn main() {
             os_version,
             ecid,
         } => commands::download::run(identifier, os_version, ecid, cli.cache_dir, cli.json),
-        Command::Restore(args) => commands::restore::run(args.firmware.into_opts(
+        Command::Erase(args) => commands::restore::run(args.firmware.into_opts(
             false,
             args.yes,
             cli.cache_dir,
@@ -278,14 +290,26 @@ fn main() {
             cli.json,
             cli.verbose,
         )),
+        Command::Completions { shell } => {
+            use clap::CommandFactory;
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "restorekit",
+                &mut std::io::stdout(),
+            );
+            Ok(())
+        }
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
-        Command::Dongle { action } => match action.unwrap_or(DongleAction::List) {
+        Command::Dongle { action } => match action {
             DongleAction::List => commands::dongle::list(cli.json),
             DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
             DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
-            DongleAction::Update { file, select } => {
-                commands::dongle::update(cli.json, select.into_target(), file.as_deref())
-            }
+            DongleAction::Update {
+                file,
+                check,
+                select,
+            } => commands::dongle::update(cli.json, select.into_target(), file.as_deref(), check),
         },
         #[cfg(feature = "history")]
         Command::History { action } => match action {

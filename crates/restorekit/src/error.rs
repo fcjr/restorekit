@@ -40,10 +40,8 @@ pub enum Error {
     #[error("no RecoverKit dongle found")]
     NoDongle,
 
-    #[error(
-        "multiple dongles found ({0}); select one with --dongle (see `restorekit dongle list`)"
-    )]
-    MultipleDongles(usize),
+    #[error("multiple dongles found ({0}); specify one by serial")]
+    MultipleDongles(String),
 
     #[error("no target Mac is attached to the dongle")]
     DongleNoTarget,
