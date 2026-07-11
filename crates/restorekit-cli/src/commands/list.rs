@@ -41,7 +41,22 @@ fn print_dongles() {
     println!();
 }
 
-pub fn run(json: bool) -> Result<()> {
+/// One `list` invocation; loops when `--watch` is given.
+pub fn run(json: bool, watch: bool) -> Result<()> {
+    if !watch {
+        return run_once(json);
+    }
+    loop {
+        if !json {
+            // Clear and home, like watch(1), so each tick repaints in place.
+            print!("\x1b[2J\x1b[H");
+        }
+        run_once(json)?;
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+}
+
+fn run_once(json: bool) -> Result<()> {
     let mut devices = device::list()?;
     // Fill in booted Macs' ECIDs on macOS hosts (best-effort, no-op elsewhere).
     device::identify(&mut devices);

@@ -209,7 +209,13 @@ pub fn update(
         }
     };
     handle.update(&image, |staged, total| {
-        if !json {
+        if json {
+            // NDJSON progress, matching the erase/download event stream style.
+            println!(
+                "{}",
+                serde_json::json!({ "event": "fw_staging", "serial": d.serial, "staged": staged, "total": total })
+            );
+        } else {
             eprint!("\r  staging: {}%", staged * 100 / total);
             use std::io::Write as _;
             let _ = std::io::stderr().flush();
@@ -258,4 +264,61 @@ pub fn update(
         )));
     }
     Ok(())
+}
+
+/// `restorekit dongle console` — print the dongle's serial-console tty paths.
+/// The dongle exposes two CDC ports: the control console (CDC0) and the
+/// target's UART bridged over SBU (CDC1, live after `serial`).
+pub fn console(json: bool, target: DongleTarget) -> Result<()> {
+    let d = dongle::find(target)?;
+    // The OS embeds the USB serial in the tty name but mangles it (macOS:
+    // `cu.usbmodemDL_5F4175361`; Linux by-id keeps it intact), so compare
+    // with everything but alphanumerics stripped.
+    let key = normalize(&d.serial);
+    let mut paths: Vec<String> = Vec::new();
+    for dir in ["/dev", "/dev/serial/by-id"] {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // macOS callout devices; Linux stable by-id symlinks.
+            let is_serial_dev = name.starts_with("cu.") || dir.ends_with("by-id");
+            if is_serial_dev && normalize(&name).contains(&key) {
+                paths.push(entry.path().to_string_lossy().into_owned());
+            }
+        }
+    }
+    // The control console enumerates before the target bridge, and the OS
+    // suffixes (interface number) sort the same way.
+    paths.sort();
+    let (control, target_serial) = (paths.first(), paths.get(1));
+
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "serial": d.serial, "control": control, "target_serial": target_serial })
+        );
+        return Ok(());
+    }
+    let Some(control) = control else {
+        return Err(restorekit::Error::Dongle(format!(
+            "no serial console tty found for {} — is its USB data on this host? \
+             (on Windows, look for the dongle's first COM port instead)",
+            d.serial
+        )));
+    };
+    println!("control console: {control}");
+    if let Some(ts) = target_serial {
+        println!("target serial:   {ts}");
+    }
+    println!("tip: screen {control}  (Ctrl-A K to exit)");
+    Ok(())
+}
+
+fn normalize(s: &str) -> String {
+    s.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase()
 }

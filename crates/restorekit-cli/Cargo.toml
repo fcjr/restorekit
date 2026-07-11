@@ -19,6 +19,9 @@ path = "src/main.rs"
 default = ["history"]
 history = ["restorekit/history"]
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dependencies]
 restorekit = { path = "../restorekit", version = "0.4.4", default-features = false }
 clap = { version = "4", features = ["derive"] }
