@@ -111,31 +111,36 @@ enum DongleAction {
     /// Reboot a dongle into its USB bootloader to update its firmware.
     Bootsel(DongleSelect),
     /// Update a dongle's firmware over USB (a raw image staged to its spare
-    /// flash slot; no bootloader mode, no drive appears). See `just fw-update`.
+    /// flash slot; no bootloader mode, no drive appears). With no --file, the
+    /// latest published firmware release is fetched and installed if newer.
     Update {
-        /// The raw firmware image (.bin) to install.
-        file: std::path::PathBuf,
+        /// A raw firmware image (.bin) to install, instead of the latest
+        /// published release.
+        #[arg(long, short)]
+        file: Option<std::path::PathBuf>,
         #[command(flatten)]
         select: DongleSelect,
     },
 }
 
-/// Which dongle to act on. With neither flag, the sole connected dongle is used.
+/// Which dongle to act on. With no selector, the sole connected dongle is used.
 #[derive(clap::Args)]
 struct DongleSelect {
-    /// Target a specific dongle by its id (USB serial, e.g. DL-1A2B3C4D). See
+    /// The dongle's id (USB serial, e.g. DL-1A2B3C4D). See
     /// `restorekit dongle list`.
-    #[arg(long, conflicts_with = "ecid")]
+    id: Option<String>,
+    /// Same as the positional id, for scripting symmetry with `dfu --dongle`.
+    #[arg(long, conflicts_with_all = ["ecid", "id"])]
     dongle: Option<String>,
     /// Target the dongle the Mac with this ECID is cabled to (hex like
     /// 0xc60a812345678, or decimal), resolved by USB topology.
-    #[arg(long, value_parser = parse_ecid)]
+    #[arg(long, value_parser = parse_ecid, conflicts_with = "id")]
     ecid: Option<u64>,
 }
 
 impl DongleSelect {
     fn into_target(self) -> restorekit::DongleTarget {
-        match (self.dongle, self.ecid) {
+        match (self.id.or(self.dongle), self.ecid) {
             (Some(id), _) => restorekit::DongleTarget::Id(id),
             (_, Some(e)) => restorekit::DongleTarget::Ecid(e),
             _ => restorekit::DongleTarget::Auto,
@@ -278,7 +283,7 @@ fn main() {
             DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
             DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
             DongleAction::Update { file, select } => {
-                commands::dongle::update(cli.json, select.into_target(), &file)
+                commands::dongle::update(cli.json, select.into_target(), file.as_deref())
             }
         },
         #[cfg(feature = "history")]

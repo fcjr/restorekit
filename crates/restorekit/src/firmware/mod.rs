@@ -45,7 +45,7 @@ impl Firmware {
 }
 
 /// Shared blocking HTTP client used by resolution and download.
-fn http_client() -> Result<reqwest::blocking::Client> {
+pub(crate) fn http_client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent(concat!("restorekit/", env!("CARGO_PKG_VERSION")))

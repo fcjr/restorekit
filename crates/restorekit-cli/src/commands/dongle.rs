@@ -13,6 +13,8 @@ pub fn list(json: bool) -> Result<()> {
                 serde_json::json!({
                     "serial": d.serial,
                     "product": d.product,
+                    "model": d.model,
+                    "fw_version": d.fw_version,
                     "status": d.status().ok(),
                 })
             })
@@ -32,7 +34,7 @@ pub fn list(json: bool) -> Result<()> {
         if dongles.len() == 1 { "" } else { "s" }
     );
     for d in &dongles {
-        println!("  {} ({})", d.serial, d.product);
+        println!("  {} ({}, fw {})", d.serial, d.product, d.fw_version);
         match d.status() {
             Ok(s) if s.target_attached => {
                 let orient = if s.polarity_cc2 { "flipped" } else { "normal" };
@@ -57,6 +59,7 @@ pub fn status(json: bool, target: DongleTarget) -> Result<()> {
     }
 
     println!("{} ({})", d.serial, d.product);
+    println!("  firmware: {}", d.fw_version);
     println!("  pd state: {:?}", s.pd_state);
     println!(
         "  target: {}",
@@ -98,19 +101,58 @@ pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
     Ok(())
 }
 
-/// `restorekit dongle update <image.bin>` — stream new firmware over the
-/// vendor interface (no bootloader mode, no RPI-RP2 drive).
-pub fn update(json: bool, target: DongleTarget, file: &std::path::Path) -> Result<()> {
-    let image = std::fs::read(file)?;
+/// `restorekit dongle update [--file image.bin]` — stream new firmware over
+/// the vendor interface (no bootloader mode, no RPI-RP2 drive). Without a
+/// file, install the latest published release if it's newer.
+pub fn update(json: bool, target: DongleTarget, file: Option<&std::path::Path>) -> Result<()> {
     let d = dongle::find(target)?;
-    if !json {
-        println!(
-            "Updating {} with {} ({} KiB)...",
-            d.serial,
-            file.display(),
-            image.len().div_ceil(1024)
-        );
-    }
+    let image = match file {
+        Some(path) => {
+            if !json {
+                println!(
+                    "Updating {} (fw {}) with {}...",
+                    d.serial,
+                    d.fw_version,
+                    path.display()
+                );
+            }
+            std::fs::read(path)?
+        }
+        None => {
+            let Some(release) = dongle::latest_firmware(d.model)? else {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({ "serial": d.serial, "fw_version": d.fw_version, "updated": false, "error": "no published firmware releases" })
+                    );
+                } else {
+                    println!("No published firmware releases for this model yet.");
+                }
+                return Ok(());
+            };
+            if !release.newer_than(&d.fw_version) {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({ "serial": d.serial, "fw_version": d.fw_version, "latest": release.version, "updated": false })
+                    );
+                } else {
+                    println!(
+                        "{} firmware {} is up to date (latest release is {}).",
+                        d.serial, d.fw_version, release.version
+                    );
+                }
+                return Ok(());
+            }
+            if !json {
+                println!(
+                    "Updating {} from firmware {} to {} ({})...",
+                    d.serial, d.fw_version, release.version, release.tag
+                );
+            }
+            release.download()?
+        }
+    };
     d.open()?.update(&image, |staged, total| {
         if !json {
             print!("\r  staging: {}%", staged * 100 / total);
@@ -133,13 +175,22 @@ pub fn update(json: bool, target: DongleTarget, file: &std::path::Path) -> Resul
             break false;
         }
     };
+    // Report the version actually running after the swap, when visible.
+    let new_version = dongle::list()?
+        .into_iter()
+        .find(|x| x.serial == d.serial)
+        .map(|x| x.fw_version);
     if json {
         println!(
             "{}",
-            serde_json::json!({ "serial": d.serial, "updated": true, "reenumerated": back })
+            serde_json::json!({ "serial": d.serial, "updated": true, "reenumerated": back, "fw_version": new_version })
         );
     } else if back {
-        println!("{} is back on the new firmware.", d.serial);
+        println!(
+            "{} is back on firmware {}.",
+            d.serial,
+            new_version.as_deref().unwrap_or("?")
+        );
     } else {
         println!(
             "{} did not re-enumerate within 20s — check the board; the bootloader \

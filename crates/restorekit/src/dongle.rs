@@ -70,6 +70,114 @@ impl DongleModel {
             _ => None,
         }
     }
+
+    /// Git-tag prefix this model's firmware releases are published under.
+    fn release_tag_prefix(self) -> &'static str {
+        match self {
+            Self::Lite => "dongle-lite-fw-v",
+        }
+    }
+
+    /// Release-asset name of this model's raw update image.
+    fn release_asset(self) -> &'static str {
+        match self {
+            Self::Lite => "dongle-lite-fw.bin",
+        }
+    }
+}
+
+/// GitHub repo firmware releases are published to, via tags like
+/// `dongle-lite-fw-v0.2.0` (see .github/workflows/release-fw.yml).
+const FW_RELEASE_REPO: &str = "fcjr/restorekit";
+
+/// A firmware release published on GitHub.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FirmwareRelease {
+    /// Firmware version, e.g. `0.2.0`.
+    pub version: String,
+    /// The release tag, e.g. `dongle-lite-fw-v0.2.0`.
+    pub tag: String,
+    /// Direct download URL of the update image.
+    #[serde(skip)]
+    url: String,
+}
+
+impl FirmwareRelease {
+    /// Whether this release is newer than a dongle's reported version.
+    pub fn newer_than(&self, fw_version: &str) -> bool {
+        match (parse_version(&self.version), parse_version(fw_version)) {
+            (Some(a), Some(b)) => a > b,
+            // An unparseable device version means we can't claim it's current.
+            (Some(_), None) => true,
+            _ => false,
+        }
+    }
+
+    /// Download the update image, ready for [`DongleHandle::update`].
+    pub fn download(&self) -> Result<Vec<u8>> {
+        let resp = crate::firmware::http_client()?
+            .get(&self.url)
+            .send()
+            .map_err(Error::Http)?
+            .error_for_status()
+            .map_err(Error::Http)?;
+        Ok(resp.bytes().map_err(Error::Http)?.to_vec())
+    }
+}
+
+fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
+    let mut it = s.split('.').map(|p| p.parse::<u32>().ok());
+    match (it.next(), it.next(), it.next(), it.next()) {
+        (Some(Some(a)), Some(Some(b)), Some(Some(c)), None) => Some((a, b, c)),
+        _ => None,
+    }
+}
+
+/// The latest firmware release published for `model`, or `None` if there are
+/// no published releases for it (yet).
+pub fn latest_firmware(model: DongleModel) -> Result<Option<FirmwareRelease>> {
+    let releases: serde_json::Value = crate::firmware::http_client()?
+        .get(format!(
+            "https://api.github.com/repos/{FW_RELEASE_REPO}/releases?per_page=100"
+        ))
+        .send()
+        .map_err(Error::Http)?
+        .error_for_status()
+        .map_err(Error::Http)?
+        .json()
+        .map_err(Error::Http)?;
+
+    let mut best: Option<((u32, u32, u32), FirmwareRelease)> = None;
+    for rel in releases.as_array().map(Vec::as_slice).unwrap_or_default() {
+        let tag = rel["tag_name"].as_str().unwrap_or_default();
+        let Some(version) = tag.strip_prefix(model.release_tag_prefix()) else {
+            continue;
+        };
+        let Some(parsed) = parse_version(version) else {
+            continue;
+        };
+        let Some(url) = rel["assets"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .find(|a| a["name"].as_str() == Some(model.release_asset()))
+            .and_then(|a| a["browser_download_url"].as_str())
+        else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(v, _)| parsed > *v) {
+            best = Some((
+                parsed,
+                FirmwareRelease {
+                    version: version.to_string(),
+                    tag: tag.to_string(),
+                    url: url.to_string(),
+                },
+            ));
+        }
+    }
+    Ok(best.map(|(_, r)| r))
 }
 
 const CTRL_TIMEOUT: Duration = Duration::from_millis(500);
@@ -90,6 +198,8 @@ pub struct Dongle {
     pub product: String,
     /// Which RecoverKit model this is, derived from the product string.
     pub model: DongleModel,
+    /// Firmware version, e.g. `0.1.0`, from the USB bcdDevice field.
+    pub fw_version: String,
     /// USB bus this dongle is on (used to correlate a Mac to its dongle).
     #[serde(skip)]
     bus_id: String,
@@ -190,10 +300,12 @@ pub fn list() -> Result<Vec<Dongle>> {
         else {
             continue;
         };
+        let (major, minor, patch) = proto::decode_bcd_version(info.device_version());
         out.push(Dongle {
             serial: info.serial_number().unwrap_or("").to_string(),
             product: product.to_string(),
             model,
+            fw_version: format!("{major}.{minor}.{patch}"),
             bus_id: info.bus_id().to_string(),
             port_chain: info.port_chain().to_vec(),
             vendor_iface,

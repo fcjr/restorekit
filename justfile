@@ -55,7 +55,7 @@ fw-build:
 # Update a dongle's firmware over USB (production path: no bootrom, no drive)
 fw-update: fw-build
     cd crates/dongle-lite-fw && cargo objcopy --release -- -O binary --remove-section=.boot2 target/dongle-lite-fw.bin
-    cargo run -q -p restorekit-cli -- dongle update crates/dongle-lite-fw/target/dongle-lite-fw.bin
+    cargo run -q -p restorekit-cli -- dongle update --file crates/dongle-lite-fw/target/dongle-lite-fw.bin
 
 # Flash bootloader + app over the RP2040 bootrom (factory / first flash)
 fw-flash-full: fw-build
