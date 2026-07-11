@@ -22,7 +22,7 @@ pub fn list(json: bool) -> Result<()> {
     }
 
     if dongles.is_empty() {
-        println!("No dongles found. Plug in a RecoverKit Dongle-Proto-Lite.");
+        println!("No dongles found. Plug in a RecoverKit dongle.");
         return Ok(());
     }
 
@@ -52,10 +52,7 @@ pub fn status(json: bool, target: DongleTarget) -> Result<()> {
     let s = d.status()?;
 
     if json {
-        println!(
-            "{}",
-            serde_json::json!({ "serial": d.serial, "status": s })
-        );
+        println!("{}", serde_json::json!({ "serial": d.serial, "status": s }));
         return Ok(());
     }
 
@@ -72,7 +69,11 @@ pub fn status(json: bool, target: DongleTarget) -> Result<()> {
     if s.target_attached {
         println!(
             "  cable orientation: {}",
-            if s.polarity_cc2 { "CC2 (flipped)" } else { "CC1 (normal)" }
+            if s.polarity_cc2 {
+                "CC2 (flipped)"
+            } else {
+                "CC1 (normal)"
+            }
         );
     }
     Ok(())

@@ -1,0 +1,16 @@
+# no_std: linked by both the host SDK and the RP2040 dongle firmware
+# (crates/dongle-lite-fw), so keep it dependency-free.
+
+[package]
+name = "restorekit-dongle-proto"
+description = "USB wire protocol shared by RecoverKit dongle firmware and the restorekit SDK"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]

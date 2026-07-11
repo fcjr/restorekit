@@ -1,5 +1,4 @@
-//! Client for the RecoverKit **Dongle-Proto-Lite** over its USB vendor
-//! interface.
+//! Client for RecoverKit dongles over their USB vendor interface.
 //!
 //! The dongle is a small USB-C board that forces a cabled Mac into DFU (or
 //! reboots it) by speaking Apple's USB-PD VDMs, so DFU can be triggered from any
@@ -14,7 +13,7 @@
 //! Each dongle carries a unique USB serial (e.g. `DPL-1A2B3C4D`), used as its id.
 //! A Mac in DFU enumerates as a USB sibling of the dongle under the same hub, so
 //! [`find_for_ecid`] maps a Mac (by ECID) to the dongle it is plugged into via
-//! USB topology. [`resolve`] ties both together for callers.
+//! USB topology. [`find`] ties both together for callers.
 //!
 //! # Example
 //!
@@ -24,7 +23,7 @@
 //!     println!("{} ({})", d.serial, d.product);
 //! }
 //! // Trigger DFU on whatever Mac is cabled to the sole dongle.
-//! restorekit::dongle::resolve(restorekit::dongle::DongleTarget::Auto)?.dfu()?;
+//! restorekit::dongle::find(restorekit::dongle::DongleTarget::Auto)?.dfu()?;
 //! # Ok(()) }
 //! ```
 
@@ -32,32 +31,46 @@ use std::time::{Duration, Instant};
 
 use nusb::transfer::{ControlIn, ControlOut, ControlType, Recipient};
 use nusb::{Interface, MaybeFuture};
+// The USB contract shared with the dongle firmware: VID/PID, string
+// descriptors, and the vendor control protocol.
+use restorekit_dongle_proto as proto;
 
 use crate::device::{self, Device, APPLE_VID};
 use crate::error::{Error, Result};
 
-/// USB vendor ID the dongle enumerates with (pid.codes open-source VID).
-pub const DONGLE_VID: u16 = 0x1209;
-/// USB product IDs assigned to RecoverKit devices on pid.codes: 0x5AFC
-/// Dongle Proto Lite, 0x5AFD Dongle Lite, 0x5AFE Dongle Pro, 0x5AFF
-/// RecoverKit Pro.
-pub const DONGLE_PIDS: std::ops::RangeInclusive<u16> = 0x5AFC..=0x5AFF;
+/// USB vendor ID the dongle enumerates with (MCS Electronics).
+pub const DONGLE_VID: u16 = proto::VID;
+/// USB product ID assigned to RecoverKit. Unique to us, but shared by every
+/// RecoverKit model — the specific model is carried in the iProduct string
+/// (see [`DongleModel::from_product`]), not the PID.
+pub const DONGLE_PID: u16 = proto::PID;
 
-// Vendor control protocol — must match the firmware (`src/main.rs`).
-const VENDOR_CLASS: u8 = 0xff;
-const VREQ_CMD: u8 = 0x01; // control OUT: wValue = command code
-const VREQ_STATUS: u8 = 0x02; // control IN: status struct
+/// Which RecoverKit device this is, derived from its USB iProduct string.
+///
+/// Adding a new model (e.g. Dongle Lite, Dongle Pro, RecoverKit Pro):
+/// 1. Add its iProduct string to `restorekit-dongle-proto` and set it in that
+///    model's firmware (`config.product`), keeping the shared VID/PID.
+/// 2. Add a variant here and a match arm in [`DongleModel::from_product`].
+///
+/// Nothing else changes: discovery, udev, and the vendor protocol all key off
+/// the shared VID/PID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DongleModel {
+    /// `Dongle-Proto-Lite`
+    ProtoLite,
+}
 
-const VCMD_NOP: u16 = 0;
-const VCMD_DFU: u16 = 1;
-const VCMD_REBOOT: u16 = 2;
-const VCMD_SERIAL: u16 = 3;
-const VCMD_DEBUGUSB: u16 = 4;
-
-const RES_PENDING: u8 = 1;
-const RES_OK: u8 = 2;
-const RES_NOTARGET: u8 = 3;
-const RES_NOACK: u8 = 4;
+impl DongleModel {
+    /// Identify the model from a USB iProduct string, e.g.
+    /// `Dongle-Proto-Lite`. `None` if the string isn't one of ours.
+    pub fn from_product(product: &str) -> Option<Self> {
+        match product {
+            proto::PRODUCT_PROTO_LITE => Some(Self::ProtoLite),
+            _ => None,
+        }
+    }
+}
 
 const CTRL_TIMEOUT: Duration = Duration::from_millis(500);
 // Long enough for the firmware's CC-cycle re-establish + VDM spray (~4-5 s).
@@ -71,6 +84,8 @@ pub struct Dongle {
     pub serial: String,
     /// USB product string, e.g. `Dongle-Proto-Lite`.
     pub product: String,
+    /// Which RecoverKit model this is, derived from the product string.
+    pub model: DongleModel,
     /// USB bus this dongle is on (used to correlate a Mac to its dongle).
     #[serde(skip)]
     bus_id: String,
@@ -114,17 +129,17 @@ impl DongleStatus {
             return Err(Error::Dongle("short status response from dongle".into()));
         }
         let pd_state = match buf[1] {
-            0 => PdState::Disconnected,
-            1 => PdState::VbusOn,
-            2 => PdState::Connected,
-            3 => PdState::Accept,
-            4 => PdState::Idle,
+            proto::PD_DISCONNECTED => PdState::Disconnected,
+            proto::PD_VBUS_ON => PdState::VbusOn,
+            proto::PD_CONNECTED => PdState::Connected,
+            proto::PD_ACCEPT => PdState::Accept,
+            proto::PD_IDLE => PdState::Idle,
             _ => PdState::Unknown,
         };
         Ok(DongleStatus {
             pd_state,
-            target_attached: buf[2] & 0x01 != 0,
-            polarity_cc2: buf[2] & 0x02 != 0,
+            target_attached: buf[2] & proto::FLAG_TARGET_ATTACHED != 0,
+            polarity_cc2: buf[2] & proto::FLAG_POLARITY_CC2 != 0,
             result: buf[3],
         })
     }
@@ -147,27 +162,34 @@ pub enum DongleTarget {
     Ecid(u64),
 }
 
-/// List every connected Dongle-Proto-Lite. Cheap enumeration only.
+/// List every connected RecoverKit dongle. Cheap enumeration only.
 pub fn list() -> Result<Vec<Dongle>> {
     let infos = nusb::list_devices()
         .wait()
         .map_err(|e| Error::Usb(e.to_string()))?;
     let mut out = Vec::new();
     for info in infos {
-        if info.vendor_id() != DONGLE_VID || !DONGLE_PIDS.contains(&info.product_id()) {
+        if info.vendor_id() != DONGLE_VID || info.product_id() != DONGLE_PID {
             continue;
         }
-        // Only ours if it exposes the vendor interface.
+        // All RecoverKit models share the VID/PID; the iProduct string says
+        // which one this is. Models this build doesn't know are skipped.
+        let product = info.product_string().unwrap_or("");
+        let Some(model) = DongleModel::from_product(product) else {
+            continue;
+        };
+        // Only usable if it exposes the vendor interface.
         let Some(vendor_iface) = info
             .interfaces()
-            .find(|i| i.class() == VENDOR_CLASS)
+            .find(|i| i.class() == proto::VENDOR_CLASS)
             .map(|i| i.interface_number())
         else {
             continue;
         };
         out.push(Dongle {
             serial: info.serial_number().unwrap_or("").to_string(),
-            product: info.product_string().unwrap_or("Dongle").to_string(),
+            product: product.to_string(),
+            model,
             bus_id: info.bus_id().to_string(),
             port_chain: info.port_chain().to_vec(),
             vendor_iface,
@@ -231,7 +253,11 @@ pub fn find_for_ecid(ecid: u64) -> Result<Dongle> {
     list()?
         .into_iter()
         .find(|d| shares_parent_hub(d, mac))
-        .ok_or_else(|| Error::Dongle(format!("the Mac with ECID {ecid:#x} is not behind a known dongle")))
+        .ok_or_else(|| {
+            Error::Dongle(format!(
+                "the Mac with ECID {ecid:#x} is not behind a known dongle"
+            ))
+        })
 }
 
 /// True if `mac` and `dongle` are siblings under the same hub: same bus, same
@@ -293,9 +319,10 @@ pub fn connection_for(dev: &Device) -> Connection {
         Ok(it) => it.collect(),
         Err(_) => return Connection::Direct,
     };
-    let Some(me) = infos.iter().find(|i| {
-        i.vendor_id() == APPLE_VID && i.serial_number() == Some(dev.serial.as_str())
-    }) else {
+    let Some(me) = infos
+        .iter()
+        .find(|i| i.vendor_id() == APPLE_VID && i.serial_number() == Some(dev.serial.as_str()))
+    else {
         return Connection::Direct;
     };
 
@@ -334,7 +361,7 @@ impl Dongle {
             .map_err(|e| Error::Usb(e.to_string()))?
             .find(|i| {
                 i.vendor_id() == DONGLE_VID
-                    && DONGLE_PIDS.contains(&i.product_id())
+                    && i.product_id() == DONGLE_PID
                     && i.serial_number() == Some(self.serial.as_str())
             })
             .ok_or(Error::NoDongle)?;
@@ -388,27 +415,27 @@ pub struct DongleHandle {
 impl DongleHandle {
     /// Put the cabled Mac into DFU mode.
     pub fn dfu(&self) -> Result<()> {
-        self.command(VCMD_DFU, "dfu")
+        self.command(proto::VCMD_DFU, "dfu")
     }
 
     /// Reboot the cabled Mac.
     pub fn reboot(&self) -> Result<()> {
-        self.command(VCMD_REBOOT, "reboot")
+        self.command(proto::VCMD_REBOOT, "reboot")
     }
 
     /// Mux the Mac's debug UART onto the dongle's SBU serial bridge.
     pub fn serial(&self) -> Result<()> {
-        self.command(VCMD_SERIAL, "serial")
+        self.command(proto::VCMD_SERIAL, "serial")
     }
 
     /// Switch the Mac's USB data lines to its debug-USB interface.
     pub fn debugusb(&self) -> Result<()> {
-        self.command(VCMD_DEBUGUSB, "debugusb")
+        self.command(proto::VCMD_DEBUGUSB, "debugusb")
     }
 
     /// Liveness check: no-op that confirms the dongle is responding.
     pub fn nop(&self) -> Result<()> {
-        self.command(VCMD_NOP, "nop")
+        self.command(proto::VCMD_NOP, "nop")
     }
 
     /// Read a live status snapshot.
@@ -419,7 +446,7 @@ impl DongleHandle {
                 ControlIn {
                     control_type: ControlType::Vendor,
                     recipient: Recipient::Interface,
-                    request: VREQ_STATUS,
+                    request: proto::VREQ_STATUS,
                     value: 0,
                     index: self.iface_num as u16,
                     length: 8,
@@ -438,7 +465,7 @@ impl DongleHandle {
                 ControlOut {
                     control_type: ControlType::Vendor,
                     recipient: Recipient::Interface,
-                    request: VREQ_CMD,
+                    request: proto::VREQ_CMD,
                     value: code,
                     index: self.iface_num as u16,
                     data: &[],
@@ -453,18 +480,20 @@ impl DongleHandle {
         let deadline = Instant::now() + CMD_TIMEOUT;
         loop {
             match self.status()?.result {
-                RES_PENDING => {}
-                RES_OK => return Ok(()),
-                RES_NOTARGET => return Err(Error::DongleNoTarget),
+                proto::RES_PENDING => {}
+                proto::RES_OK => return Ok(()),
+                proto::RES_NOTARGET => return Err(Error::DongleNoTarget),
                 // Older firmware may still report no-ack; newer treats action
                 // VDMs as fire-and-forget (no GoodCRC is expected).
-                RES_NOACK => {
+                proto::RES_NOACK => {
                     return Err(Error::Dongle(format!("{name}: target did not acknowledge")))
                 }
                 _ => {}
             }
             if Instant::now() >= deadline {
-                return Err(Error::Dongle(format!("{name}: timed out waiting for the dongle")));
+                return Err(Error::Dongle(format!(
+                    "{name}: timed out waiting for the dongle"
+                )));
             }
             std::thread::sleep(Duration::from_millis(10));
         }

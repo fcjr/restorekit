@@ -1077,6 +1077,7 @@ dependencies = [
  "nusb",
  "plist",
  "reqwest",
+ "restorekit-dongle-proto",
  "restorekit-sys",
  "rusqlite",
  "rusqlite_migration",
@@ -1098,6 +1099,10 @@ dependencies = [
  "serde_json",
  "windows-sys 0.60.2",
 ]
+
+[[package]]
+name = "restorekit-dongle-proto"
+version = "0.4.3"
 
 [[package]]
 name = "restorekit-sys"
