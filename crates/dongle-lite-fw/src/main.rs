@@ -388,10 +388,12 @@ async fn main(_spawner: Spawner) {
     // The embassy-boot updater for streamed firmware updates. Marking this
     // boot healthy confirms a freshly swapped image, so the bootloader won't
     // revert it on the next reset.
-    static UPDATER_BUF: StaticCell<AlignedBuffer<4>> = StaticCell::new();
+    // The state buffer must be exactly the flash's WRITE_SIZE (1 on RP2040);
+    // embassy-boot asserts on it, and a panic here would boot-loop the board.
+    static UPDATER_BUF: StaticCell<AlignedBuffer<1>> = StaticCell::new();
     let mut updater = BlockingFirmwareUpdater::new(
         FirmwareUpdaterConfig::from_linkerfile_blocking(flash, flash),
-        &mut UPDATER_BUF.init(AlignedBuffer([0; 4])).0,
+        &mut UPDATER_BUF.init(AlignedBuffer([0; 1])).0,
     );
     if updater.mark_booted().is_err() {
         info!("could not mark boot state; updates may revert");
