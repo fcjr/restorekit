@@ -8,7 +8,7 @@
 # usbmuxd and libirecovery use for DFU, Recovery, and normal iOS/macOS mode.
 
 # RecoverKit dongles (16d0:14f0). All RecoverKit models share this VID/PID;
-# the model is in the product string (e.g. "Dongle-Proto-Lite").
+# the model is in the product string (e.g. "Dongle-Lite").
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="16d0", ATTR{idProduct}=="14f0", MODE="0666"
 
 # Normal iOS / iPadOS / Apple Silicon restore devices (PID 0x1290–0x12af)

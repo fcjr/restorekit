@@ -365,7 +365,7 @@ async fn main(_spawner: Spawner) {
     )));
 
     // Unique per-unit USB serial derived from the RP2040 flash UID, so multiple
-    // dongles on one host are individually addressable (e.g. "DPL-1A2B3C4D").
+    // dongles on one host are individually addressable (e.g. "DL-1A2B3C4D").
     static SERIAL: StaticCell<String<24>> = StaticCell::new();
     let serial = {
         let mut uid = [0u8; 8];
@@ -376,7 +376,7 @@ async fn main(_spawner: Spawner) {
         let _ = core::write!(
             s,
             "{}{:02X}{:02X}{:02X}{:02X}",
-            proto::SERIAL_PREFIX_PROTO_LITE,
+            proto::SERIAL_PREFIX_LITE,
             uid[4],
             uid[5],
             uid[6],
@@ -402,7 +402,7 @@ async fn main(_spawner: Spawner) {
     // string (see DongleModel in the SDK's dongle.rs).
     let mut config = Config::new(proto::VID, proto::PID);
     config.manufacturer = Some(proto::MANUFACTURER);
-    config.product = Some(proto::PRODUCT_PROTO_LITE);
+    config.product = Some(proto::PRODUCT_LITE);
     config.serial_number = Some(serial);
     config.max_power = 250;
     config.max_packet_size_0 = 64;
@@ -567,7 +567,7 @@ async fn drain_log<'d>(tx: &mut embassy_usb::class::cdc_acm::Sender<'d, Driver<'
     loop {
         tx.wait_connection().await;
         // Greeting once connected.
-        let _ = write_line(tx, "RecoverKit Dongle-Proto-Lite. Type 'help'.").await;
+        let _ = write_line(tx, "RecoverKit Dongle-Lite. Type 'help'.").await;
         loop {
             let line = LOG.receive().await;
             if write_line(tx, line.as_str()).await.is_err() {

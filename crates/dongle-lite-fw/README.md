@@ -175,7 +175,7 @@ interface** (`bInterfaceClass = 0xFF`) that the `restorekit` SDK drives over
 `nusb` control transfers — no serial port, no OS driver, works the same on
 macOS/Linux/Windows (Windows needs the interface bound to WinUSB). The device
 also enumerates with a **unique USB serial** derived from the RP2040 flash UID
-(e.g. `DPL-1A2B3C4D`), so multiple dongles are individually addressable.
+(e.g. `DL-1A2B3C4D`), so multiple dongles are individually addressable.
 
 Vendor control protocol (interface recipient, `wIndex` = the vendor interface
 number):
@@ -194,7 +194,7 @@ From the CLI:
 ```
 restorekit dongle list                 # list dongles + what's cabled to each
 restorekit dongle dfu                   # DFU the Mac on the sole dongle
-restorekit dongle dfu --dongle DPL-1A2B3C4D
+restorekit dongle dfu --dongle DL-1A2B3C4D
 restorekit dongle dfu --ecid 0xC60A81…  # pick the dongle that Mac is behind
 restorekit dongle reboot                # reboot the cabled Mac
 restorekit dongle status                # PD state, target attached, orientation

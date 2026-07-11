@@ -89,7 +89,7 @@ enum Command {
 /// own sole DFU-capable port.
 #[derive(clap::Args)]
 struct TargetArgs {
-    /// Trigger via a specific dongle by its id (USB serial, e.g. DPL-1A2B3C4D).
+    /// Trigger via a specific dongle by its id (USB serial, e.g. DL-1A2B3C4D).
     /// See `restorekit dongle list`.
     #[arg(long, conflicts_with_all = ["ecid", "port"])]
     dongle: Option<String>,
@@ -123,7 +123,7 @@ enum DongleAction {
 /// Which dongle to act on. With neither flag, the sole connected dongle is used.
 #[derive(clap::Args)]
 struct DongleSelect {
-    /// Target a specific dongle by its id (USB serial, e.g. DPL-1A2B3C4D). See
+    /// Target a specific dongle by its id (USB serial, e.g. DL-1A2B3C4D). See
     /// `restorekit dongle list`.
     #[arg(long, conflicts_with = "ecid")]
     dongle: Option<String>,

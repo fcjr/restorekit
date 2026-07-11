@@ -10,8 +10,8 @@
 //!
 //! Every RecoverKit device enumerates as [`VID`]:[`PID`]. The PID is unique
 //! to RecoverKit but shared across models — the specific model is carried in
-//! the iProduct string descriptor. To add a new model (Dongle Lite, Dongle
-//! Pro, RecoverKit Pro, ...):
+//! the iProduct string descriptor. To add a new model (Dongle Pro,
+//! RecoverKit Pro, ...):
 //!
 //! 1. Add a `PRODUCT_*` constant here with a unique model name, and set it as
 //!    `config.product` in that model's firmware (keeping [`VID`]:[`PID`]).
@@ -31,10 +31,10 @@ pub const PID: u16 = 0x14F0;
 
 /// iManufacturer string on every RecoverKit device.
 pub const MANUFACTURER: &str = "RecoverKit";
-/// iProduct string of the Dongle Proto Lite.
-pub const PRODUCT_PROTO_LITE: &str = "Dongle-Proto-Lite";
-/// iSerial prefix of the Dongle Proto Lite (e.g. `DPL-1A2B3C4D`).
-pub const SERIAL_PREFIX_PROTO_LITE: &str = "DPL-";
+/// iProduct string of the Dongle Lite.
+pub const PRODUCT_LITE: &str = "Dongle-Lite";
+/// iSerial prefix of the Dongle Lite (e.g. `DL-1A2B3C4D`).
+pub const SERIAL_PREFIX_LITE: &str = "DL-";
 
 /// Class of the vendor-specific interface the SDK drives.
 pub const VENDOR_CLASS: u8 = 0xFF;
