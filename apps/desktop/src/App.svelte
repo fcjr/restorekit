@@ -7,6 +7,7 @@
     onProgress,
     onRestoreJobUpdate,
     onRestoreJobLog,
+    onDongleFwProgress,
     pickIpsw,
     exportHistoryCsv,
     exportDevicesCsv,
@@ -16,6 +17,7 @@
     APPROVAL_REQUIRED,
     type Device,
     type Dongle,
+    type DongleFwCheck,
     type Firmware,
     type ProgressEvent,
     type CacheInfo,
@@ -43,6 +45,10 @@
   // ---- dongle state ----
   let dongles = $state<Dongle[]>([]);
   let dongleBusy = $state<string>(""); // serial of the dongle mid-action
+  // Firmware-release checks, cached per serial for the app session.
+  let fwChecks = $state<Record<string, DongleFwCheck>>({});
+  let fwUpdating = $state<string>(""); // serial of the dongle mid-firmware-update
+  let fwProgress = $state(0); // 0-100 while fwUpdating
 
   // ---- views: restore (device-centric) / list / dongles / history / about ----
   let tab = $state<"restore" | "list" | "dongles" | "history" | "about">("restore");
@@ -274,6 +280,18 @@
       dongles = await api.listDongles();
     } catch {
       /* dongle enumeration hiccups are fine */
+    }
+    // One release check per dongle per session (it hits the network); the
+    // placeholder de-dupes re-entry from the poll loop.
+    for (const dg of dongles) {
+      if (dg.serial in fwChecks) continue;
+      fwChecks[dg.serial] = { current: dg.fw_version, latest: null, available: false };
+      api
+        .dongleFwCheck(dg.serial)
+        .then((c) => (fwChecks[dg.serial] = c))
+        .catch(() => {
+          /* offline or rate-limited; the badge just doesn't appear */
+        });
     }
   }
 
@@ -686,6 +704,9 @@
       }
     }, 2000);
     const unlisten = onProgress(handleProgress);
+    const unlistenFw = onDongleFwProgress((p) => {
+      if (p.serial === fwUpdating) fwProgress = Math.round((p.staged / p.total) * 100);
+    });
     const unlistenJob = onRestoreJobUpdate(upsertJob);
     const unlistenJobLog = onRestoreJobLog((l) => {
       const cur = jobLogs[l.id] ?? [];
@@ -699,6 +720,7 @@
       clearInterval(poll);
       clearInterval(clock);
       unlisten.then((u) => u());
+      unlistenFw.then((u) => u());
       unlistenJob.then((u) => u());
       unlistenJobLog.then((u) => u());
     };
@@ -801,6 +823,23 @@
       error = String(e);
     } finally {
       dongleBusy = "";
+    }
+  }
+
+  // Stream the latest published firmware onto the dongle; it verifies,
+  // reboots, and its bootloader swaps the image in (rolling back on failure).
+  async function dongleFwUpdate(serial: string) {
+    error = "";
+    fwUpdating = serial;
+    fwProgress = 0;
+    try {
+      await api.dongleFwUpdate(serial);
+      delete fwChecks[serial]; // re-check against the new version
+      await refreshDongles();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      fwUpdating = "";
     }
   }
 
@@ -1358,7 +1397,7 @@
       {#if dongles.length}
         <table class="tbl">
           <thead>
-            <tr><th>Dongle</th><th>Target</th><th>PD state</th><th></th></tr>
+            <tr><th>Dongle</th><th>Target</th><th>PD state</th><th>Firmware</th><th></th></tr>
           </thead>
           <tbody>
             {#each dongles as dg (dg.serial)}
@@ -1378,6 +1417,17 @@
                   {/if}
                 </td>
                 <td><span class="mtag">{dg.status?.pd_state ?? "—"}</span></td>
+                <td class="nowrap">
+                  {#if fwUpdating === dg.serial}
+                    <span class="cellsub">updating… {fwProgress}%</span>
+                  {:else if fwChecks[dg.serial]?.available}
+                    <span class="mtag">{dg.fw_version ?? "?"}</span>
+                    <button class="btn ghost sm" disabled={!!fwUpdating || dongleBusy === dg.serial}
+                      onclick={() => dongleFwUpdate(dg.serial)}>Update to {fwChecks[dg.serial].latest}</button>
+                  {:else}
+                    <span class="mtag">{dg.fw_version ?? "?"}</span>
+                  {/if}
+                </td>
                 <td class="right nowrap">
                   <button class="btn primary sm" disabled={dongleBusy === dg.serial || !dg.status?.target_attached}
                     onclick={() => dongleDfu(dg.serial)}>{dongleBusy === dg.serial ? "…" : "Enter DFU"}</button>
