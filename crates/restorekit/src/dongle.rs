@@ -75,6 +75,10 @@ impl DongleModel {
 const CTRL_TIMEOUT: Duration = Duration::from_millis(500);
 // Long enough for the firmware's CC-cycle re-establish + VDM spray (~4-5 s).
 const CMD_TIMEOUT: Duration = Duration::from_secs(8);
+// A firmware-update chunk completes only after the sector is erased and
+// written (~50-100 ms); the final request also CRCs the whole staged image.
+const FW_CHUNK_TIMEOUT: Duration = Duration::from_secs(3);
+const FW_DONE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A discovered dongle. Cheap to hold; call [`Dongle::open`] (or the one-shot
 /// [`Dongle::dfu`] / [`Dongle::reboot`]) to act on the cabled Mac.
@@ -447,17 +451,67 @@ impl DongleHandle {
     /// Fire-and-forget: the dongle drops off the bus and re-enumerates as the
     /// RP2040 bootloader, so there is no status to poll.
     pub fn bootsel(&self) -> Result<()> {
+        self.vendor_out(proto::VREQ_CMD, proto::VCMD_BOOTSEL, &[], CTRL_TIMEOUT)
+    }
+
+    /// Stream a new firmware image to the dongle over the vendor interface —
+    /// no bootloader mode, no mass-storage drive. The image is staged into
+    /// the inactive flash slot, CRC-verified, and swapped in by the dongle's
+    /// bootloader on the reboot this triggers; a bad image is rejected before
+    /// the swap, and one that fails to boot is rolled back.
+    ///
+    /// `image` is the raw app binary (the ACTIVE-slot contents, e.g. from
+    /// `llvm-objcopy -O binary --remove-section=.boot2`), NOT a UF2 or ELF.
+    /// `progress` receives (bytes staged, total bytes).
+    pub fn update(&self, image: &[u8], mut progress: impl FnMut(usize, usize)) -> Result<()> {
+        if image.is_empty() {
+            return Err(Error::Dongle("empty firmware image".into()));
+        }
+        let total = image.len();
+        self.vendor_out(
+            proto::VREQ_FW_BEGIN,
+            0,
+            &(total as u32).to_le_bytes(),
+            CTRL_TIMEOUT,
+        )
+        .map_err(|e| Error::Dongle(format!("update rejected (image too big?): {e}")))?;
+        let mut chunk_buf = vec![0xFFu8; proto::FW_CHUNK];
+        for (i, chunk) in image.chunks(proto::FW_CHUNK).enumerate() {
+            chunk_buf.fill(0xFF);
+            chunk_buf[..chunk.len()].copy_from_slice(chunk);
+            self.vendor_out(proto::VREQ_FW_DATA, i as u16, &chunk_buf, FW_CHUNK_TIMEOUT)
+                .map_err(|e| {
+                    Error::Dongle(format!(
+                        "update failed at {}/{} bytes: {e}",
+                        i * proto::FW_CHUNK,
+                        total
+                    ))
+                })?;
+            progress((i * proto::FW_CHUNK + chunk.len()).min(total), total);
+        }
+        self.vendor_out(
+            proto::VREQ_FW_DONE,
+            0,
+            &proto::crc32(image).to_le_bytes(),
+            FW_DONE_TIMEOUT,
+        )
+        .map_err(|e| Error::Dongle(format!("update verification failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Vendor control OUT to the dongle's interface.
+    fn vendor_out(&self, request: u8, value: u16, data: &[u8], timeout: Duration) -> Result<()> {
         self.iface
             .control_out(
                 ControlOut {
                     control_type: ControlType::Vendor,
                     recipient: Recipient::Interface,
-                    request: proto::VREQ_CMD,
-                    value: proto::VCMD_BOOTSEL,
+                    request,
+                    value,
                     index: self.iface_num as u16,
-                    data: &[],
+                    data,
                 },
-                CTRL_TIMEOUT,
+                timeout,
             )
             .wait()
             .map_err(|e| Error::Dongle(e.to_string()))?;
@@ -486,20 +540,7 @@ impl DongleHandle {
 
     /// Send a command and block until the firmware reports its outcome.
     fn command(&self, code: u16, name: &str) -> Result<()> {
-        self.iface
-            .control_out(
-                ControlOut {
-                    control_type: ControlType::Vendor,
-                    recipient: Recipient::Interface,
-                    request: proto::VREQ_CMD,
-                    value: code,
-                    index: self.iface_num as u16,
-                    data: &[],
-                },
-                CTRL_TIMEOUT,
-            )
-            .wait()
-            .map_err(|e| Error::Dongle(e.to_string()))?;
+        self.vendor_out(proto::VREQ_CMD, code, &[], CTRL_TIMEOUT)?;
 
         // The firmware marks the result pending synchronously in the OUT
         // handler, so we won't read a stale success from a prior command.

@@ -110,6 +110,14 @@ enum DongleAction {
     Status(DongleSelect),
     /// Reboot a dongle into its USB bootloader to update its firmware.
     Bootsel(DongleSelect),
+    /// Update a dongle's firmware over USB (a raw image staged to its spare
+    /// flash slot; no bootloader mode, no drive appears). See `just fw-update`.
+    Update {
+        /// The raw firmware image (.bin) to install.
+        file: std::path::PathBuf,
+        #[command(flatten)]
+        select: DongleSelect,
+    },
 }
 
 /// Which dongle to act on. With neither flag, the sole connected dongle is used.
@@ -269,6 +277,9 @@ fn main() {
             DongleAction::List => commands::dongle::list(cli.json),
             DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
             DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
+            DongleAction::Update { file, select } => {
+                commands::dongle::update(cli.json, select.into_target(), &file)
+            }
         },
         #[cfg(feature = "history")]
         Command::History { action } => match action {

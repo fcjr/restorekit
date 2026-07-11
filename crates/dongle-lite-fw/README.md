@@ -76,61 +76,42 @@ PD signaling. GP19 drives the enable of a proper load switch on the real board.
 
 ## Build & flash
 
-Shortcut: `just fw-build` / `just fw-flash` from the repo root do everything
-below (flash includes the `bootsel` kick for a running dongle).
+The app runs behind an `embassy-boot` bootloader (`../dongle-lite-boot`) that
+gives it A/B firmware slots: flash layout in the bootloader's `memory.x`.
+Repo-root shortcuts (prereqs: `just install`):
 
-Prereqs (already handled if you set up the repo toolchain):
+- `just fw-flash-full` - factory / first flash: bootloader + app in one merged
+  UF2 over the RP2040 bootrom (hold BOOTSEL when plugging in a fresh board).
+- `just fw-update` - **production path**: streams the app image to a running
+  dongle over its vendor USB interface. The dongle stages it to the spare
+  slot, CRC-checks it, reboots, and the bootloader swaps it in - no bootrom,
+  no `RPI-RP2` drive, and an image that fails to boot is rolled back. The same
+  flow is exposed as `restorekit dongle update <image.bin>`.
+- `just fw-flash` - dev flash of just the app over the bootrom (the bootloader
+  must already be on the board).
 
-```
-rustup target add thumbv6m-none-eabi
-cargo install elf2uf2-rs flip-link
-```
+Both bootrom paths first send `restorekit dongle bootsel`, which reboots a
+running dongle into the bootrom via `reset_to_usb_boot` (same as typing
+`bootsel` on CDC0) - so no hands on the board. That's needed because the
+running firmware presents as a plain CDC device, so `picotool reboot -u` has
+no reset interface to grab.
 
-Build and make a UF2:
-
-```
-cargo build --release
-elf2uf2-rs target/thumbv6m-none-eabi/release/dongle-lite-fw dongle-lite-fw.uf2
-```
-
-Flash: hold BOOTSEL on the Pico, plug it into the host, and copy
-`dongle-lite-fw.uf2` onto the `RPI-RP2` drive. It reboots and enumerates as a
-composite USB device with **two serial ports**:
+Once flashed, the dongle enumerates as a composite USB device with **two
+serial ports**:
 
 - **CDC0** - control console.
 - **CDC1** - the target's serial console (only carries data after `serial`).
 
 With `probe-rs` and a debug probe you can instead `cargo run --release` and get
-defmt logs.
+defmt logs. (Note that flashes only the app; the bootloader is a separate
+`cargo run --release` in `../dongle-lite-boot`.)
 
-### Updating over USB (no BOOTSEL button)
+The raw update image for `dongle update` is the ACTIVE-slot contents, without
+the boot2 blob:
 
-You only need the BOOTSEL button for the **first** flash of a build that has the
-`bootsel` console command. After that, updates are button-free:
-
-1. On **CDC0**, type `bootsel` (or run `restorekit dongle bootsel`, which sends
-   the same command over the vendor interface). The firmware replies `ok
-   bootsel; entering USB bootloader`, then reboots into the RP2040 bootrom via
-   `reset_to_usb_boot` - the device drops off the bus and reappears as the
-   `RPI-RP2` drive (and the picoboot interface).
-2. Push the new image, any of:
-   - `elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw` - builds
-     nothing, just deploys the ELF to the mounted drive and the board reboots
-     into it (`-d` = deploy).
-   - `picotool load -x dongle-lite-fw.uf2` - loads and runs (`brew install
-     picotool`).
-   - drag `dongle-lite-fw.uf2` onto the `RPI-RP2` drive.
-
-So the steady-state loop is: edit -> `cargo build --release` -> type `bootsel`
--> `elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw`. No hands on
-the board.
-
-Why the `bootsel` command is needed: while the firmware is running it presents
-as a plain CDC device, so `picotool reboot -u` has no reset interface to grab.
-The `bootsel` command *is* that reset path; once it drops to the bootrom,
-picotool / elf2uf2 / drag-drop all work. (A true no-drive OTA - `embassy-boot` +
-`embassy-usb-dfu`, updated with `dfu-util` - is possible later but needs a
-flash-partitioned bootloader; overkill for the bench.)
+```
+cargo objcopy --release -- -O binary --remove-section=.boot2 target/dongle-lite-fw.bin
+```
 
 ## Bench test procedure
 

@@ -1,0 +1,38 @@
+# Standalone crate: bare-metal thumbv6m, kept out of the host-side restorekit
+# workspace (see `exclude` in the root Cargo.toml). This is the embassy-boot
+# second-stage bootloader the dongle app (dongle-lite-fw) runs behind: it
+# power-fail-safely swaps in firmware staged to the DFU slot and reverts if
+# the new image never marks itself healthy. Flash it once (`just fw-flash-full`);
+# routine updates go over the app's vendor USB interface and never touch it.
+[workspace]
+
+[package]
+name = "dongle-lite-boot"
+edition = "2021"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "RecoverKit Dongle Lite bootloader (embassy-boot on RP2040)"
+publish = false
+
+[[bin]]
+name = "dongle-lite-boot"
+test = false
+bench = false
+
+[dependencies]
+embassy-boot-rp = "0.10.0"
+embassy-rp = { version = "0.10.0", features = ["rp2040", "critical-section-impl"] }
+embassy-time = "0.5.1"
+embassy-sync = "0.8.0"
+
+cortex-m = { version = "0.7.6", features = ["inline-asm"] }
+cortex-m-rt = "0.7.0"
+
+[profile.release]
+debug = 2
+lto = "fat"
+opt-level = "z"
+
+[profile.dev]
+debug = 2
+opt-level = 1

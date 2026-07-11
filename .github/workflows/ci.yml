@@ -124,6 +124,10 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Build bootloader
+        working-directory: crates/dongle-lite-boot
+        run: cargo build --release
+
   # Windows is a separate job (not a `test` matrix entry) because it needs the
   # GNU toolchain and an MSYS2 MINGW64 shell: the vendored C stack is built with
   # autotools, which can't target MSVC.

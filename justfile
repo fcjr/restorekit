@@ -1,8 +1,13 @@
+# Show available recipes
+default:
+    @just --list
+
 # Install dev dependencies: JS workspace + the firmware's Rust toolchain
 install:
     pnpm install
     rustup target add thumbv6m-none-eabi
-    cargo install flip-link elf2uf2-rs
+    rustup component add llvm-tools
+    cargo install flip-link elf2uf2-rs cargo-binutils
 
 # On Windows the vendored C stack is built with autotools, which can't target
 # MSVC: cargo needs the GNU toolchain, with MinGW's binutils and the MSYS2
@@ -42,11 +47,33 @@ app-build:
 app-build-signed:
     cd apps/desktop && pnpm build:signed
 
-# Build the RP2040 dongle firmware (prereqs: just install)
+# Build the RP2040 dongle firmware + bootloader (prereqs: just install)
 fw-build:
     cd crates/dongle-lite-fw && cargo build --release
+    cd crates/dongle-lite-boot && cargo build --release
 
-# Build the firmware and push it to a dongle over USB
+# Update a dongle's firmware over USB (production path: no bootrom, no drive)
+fw-update: fw-build
+    cd crates/dongle-lite-fw && cargo objcopy --release -- -O binary --remove-section=.boot2 target/dongle-lite-fw.bin
+    cargo run -q -p restorekit-cli -- dongle update crates/dongle-lite-fw/target/dongle-lite-fw.bin
+
+# Flash bootloader + app over the RP2040 bootrom (factory / first flash)
+fw-flash-full: fw-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo run -q -p restorekit-cli -- dongle bootsel || true
+    elf2uf2-rs crates/dongle-lite-boot/target/thumbv6m-none-eabi/release/dongle-lite-boot \
+               crates/dongle-lite-boot/target/dongle-lite-boot.uf2
+    elf2uf2-rs crates/dongle-lite-fw/target/thumbv6m-none-eabi/release/dongle-lite-fw \
+               crates/dongle-lite-fw/target/dongle-lite-fw.uf2
+    python3 scripts/merge-uf2.py \
+        crates/dongle-lite-boot/target/dongle-lite-boot.uf2 \
+        crates/dongle-lite-fw/target/dongle-lite-fw.uf2 \
+        crates/dongle-lite-fw/target/dongle-lite-full.uf2
+    mount=$({{wait_rpi_rp2}})
+    cp crates/dongle-lite-fw/target/dongle-lite-full.uf2 "$mount/"
+
+# Flash the app over the RP2040 bootrom (first time: use fw-flash-full)
 fw-flash: fw-build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -54,13 +81,18 @@ fw-flash: fw-build
     # interface — no button needed. A fresh Pico (no firmware yet) must be
     # plugged in with BOOTSEL held instead, so a missing dongle isn't an error.
     cargo run -q -p restorekit-cli -- dongle bootsel || true
+    ( {{wait_rpi_rp2}} ) > /dev/null
     cd crates/dongle-lite-fw
-    # Wait for the bootloader drive, then deploy (elf2uf2-rs converts the
-    # ELF, copies it over, and the board reboots into the new image).
+    elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw
+
+# Shell snippet: wait for the RP2040 bootrom drive, print its mount point.
+wait_rpi_rp2 := '''
     for _ in $(seq 1 30); do
-        if [ -d /Volumes/RPI-RP2 ] || [ -d "/run/media/$USER/RPI-RP2" ] || [ -d "/media/$USER/RPI-RP2" ]; then
-            break
-        fi
+        for m in /Volumes/RPI-RP2 "/run/media/$USER/RPI-RP2" "/media/$USER/RPI-RP2"; do
+            if [ -d "$m" ]; then echo "$m"; exit 0; fi
+        done
         sleep 0.5
     done
-    elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw
+    echo "RPI-RP2 drive never appeared; is the board in BOOTSEL?" >&2
+    exit 1
+'''

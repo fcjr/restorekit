@@ -22,12 +22,15 @@
 #[allow(dead_code)]
 mod fusb302;
 
+use core::cell::RefCell;
 use core::fmt::Write as _;
 use core::sync::atomic::Ordering;
 
-use portable_atomic::AtomicU8;
+use portable_atomic::{AtomicBool, AtomicU8};
 
 use defmt::info;
+use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig};
+use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join4};
 use embassy_futures::select::{select, select3, Either, Either3};
@@ -62,9 +65,9 @@ use {defmt_rtt as _, panic_probe as _};
 // string descriptors, and the vendor control protocol.
 use restorekit_dongle_proto as proto;
 use restorekit_dongle_proto::{
-    FLAG_POLARITY_CC2, FLAG_TARGET_ATTACHED, RES_NONE, RES_NOTARGET, RES_OK, RES_PENDING,
-    STATUS_LEN, STATUS_VERSION, VCMD_BOOTSEL, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP, VCMD_REBOOT,
-    VCMD_SERIAL, VREQ_CMD, VREQ_STATUS,
+    crc32, FLAG_POLARITY_CC2, FLAG_TARGET_ATTACHED, FW_CHUNK, RES_NONE, RES_NOTARGET, RES_OK,
+    RES_PENDING, STATUS_LEN, STATUS_VERSION, VCMD_BOOTSEL, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP,
+    VCMD_REBOOT, VCMD_SERIAL, VREQ_CMD, VREQ_FW_BEGIN, VREQ_FW_DATA, VREQ_FW_DONE, VREQ_STATUS,
 };
 
 use fusb302::*;
@@ -144,6 +147,26 @@ static VENDOR_FLAGS: AtomicU8 = AtomicU8::new(0);
 static VENDOR_RESULT: AtomicU8 = AtomicU8::new(RES_NONE);
 static VENDOR_SEQ: AtomicU8 = AtomicU8::new(0);
 
+// Set once a streamed firmware update is verified and marked; the PD engine
+// notices and reboots into the bootloader, which swaps the new image in.
+static FW_REBOOT: AtomicBool = AtomicBool::new(false);
+
+// The staged-update (DFU) slot, from the linker script; the app never
+// executes from it, it's only the landing zone for streamed images.
+extern "C" {
+    static __bootloader_dfu_start: u8;
+    static __bootloader_dfu_end: u8;
+}
+
+// NoopRawMutex: flash is only ever touched from the single thread-mode
+// executor (UID read at startup, updater calls from the USB task).
+type AppFlash = Flash<'static, embassy_rp::peripherals::FLASH, Blocking, FLASH_SIZE>;
+type FlashMutex =
+    embassy_sync::blocking_mutex::Mutex<embassy_sync::blocking_mutex::raw::NoopRawMutex, RefCell<AppFlash>>;
+type FlashPartition =
+    BlockingPartition<'static, embassy_sync::blocking_mutex::raw::NoopRawMutex, AppFlash>;
+type Updater = BlockingFirmwareUpdater<'static, FlashPartition, FlashPartition>;
+
 #[derive(Copy, Clone, defmt::Format)]
 enum Command {
     Nop,
@@ -191,8 +214,19 @@ macro_rules! logline {
 /// Vendor-interface control handler. A command OUT funnels into the shared
 /// [`CMD`] channel (same path as the CDC console); the async PD engine does the
 /// work and publishes the outcome, which the host reads back via the status IN.
+/// Firmware-update requests are handled inline instead: each chunk is written
+/// to the DFU slot before the transfer completes, so the host is naturally
+/// flow-controlled by the control pipe.
 struct VendorHandler {
     iface: InterfaceNumber,
+    updater: Updater,
+    /// Announced image size; 0 = no update in progress.
+    fw_size: u32,
+    /// Bytes staged into the DFU slot so far.
+    fw_staged: u32,
+    /// Absolute (XIP) address and length of the DFU slot.
+    dfu_addr: u32,
+    dfu_len: u32,
 }
 
 impl VendorHandler {
@@ -201,15 +235,86 @@ impl VendorHandler {
             && req.recipient == Recipient::Interface
             && req.index as u8 == self.iface.0
     }
+
+    fn fw_abort(&mut self) -> Option<OutResponse> {
+        self.fw_size = 0;
+        self.fw_staged = 0;
+        Some(OutResponse::Rejected)
+    }
+
+    /// Start a streamed firmware update: data = image size (u32 LE).
+    fn fw_begin(&mut self, data: &[u8]) -> Option<OutResponse> {
+        let Some(size) = data.get(..4).map(|b| u32::from_le_bytes(b.try_into().unwrap())) else {
+            return self.fw_abort();
+        };
+        if size == 0 || size > self.dfu_len {
+            logline!("err update: size {} won't fit the DFU slot", size);
+            return self.fw_abort();
+        }
+        self.fw_size = size;
+        self.fw_staged = 0;
+        logline!("update: receiving {} bytes", size);
+        Some(OutResponse::Accepted)
+    }
+
+    /// Stage one chunk; wValue = sequential chunk index, data = FW_CHUNK bytes.
+    fn fw_data(&mut self, req: &Request, data: &[u8]) -> Option<OutResponse> {
+        if self.fw_size == 0 || data.len() != FW_CHUNK {
+            return self.fw_abort();
+        }
+        let offset = req.value as u32 * FW_CHUNK as u32;
+        if offset != self.fw_staged || offset + FW_CHUNK as u32 > self.dfu_len {
+            logline!("err update: chunk out of order");
+            return self.fw_abort();
+        }
+        // Blocks until the sector is erased + written (~50 ms): the control
+        // transfer's status stage is the host's write barrier.
+        if self.updater.write_firmware(offset as usize, data).is_err() {
+            logline!("err update: flash write failed at {}", offset);
+            return self.fw_abort();
+        }
+        self.fw_staged += FW_CHUNK as u32;
+        Some(OutResponse::Accepted)
+    }
+
+    /// Verify the staged image (data = CRC-32 LE), mark it, and reboot.
+    fn fw_done(&mut self, data: &[u8]) -> Option<OutResponse> {
+        let Some(crc) = data.get(..4).map(|b| u32::from_le_bytes(b.try_into().unwrap())) else {
+            return self.fw_abort();
+        };
+        if self.fw_size == 0 || self.fw_staged < self.fw_size {
+            return self.fw_abort();
+        }
+        // The DFU slot is memory-mapped; read it back straight from XIP.
+        let staged =
+            unsafe { core::slice::from_raw_parts(self.dfu_addr as *const u8, self.fw_size as usize) };
+        if crc32(staged) != crc {
+            logline!("err update: CRC mismatch, not applying");
+            return self.fw_abort();
+        }
+        if self.updater.mark_updated().is_err() {
+            logline!("err update: marking failed");
+            return self.fw_abort();
+        }
+        self.fw_size = 0;
+        self.fw_staged = 0;
+        logline!("ok update; rebooting into the new firmware");
+        FW_REBOOT.store(true, Ordering::Relaxed);
+        Some(OutResponse::Accepted)
+    }
 }
 
 impl Handler for VendorHandler {
-    fn control_out(&mut self, req: Request, _data: &[u8]) -> Option<OutResponse> {
+    fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
         if !self.is_ours(&req) {
             return None;
         }
-        if req.request != VREQ_CMD {
-            return Some(OutResponse::Rejected);
+        match req.request {
+            VREQ_FW_BEGIN => return self.fw_begin(data),
+            VREQ_FW_DATA => return self.fw_data(&req, data),
+            VREQ_FW_DONE => return self.fw_done(data),
+            VREQ_CMD => {}
+            _ => return Some(OutResponse::Rejected),
         }
         let cmd = match req.value {
             VCMD_NOP => Command::Nop,
@@ -253,13 +358,20 @@ async fn main(_spawner: Spawner) {
     // --- USB composite device: two CDC-ACM ports + a vendor interface. ---
     let driver = Driver::new(p.USB, Irqs);
 
+    // Flash is shared between the one-shot UID read and the firmware updater.
+    static FLASH_CELL: StaticCell<FlashMutex> = StaticCell::new();
+    let flash = FLASH_CELL.init(embassy_sync::blocking_mutex::Mutex::new(RefCell::new(
+        Flash::new_blocking(p.FLASH),
+    )));
+
     // Unique per-unit USB serial derived from the RP2040 flash UID, so multiple
     // dongles on one host are individually addressable (e.g. "DPL-1A2B3C4D").
     static SERIAL: StaticCell<String<24>> = StaticCell::new();
     let serial = {
-        let mut flash = Flash::<_, Blocking, FLASH_SIZE>::new_blocking(p.FLASH);
         let mut uid = [0u8; 8];
-        let _ = flash.blocking_unique_id(&mut uid);
+        flash.lock(|f| {
+            let _ = f.borrow_mut().blocking_unique_id(&mut uid);
+        });
         let s = SERIAL.init(String::new());
         let _ = core::write!(
             s,
@@ -272,6 +384,18 @@ async fn main(_spawner: Spawner) {
         );
         s.as_str()
     };
+
+    // The embassy-boot updater for streamed firmware updates. Marking this
+    // boot healthy confirms a freshly swapped image, so the bootloader won't
+    // revert it on the next reset.
+    static UPDATER_BUF: StaticCell<AlignedBuffer<4>> = StaticCell::new();
+    let mut updater = BlockingFirmwareUpdater::new(
+        FirmwareUpdaterConfig::from_linkerfile_blocking(flash, flash),
+        &mut UPDATER_BUF.init(AlignedBuffer([0; 4])).0,
+    );
+    if updater.mark_booted().is_err() {
+        info!("could not mark boot state; updates may revert");
+    }
 
     // RecoverKit's VID/PID (16D0:14F0, assigned via MCS Electronics). Every
     // RecoverKit model shares it; the host tells models apart by the iProduct
@@ -290,7 +414,8 @@ async fn main(_spawner: Spawner) {
     static CONFIG_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static BOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static MSOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
-    static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
+    // Sized for a whole firmware-update chunk in one control transfer.
+    static CONTROL_BUF: StaticCell<[u8; proto::FW_CHUNK]> = StaticCell::new();
     static STATE0: StaticCell<State> = StaticCell::new();
     static STATE1: StaticCell<State> = StaticCell::new();
 
@@ -300,7 +425,7 @@ async fn main(_spawner: Spawner) {
         CONFIG_DESC.init([0; 256]),
         BOS_DESC.init([0; 256]),
         MSOS_DESC.init([0; 256]),
-        CONTROL_BUF.init([0; 64]),
+        CONTROL_BUF.init([0; proto::FW_CHUNK]),
     );
 
     // MS OS 2.0 descriptors: make Windows auto-bind WinUSB to the vendor
@@ -322,8 +447,18 @@ async fn main(_spawner: Spawner) {
         let _alt = iface.alt_setting(0xFF, 0x00, 0x00, None);
         n
     };
+    let (dfu_addr, dfu_len) = unsafe {
+        let start = &__bootloader_dfu_start as *const u8 as u32;
+        let end = &__bootloader_dfu_end as *const u8 as u32;
+        (embassy_rp::flash::FLASH_BASE as u32 + start, end - start)
+    };
     builder.handler(VHANDLER.init(VendorHandler {
         iface: vendor_iface,
+        updater,
+        fw_size: 0,
+        fw_staged: 0,
+        dfu_addr,
+        dfu_len,
     }));
 
     let mut usb = builder.build();
@@ -511,6 +646,12 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
 
         self.publish_status();
         loop {
+            // A verified update was staged and marked: reboot so the
+            // bootloader swaps it in. The delay lets USB traffic drain.
+            if FW_REBOOT.load(Ordering::Relaxed) {
+                Timer::after_millis(250).await;
+                self.watchdog.trigger_reset();
+            }
             self.watchdog.feed(WATCHDOG_TIMEOUT);
             // A persistently unreachable FUSB302 returns zeroed reads that look
             // like real register state; reset to recover rather than run blind.
