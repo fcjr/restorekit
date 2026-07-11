@@ -82,7 +82,12 @@ fn via_from(dongle: Option<String>, ecid: Option<u64>, port: Option<i32>) -> Dfu
 
 /// `restorekit dfu` — trigger DFU on the cabled target, routing through a
 /// dongle or the host, then wait for (and report) the Mac entering DFU.
-pub fn enter(json: bool, dongle: Option<String>, ecid: Option<u64>, port: Option<i32>) -> Result<()> {
+pub fn enter(
+    json: bool,
+    dongle: Option<String>,
+    ecid: Option<u64>,
+    port: Option<i32>,
+) -> Result<()> {
     let via = via_from(dongle, ecid, port);
     match restorekit::trigger_dfu(via, Duration::from_secs(30), &mut |e| emit_stage(json, e)) {
         Ok(DfuOutcome::Entered(device)) => {
@@ -118,7 +123,12 @@ pub fn enter(json: bool, dongle: Option<String>, ecid: Option<u64>, port: Option
 }
 
 /// `restorekit reboot` — reboot the cabled target back to normal (dongle/host).
-pub fn reboot(json: bool, dongle: Option<String>, ecid: Option<u64>, port: Option<i32>) -> Result<()> {
+pub fn reboot(
+    json: bool,
+    dongle: Option<String>,
+    ecid: Option<u64>,
+    port: Option<i32>,
+) -> Result<()> {
     let via = via_from(dongle, ecid, port);
     if !json {
         println!("Rebooting the target...");

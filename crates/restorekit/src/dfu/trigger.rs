@@ -13,9 +13,9 @@ use crate::dongle::{self, Dongle, DongleTarget};
 use crate::error::{Error, Result};
 use crate::progress::{Event, ProgressFn};
 
-use super::{discovery, host_can_trigger_dfu, DfuTarget};
 #[cfg(target_os = "macos")]
 use super::vdm;
+use super::{discovery, host_can_trigger_dfu, DfuTarget};
 
 /// How to reach the target for a DFU trigger or reboot.
 #[derive(Debug, Clone, Default)]
@@ -36,6 +36,7 @@ pub enum DfuVia {
 
 /// Outcome of a DFU trigger.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum DfuOutcome {
     /// The Mac was observed entering (or already in) DFU on this host.
     Entered(Device),
@@ -185,7 +186,9 @@ fn trigger_via_dongle(
             stage: if attempt == 1 {
                 format!("sending DFU trigger via dongle {}", d.serial)
             } else {
-                format!("target didn't enter DFU; re-sending via dongle ({attempt}/{TRIGGER_ATTEMPTS})")
+                format!(
+                    "target didn't enter DFU; re-sending via dongle ({attempt}/{TRIGGER_ATTEMPTS})"
+                )
             },
         });
         d.dfu()?;
@@ -223,7 +226,7 @@ fn wait_entered(
     want_ecid: Option<u64>,
     timeout: Duration,
 ) -> Result<Device> {
-    let matches = |d: &Device| d.in_dfu() && want_ecid.map_or(true, |e| d.ecid == Some(e));
+    let matches = |d: &Device| d.in_dfu() && want_ecid.is_none_or(|e| d.ecid == Some(e));
 
     if let Some(d) = device::list()?.into_iter().find(&matches) {
         return Ok(d);
