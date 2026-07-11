@@ -1105,6 +1105,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "indicatif",
+ "libc",
  "restorekit",
  "serde_json",
  "windows-sys 0.60.2",

@@ -26,7 +26,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// List every connected Apple device, with its mode and ECID.
-    List,
+    List {
+        /// Re-render every 2 seconds until interrupted (NDJSON when --json).
+        #[arg(long, short)]
+        watch: bool,
+    },
     /// Put the cabled target Mac into DFU mode — via a dongle (any host) or the
     /// host's own port (Apple Silicon macOS, root). See `--dongle` / `--ecid`.
     Dfu(TargetArgs),
@@ -119,7 +123,13 @@ enum DongleAction {
     List,
     /// Show a dongle's live status (target attached, PD state, orientation).
     Status(DongleSelect),
-    /// Reboot a dongle into its USB bootloader to update its firmware.
+    /// Print the dongle's serial-console tty paths (control console and the
+    /// target's UART bridge).
+    Console(DongleSelect),
+    /// Reboot a dongle into its RP2040 bootrom for a factory reflash. Hidden:
+    /// normal updates go through `dongle update`, which needs no bootloader
+    /// mode; this is the recovery path (`just fw-flash-full`).
+    #[command(hide = true)]
     Bootsel(DongleSelect),
     /// Update a dongle's firmware over USB (no bootloader mode, no drive).
     ///
@@ -252,6 +262,13 @@ impl FirmwareArgs {
 }
 
 fn main() {
+    // Die quietly when a pipe closes (`restorekit list --json | head`), like
+    // any other unix tool, instead of panicking on EPIPE.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     // Internal: this copy was relaunched elevated to run the restore-mode driver
     // watcher (see restorekit::driver). Handle it before clap and exit.
     #[cfg(target_os = "windows")]
@@ -270,7 +287,7 @@ fn main() {
 
     let cli = Cli::parse();
     let result = match cli.command {
-        Command::List => commands::list::run(cli.json),
+        Command::List { watch } => commands::list::run(cli.json, watch),
         Command::Dfu(t) => commands::dfu::enter(cli.json, t.dongle, t.ecid, t.port),
         Command::Reboot(t) => commands::dfu::reboot(cli.json, t.dongle, t.ecid, t.port),
         Command::Download {
@@ -306,6 +323,7 @@ fn main() {
         Command::Dongle { action } => match action {
             DongleAction::List => commands::dongle::list(cli.json),
             DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
+            DongleAction::Console(s) => commands::dongle::console(cli.json, s.into_target()),
             DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
             DongleAction::Update {
                 file,
