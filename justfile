@@ -9,6 +9,25 @@ install:
     rustup component add llvm-tools
     cargo install flip-link elf2uf2-rs cargo-binutils
 
+# Release the software (bump + tag via CI; kind: patch|minor|major)
+release kind="patch": (_dispatch "bump-release.yml" kind)
+
+# Release the dongle firmware (bump + tag via CI; kind: patch|minor|major)
+release-fw kind="patch": (_dispatch "bump-release-fw.yml" kind)
+
+# Dispatch a bump workflow and follow the run it starts. The bump then pushes
+# a tag, which kicks off the corresponding release workflow.
+_dispatch workflow kind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    gh workflow run {{workflow}} -f version_type={{kind}}
+    echo "dispatched {{workflow}} ({{kind}}); waiting for the run to register..."
+    sleep 5
+    run=$(gh run list --workflow {{workflow}} --limit 1 --json databaseId --jq '.[0].databaseId')
+    gh run watch "$run" --exit-status
+    echo "bump done — the pushed tag now triggers the release workflow:"
+    gh run list --limit 3
+
 # On Windows the vendored C stack is built with autotools, which can't target
 # MSVC: cargo needs the GNU toolchain, with MinGW's binutils and the MSYS2
 # tools on PATH (mirrors apps/desktop/scripts/tauri.mjs and ci.yml).
