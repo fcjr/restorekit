@@ -22,7 +22,11 @@ restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }
 embassy-boot-rp = "0.10.0"
 embassy-embedded-hal = "0.6.0"
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+# boot2-none: the app runs behind the dongle-lite-boot bootloader, whose boot2
+# already configured XIP. Linking a boot2 here would make every app image
+# carry a zero-padded sector at 0x10000000 that flashing would smear over the
+# bootloader.
+embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040", "boot2-none"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }
 embassy-usb = { version = "0.6.0", features = ["defmt", "max-interface-count-8"] }
