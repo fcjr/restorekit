@@ -165,6 +165,15 @@ jobs:
       - name: Mark binaries executable
         run: chmod +x artifacts/*/restorekit artifacts/*/restorekit.exe
 
+      # Shipped in the archives and installed by the Homebrew cask.
+      - name: Generate shell completions
+        run: |
+          mkdir -p completions
+          for shell in bash zsh fish; do
+            ./artifacts/restorekit_linux_amd64/restorekit completions "$shell" \
+              > "completions/restorekit.$shell"
+          done
+
       - name: Install snapcraft
         run: sudo snap install snapcraft --classic
 
