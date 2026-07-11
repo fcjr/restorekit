@@ -65,7 +65,7 @@ enum Command {
         #[arg(long)]
         path: bool,
     },
-    /// Inspect and manage RecoverKit dongles (list, status, firmware
+    /// Inspect and manage RecoverKit dongles (list, serial console, firmware
     /// updates). Use the top-level `dfu` / `reboot` with `--dongle` or
     /// `--ecid` to act on the cabled Mac.
     #[command(arg_required_else_help = true)]
@@ -119,10 +119,10 @@ struct TargetArgs {
 
 #[derive(Subcommand)]
 enum DongleAction {
-    /// List connected dongles and what each has cabled to it.
-    List,
-    /// Show a dongle's live status (target attached, PD state, orientation).
-    Status(DongleSelect),
+    /// List connected dongles: firmware, PD state, and what each has cabled
+    /// to it. Name one (id or --ecid) to show just that dongle.
+    #[command(alias = "status")]
+    List(DongleSelect),
     /// Print the dongle's serial-console tty paths (control console and the
     /// target's UART bridge).
     Console(DongleSelect),
@@ -321,8 +321,11 @@ fn main() {
         }
         Command::Cache { clear, path } => commands::cache::run(cli.cache_dir, clear, path),
         Command::Dongle { action } => match action {
-            DongleAction::List => commands::dongle::list(cli.json),
-            DongleAction::Status(s) => commands::dongle::status(cli.json, s.into_target()),
+            DongleAction::List(s) => {
+                // No selector lists every dongle rather than the sole one.
+                let target = (s.id.is_some() || s.ecid.is_some()).then(|| s.into_target());
+                commands::dongle::list(cli.json, target)
+            }
             DongleAction::Console(s) => commands::dongle::console(cli.json, s.into_target()),
             DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
             DongleAction::Update {
