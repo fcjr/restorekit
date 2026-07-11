@@ -68,7 +68,7 @@ fw-flash-full: fw-build
                crates/dongle-lite-fw/target/dongle-lite-fw.uf2
     # --fill wipes the bootloader state sector (see dongle-lite-boot/memory.x):
     # leftover bytes there from older firmware can read as a bogus swap state.
-    python3 scripts/merge-uf2.py --fill 0x10006000:4096 \
+    node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
         crates/dongle-lite-boot/target/dongle-lite-boot.uf2 \
         crates/dongle-lite-fw/target/dongle-lite-fw.uf2 \
         crates/dongle-lite-fw/target/dongle-lite-full.uf2
