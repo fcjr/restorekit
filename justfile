@@ -103,15 +103,6 @@ fw-flash-full: fw-build
     echo "the dongle did not come back within 10s — check the board" >&2
     exit 1
 
-# Flash the app over the RP2040 bootrom (first time: use fw-flash-full)
-fw-flash: fw-build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    {{bootsel_kick}}
-    ( {{wait_rpi_rp2}} ) > /dev/null
-    cd crates/dongle-lite-fw
-    elf2uf2-rs -d target/thumbv6m-none-eabi/release/dongle-lite-fw
-
 # Shell snippet: reboot a running dongle into the RP2040 bootrom over its
 # vendor USB interface; on failure explain the manual paths and keep going.
 bootsel_kick := '''

@@ -91,7 +91,7 @@ pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
     } else {
         println!(
             "{} is rebooting into its USB bootloader; push new firmware with \
-             elf2uf2-rs/picotool (or `just fw-flash`).",
+             picotool (or `just fw-flash-full`).",
             d.serial
         );
     }

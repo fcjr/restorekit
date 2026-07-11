@@ -80,17 +80,17 @@ The app runs behind an `embassy-boot` bootloader (`../dongle-lite-boot`) that
 gives it A/B firmware slots: flash layout in the bootloader's `memory.x`.
 Repo-root shortcuts (prereqs: `just install`):
 
-- `just fw-flash-full` - factory / first flash: bootloader + app in one merged
-  UF2 over the RP2040 bootrom (hold BOOTSEL when plugging in a fresh board).
-- `just fw-update` - **production path**: streams the app image to a running
-  dongle over its vendor USB interface. The dongle stages it to the spare
-  slot, CRC-checks it, reboots, and the bootloader swaps it in - no bootrom,
-  no `RPI-RP2` drive, and an image that fails to boot is rolled back. The same
-  flow is exposed as `restorekit dongle update <image.bin>`.
-- `just fw-flash` - dev flash of just the app over the bootrom (the bootloader
-  must already be on the board).
+- `just fw-update` - the everyday path, dev loop and production alike: streams
+  the app image to a running dongle over its vendor USB interface. The dongle
+  stages it to the spare slot, CRC-checks it, reboots, and the bootloader
+  swaps it in - no bootrom, no `RPI-RP2` drive, and an image that fails to
+  boot is rolled back. The same flow is exposed as
+  `restorekit dongle update <image.bin>`.
+- `just fw-flash-full` - factory / recovery only: bootloader + app in one
+  merged UF2 over the RP2040 bootrom (hold BOOTSEL when plugging in a fresh
+  board; flashed with picotool when installed, else the RPI-RP2 drive).
 
-Both bootrom paths first send `restorekit dongle bootsel`, which reboots a
+The bootrom path first sends `restorekit dongle bootsel`, which reboots a
 running dongle into the bootrom via `reset_to_usb_boot` (same as typing
 `bootsel` on CDC0) - so no hands on the board. That's needed because the
 running firmware presents as a plain CDC device, so `picotool reboot -u` has
