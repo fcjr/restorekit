@@ -263,11 +263,18 @@ fn restore_attempt(
     // Route idevicerestore's logging through our capture sink (rather than its
     // default stdout dump) so it doesn't stomp on the progress UI and so we can
     // surface the real error text on failure. `verbose` also echoes to stderr.
+    //
+    // Capture at VERBOSE even when the user didn't ask for verbose output: the
+    // effaceable-wipe confirmation we scan for (the `format_effaceable_storage`
+    // checkpoint) is logged by idevicerestore at LL_VERBOSE, so a WARNING-level
+    // threshold would drop it and every obliteration would read as unconfirmed
+    // (fatal for `obliterate`). Echo to stderr stays gated on `verbose`, so
+    // non-verbose runs still look quiet — they just capture more internally.
     sys::install_log_capture(verbose);
     sys::set_log_level(if verbose {
         sys::LL_DEBUG
     } else {
-        sys::LL_WARNING
+        sys::LL_VERBOSE
     });
 
     // Initialize idevicerestore's global progress mutex up front — some of its

@@ -49,7 +49,9 @@ extern "C" {
 
 static LOG_LINES: Mutex<Vec<(c_int, String)>> = Mutex::new(Vec::new());
 static LOG_ECHO: AtomicBool = AtomicBool::new(false);
-const LOG_CAPACITY: usize = 512;
+// Large enough that capturing at VERBOSE (see restore.rs) doesn't evict the
+// trailing error/warning lines that error_tail() reports on failure.
+const LOG_CAPACITY: usize = 4096;
 
 /// Optional sink that receives every captured log line as it arrives, for
 /// live-streaming the restore log (see [`set_log_sink`]).
