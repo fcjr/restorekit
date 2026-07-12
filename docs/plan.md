@@ -66,7 +66,7 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 - [x] Hardware: `sudo restorekit dfu` + `status` verified against the cabled target Mac (detection + model ID confirmed)
 - [x] **Full restore hardware-verified**: end-to-end erase-restore of an M1 Pro over the FFI succeeded; target booted to Setup Assistant
 - [x] **Obliteration verification hardware-verified**: an erase restore scans the device's `format_effaceable_storage` checkpoint (`result=0`) to confirm the encryption media key was destroyed; the verdict is surfaced (CLI + `Obliteration` event) and persisted to history. Reported on failure too, since the key can be destroyed before a later step fails
-- [ ] **`obliterate` command** (implemented, not yet hardware-tested): patched idevicerestore (`FLAG_OBLITERATE_ONLY`) stops the restore right after the effaceable wipe, leaving the Mac wiped and OS-less — a fast decommissioning wipe
+- [x] **`obliterate` command hardware-verified**: patched idevicerestore (`FLAG_OBLITERATE_ONLY`) stops the restore right after the effaceable wipe, leaving the Mac wiped and OS-less — a fast decommissioning wipe. Confirmed on an M1 MacBook Pro: the restore halted at `format_effaceable_storage result=0` and skipped the OS-image upload entirely (~34 prep checkpoints, no filesystem upload, vs a full restore)
 
 ## 10. Multi-device support & the Device primitive
 - [x] `dfu::Target` selector (`One` / `Ecid`) unifying discovery: `dfu::find(target)` / `dfu::wait(target, timeout)` replace `find_one` / `wait_for_dfu`; ambiguity is an explicit `MultipleDevices` error
