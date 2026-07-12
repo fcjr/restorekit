@@ -74,7 +74,7 @@ into DFU manually (restorekit prints the key-combo instructions), then
 | `download` | Resolve firmware for the detected DFU device (or `--identifier`), download to cache. |
 | `restore` | One-shot erase-restore: trigger DFU entry if needed → wait → download → full erase-restore (`--yes` skips confirmation; `--ipsw`/`--os-version` pin firmware; `--ecid` picks a target when several are in DFU, otherwise an interactive picker). |
 | `revive` | Reinstall firmware without erasing user data (un-brick after a failed update). Same target/firmware flags as `restore`; no erase, so no `--yes`. |
-| `obliterate` | Destroy the encryption (media) key and stop, without reinstalling the OS — the effaceable wipe runs, then the restore halts, leaving the Mac wiped and OS-less. Fast decommissioning wipe; run `restore` afterward to make it usable. Same target/firmware flags as `restore`. |
+| `obliterate` | Destroy the encryption (media) key and stop, without reinstalling the OS — the effaceable wipe runs, then the restore halts, leaving the Mac wiped and OS-less. Fast decommissioning wipe; run `restore` afterward to make it usable. Same target/firmware flags as `restore`. See [obliterate.md](obliterate.md). |
 | `cache` | Show or clear the firmware cache (`--path`, `--clear`). |
 | `setup-driver` | Bind the WinUSB driver so restorekit can reach the target (Windows only). |
 

@@ -188,16 +188,16 @@ export const api = {
   resolveFirmware: (identifier: string, osVersion?: string) =>
     call<Firmware>("resolve_firmware", { identifier, osVersion: osVersion || null }),
   downloadFirmware: (firmware: Firmware) => call<string>("download_firmware", { firmware }),
-  restore: (ipsw: string, serial: string, revive: boolean) =>
-    call<void>("restore", { ipsw, serial, revive }),
+  restore: (ipsw: string, serial: string, mode: string) =>
+    call<void>("restore", { ipsw, serial, mode }),
   cacheInfo: () => call<CacheInfo>("cache_info"),
   clearCache: () => call<void>("clear_cache"),
   historyList: () => call<HistoryEntry[]>("history_list"),
   recordCapture: (entry: HistoryEntry) => call<void>("record_capture", { entry }),
   historyClear: () => call<void>("history_clear"),
   serialQrSvg: (text: string) => call<string>("serial_qr_svg", { text }),
-  enqueueRestore: (ipsw: string, ecid: string, name: string, revive: boolean) =>
-    call<number>("enqueue_restore", { ipsw, ecid, name, revive }),
+  enqueueRestore: (ipsw: string, ecid: string, name: string, mode: string) =>
+    call<number>("enqueue_restore", { ipsw, ecid, name, mode }),
   cancelRestore: (id: number) => call<void>("cancel_restore", { id }),
   restartRestore: (id: number) => call<void>("restart_restore", { id }),
   clearRestoreJob: (id: number) => call<void>("clear_restore_job", { id }),

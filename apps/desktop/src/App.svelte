@@ -118,7 +118,13 @@
   let firmware = $state<Firmware | null>(null);
   let osVersion = $state("");
   let ipswPath = $state<string | null>(null);
-  let revive = $state(false);
+  type RestoreMode = "restore" | "revive" | "obliterate";
+  let restoreMode = $state<RestoreMode>("restore");
+  const RESTORE_MODE_LABEL: Record<RestoreMode, string> = {
+    restore: "Erase & restore",
+    revive: "Revive",
+    obliterate: "Obliterate",
+  };
   let busy = $state(""); // short-lived status for trigger/reboot
   let error = $state("");
   let confirming = $state(false);
@@ -960,7 +966,7 @@
       if (!ipsw) throw new Error("no firmware to restore");
       // Hand the restore to the parallel job queue (its own process). It shows up
       // live in the roster and detail; several can run at once.
-      await api.enqueueRestore(ipsw, active.ecid, active.name, revive);
+      await api.enqueueRestore(ipsw, active.ecid, active.name, restoreMode);
       api.cacheInfo().then((v) => (cache = v)).catch(() => {});
       selectedKey = active.ecid || active.serial;
       logFollow = true;
@@ -1218,14 +1224,18 @@
               <div class="opt">
                 <span class="ok-label">Mode</span>
                 <span class="seg">
-                  <button class="segbtn" class:on={!revive} onclick={() => (revive = false)}>Erase &amp; restore</button>
-                  <button class="segbtn" class:on={revive} onclick={() => (revive = true)}>Revive</button>
+                  <button class="segbtn" class:on={restoreMode === "restore"} onclick={() => (restoreMode = "restore")}>Erase &amp; restore</button>
+                  <button class="segbtn" class:on={restoreMode === "revive"} onclick={() => (restoreMode = "revive")}>Revive</button>
+                  <button class="segbtn" class:on={restoreMode === "obliterate"} onclick={() => (restoreMode = "obliterate")}>Obliterate</button>
                 </span>
               </div>
+              {#if restoreMode === "obliterate"}
+                <p class="opt-note">Destroys the encryption key and stops — the Mac is left wiped with no OS. Fast decommissioning wipe; run Erase &amp; restore afterward to make it usable.</p>
+              {/if}
             </div>
 
             <div class="actions">
-              <button class="btn primary" onclick={beginRestore}>{revive ? "Revive" : "Erase & restore"}</button>
+              <button class="btn primary" onclick={beginRestore}>{RESTORE_MODE_LABEL[restoreMode]}</button>
               <button class="btn" onclick={downloadOnly} disabled={!selected.identifier || !!ipswPath}>Download only</button>
               <button class="btn ghost" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
             </div>
@@ -1531,20 +1541,22 @@
   {#if confirming && active}
     <div class="scrim">
       <div class="modal">
-        <div class="eyebrow" style="color:{revive ? 'var(--acc)' : 'var(--danger)'}">{revive ? "Revive" : "Erase & restore"}</div>
-        <h3>{revive ? "Revive this Mac?" : "Erase & restore this Mac?"}</h3>
+        <div class="eyebrow" style="color:{restoreMode === 'revive' ? 'var(--acc)' : 'var(--danger)'}">{RESTORE_MODE_LABEL[restoreMode]}</div>
+        <h3>{restoreMode === "revive" ? "Revive this Mac?" : restoreMode === "obliterate" ? "Obliterate this Mac?" : "Erase & restore this Mac?"}</h3>
         <div class="spec tight">
           <div class="k">Target</div><div class="v">{active.name}</div>
           <div class="k">Firmware</div><div class="v">{firmwareLine()}</div>
         </div>
         <p class="modal-body">
-          {revive
+          {restoreMode === "revive"
             ? "Revive reinstalls firmware and keeps existing data — no erase. The target reboots when done."
-            : "This erases all data on the target and installs a fresh copy of macOS. It cannot be undone."}
+            : restoreMode === "obliterate"
+              ? "This destroys the encryption key and stops — the Mac is wiped but no OS is reinstalled, so it will be left unbootable. Run Erase & restore afterward to make it usable. It cannot be undone."
+              : "This erases all data on the target and installs a fresh copy of macOS. It cannot be undone."}
         </p>
         <div class="modal-actions">
           <button class="btn" onclick={() => { confirming = false; active = null; }}>Cancel</button>
-          <button class="btn {revive ? 'primary' : 'danger'}" onclick={runRestore}>{revive ? "Revive target" : "Erase & restore"}</button>
+          <button class="btn {restoreMode === 'revive' ? 'primary' : 'danger'}" onclick={runRestore}>{restoreMode === "revive" ? "Revive target" : RESTORE_MODE_LABEL[restoreMode]}</button>
         </div>
       </div>
     </div>
@@ -1951,6 +1963,12 @@
     display: flex;
     align-items: center;
     gap: 14px;
+  }
+  .opt-note {
+    margin: 8px 0 0 110px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--danger);
   }
   .ok-label {
     width: 96px;
