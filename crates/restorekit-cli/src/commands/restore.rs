@@ -140,6 +140,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
 
     match result {
         Ok(_) => {
+            record_restore_history(device, mode, wipe.as_ref(), true);
             // A device-reported wipe failure is fatal even if the restore itself
             // returned success — the key is not proven destroyed.
             if wipe.as_ref().map(|(s, _)| s.as_str()) == Some("failed") {
@@ -152,6 +153,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
             Ok(())
         }
         Err(e) => {
+            record_restore_history(device, mode, wipe.as_ref(), false);
             // If the key was destroyed before the restore failed, the data is
             // already unrecoverable; the machine just needs a re-restore for an OS.
             if wipe.as_ref().map(|(s, _)| s.as_str()) == Some("confirmed") {
@@ -165,6 +167,41 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
         }
     }
 }
+
+/// Log the restore to the shared history DB (best-effort — a write failure never
+/// fails the restore). Records a successful restore, or a failed one where the
+/// key was still obliterated, so a wipe that completed before a later failure is
+/// captured for the refurb audit.
+#[cfg(feature = "history")]
+fn record_restore_history(device: &Device, mode: Mode, wipe: Option<&(String, String)>, ok: bool) {
+    use restorekit::history::{self, HistoryEntry};
+
+    let obliteration = wipe.map(|(status, _)| status.clone());
+    let wiped = matches!(obliteration.as_deref(), Some("confirmed") | Some("failed"));
+    if !ok && !wiped {
+        return;
+    }
+    let entry = HistoryEntry {
+        serial_number: device.srnm.clone(),
+        ecid: device.ecid_hex().unwrap_or_default(),
+        model_identifier: device.identifier().map(str::to_string),
+        name: device.display_name(),
+        mode: match mode {
+            Mode::Erase => "erase",
+            Mode::Revive => "revive",
+        }
+        .to_string(),
+        status: if ok { "restored" } else { "restore_failed" }.to_string(),
+        timestamp_rfc3339: history::now_rfc3339(),
+        obliteration,
+    };
+    if let Err(e) = history::record(&entry) {
+        eprintln!("warning: could not record restore history: {e}");
+    }
+}
+
+#[cfg(not(feature = "history"))]
+fn record_restore_history(_: &Device, _: Mode, _: Option<&(String, String)>, _: bool) {}
 
 /// Print the encryption-key obliteration verdict for an erase restore (nothing
 /// for a revive, which does not obliterate). Suppressed in `--json` mode, where

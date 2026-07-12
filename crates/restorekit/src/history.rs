@@ -82,6 +82,18 @@ fn open() -> Result<Connection> {
     Ok(conn)
 }
 
+/// Current UTC time as an RFC3339 string (e.g. `2026-07-12T20:30:00Z`), for
+/// stamping history entries from Rust callers. Uses SQLite (already a
+/// dependency) so we don't pull in a date library. Empty only if that fails,
+/// which is effectively impossible for an in-memory connection.
+pub fn now_rfc3339() -> String {
+    Connection::open_in_memory()
+        .and_then(|c| {
+            c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| r.get(0))
+        })
+        .unwrap_or_default()
+}
+
 /// Append a device to the history log.
 pub fn record(entry: &HistoryEntry) -> Result<()> {
     let conn = open()?;
@@ -274,6 +286,14 @@ pub fn export_seen_csv(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn now_rfc3339_is_well_formed() {
+        let ts = super::now_rfc3339();
+        // e.g. 2026-07-12T20:30:00Z
+        assert_eq!(ts.len(), 20, "unexpected timestamp: {ts:?}");
+        assert!(ts.ends_with('Z') && ts.as_bytes()[10] == b'T', "bad shape: {ts:?}");
+    }
+
     #[test]
     fn migrations_are_valid() {
         // Embedded migrations must parse and apply to an in-memory DB.
