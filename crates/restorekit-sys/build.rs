@@ -363,9 +363,15 @@ fn patch_idevicerestore_sources(manifest: &Path, vendor_src: &Path, out: &Path) 
     patches.sort();
     for patch in patches {
         println!("cargo:rerun-if-changed={}", patch.display());
+        // Apply with POSIX `patch`, not `git apply`. OUT_DIR lives under this
+        // repo's `target/`, which is git-ignored, and `git apply` run from
+        // inside a work tree silently *skips* patches whose target paths are
+        // ignored (it prints "Skipped patch" but still exits 0), leaving the
+        // sources unpatched. `patch` has no repo awareness, so it applies them
+        // regardless of the surrounding worktree.
         run(
-            Command::new("git")
-                .args(["apply", "--whitespace=nowarn"])
+            Command::new("patch")
+                .args(["-p1", "--no-backup-if-mismatch", "-i"])
                 .arg(&patch)
                 .current_dir(&root),
             &format!("apply {}", patch.file_name().unwrap().to_string_lossy()),
