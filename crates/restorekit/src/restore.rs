@@ -1,6 +1,6 @@
 use std::ffi::{c_void, CString};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use restorekit_sys as sys;
 
@@ -14,6 +14,112 @@ pub enum Mode {
     Erase,
     /// Update-style restore that preserves user data ("revive").
     Revive,
+}
+
+/// Outcome of the encryption-key obliteration check for an erase restore.
+///
+/// On Apple Silicon and T2 the media key that encrypts all user data lives in
+/// effaceable storage managed by the SEP; an erase restore reformats that
+/// region, destroying the key and cryptographically shredding the old data. The
+/// key itself is never readable, so the strongest signal available is the
+/// device's own report in the restore log — we scan for it and classify here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Obliteration {
+    /// Revive restore — no erase requested, so nothing is obliterated.
+    NotApplicable,
+    /// The device reported the effaceable storage was formatted (media key
+    /// destroyed). `evidence` is the log line that confirmed it.
+    Confirmed { evidence: String },
+    /// The device reported the effaceable format failed. `evidence` is the log
+    /// line. The old key may still be present — treat the wipe as unproven.
+    Failed { evidence: String },
+    /// The erase restore itself succeeded but no obliteration signal appeared in
+    /// the device log. The signal may simply not cross to the host on this
+    /// model/OS; re-run with `--verbose` to inspect the full device log.
+    Unconfirmed,
+}
+
+impl Obliteration {
+    /// Machine-readable status tag (matches [`Event::Obliteration`]).
+    pub fn status(&self) -> &'static str {
+        match self {
+            Obliteration::NotApplicable => "not_applicable",
+            Obliteration::Confirmed { .. } => "confirmed",
+            Obliteration::Failed { .. } => "failed",
+            Obliteration::Unconfirmed => "unconfirmed",
+        }
+    }
+
+    /// The device log line that produced this verdict, if any.
+    pub fn evidence(&self) -> Option<&str> {
+        match self {
+            Obliteration::Confirmed { evidence } | Obliteration::Failed { evidence } => {
+                Some(evidence)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Accumulates obliteration signals seen in the restore log stream. Failure
+/// dominates success; the first line of each kind is kept as evidence.
+#[derive(Default)]
+struct ObliterationScan {
+    confirmed: Option<String>,
+    failed: Option<String>,
+}
+
+impl ObliterationScan {
+    fn observe(&mut self, line: &str) {
+        let l = line.to_ascii_lowercase();
+        // Primary signal, verified on a real M1 (MacBookPro17,1) erase restore:
+        // the device forwards its effaceable-media-key wipe to the host as a
+        // restore checkpoint, e.g.
+        //   Checkpoint completed id: 0x61F (format_effaceable_storage) result=0
+        // `result=0` is success; any non-zero code is a failed wipe. The
+        // "started" line has no `result=` and is ignored. This crosses the USB
+        // link; `restored_update`'s on-device syslog string does not.
+        if l.contains("format_effaceable_storage") {
+            if let Some(code) = l
+                .split("result=")
+                .nth(1)
+                .and_then(|s| s.split_whitespace().next())
+            {
+                if code == "0" {
+                    self.confirmed.get_or_insert_with(|| line.to_string());
+                } else {
+                    self.failed.get_or_insert_with(|| line.to_string());
+                }
+            }
+            return;
+        }
+        // Fallback: `restored_update`'s textual report, in case some model/OS
+        // surfaces it to the host instead of (or before) the checkpoint.
+        const FAIL: &[&str] = &[
+            "failed to format effaceable storage",
+            "error formatting effaceable storage",
+        ];
+        const OK: &[&str] = &["effaceable storage formatted successfully"];
+        if self.failed.is_none() && FAIL.iter().any(|m| l.contains(m)) {
+            self.failed = Some(line.to_string());
+        } else if self.confirmed.is_none() && OK.iter().any(|m| l.contains(m)) {
+            self.confirmed = Some(line.to_string());
+        }
+    }
+
+    fn result(&self) -> Obliteration {
+        if let Some(e) = &self.failed {
+            Obliteration::Failed {
+                evidence: e.clone(),
+            }
+        } else if let Some(e) = &self.confirmed {
+            Obliteration::Confirmed {
+                evidence: e.clone(),
+            }
+        } else {
+            Obliteration::Unconfirmed
+        }
+    }
 }
 
 /// Human name for an idevicerestore progress step.
@@ -97,7 +203,7 @@ pub fn restore(
     mode: Mode,
     verbose: bool,
     progress: ProgressFn,
-) -> Result<()> {
+) -> Result<Obliteration> {
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     // On Linux and Windows, start the embedded usbmuxd server so idevicerestore
@@ -120,9 +226,11 @@ pub fn restore(
     let mut attempt = 1;
     loop {
         match restore_attempt(ipsw, ecid, cache_dir, mode, verbose, progress) {
-            Ok(()) => {
+            Ok(obliteration) => {
+                // The worker already emitted the Obliteration event (it fires on
+                // failure too); just close out the successful run.
                 progress(Event::Done);
-                return Ok(());
+                return Ok(obliteration);
             }
             Err(e) if attempt < RESTORE_ATTEMPTS && is_transient_failure(&e) => {
                 progress(Event::RestoreRetrying {
@@ -146,7 +254,7 @@ fn restore_attempt(
     mode: Mode,
     verbose: bool,
     progress: ProgressFn,
-) -> Result<()> {
+) -> Result<Obliteration> {
     // Route idevicerestore's logging through our capture sink (rather than its
     // default stdout dump) so it doesn't stomp on the progress UI and so we can
     // surface the real error text on failure. `verbose` also echoes to stderr.
@@ -176,7 +284,7 @@ fn restore_attempt(
     let worker = std::thread::Builder::new()
         .name("restore".into())
         .stack_size(RESTORE_STACK)
-        .spawn(move || -> Result<()> {
+        .spawn(move || -> Result<Obliteration> {
             let ipsw_c = CString::new(ipsw.as_os_str().to_string_lossy().as_bytes())
                 .map_err(|_| Error::Download("ipsw path contains a NUL byte".into()))?;
             let cache_c = cache_dir
@@ -211,11 +319,18 @@ fn restore_attempt(
                         &tx as *const std::sync::mpsc::Sender<Event> as *mut c_void,
                     );
 
-                    // Stream each log line as an event for a live log window. The
+                    // Stream each log line as an event for a live log window, and
+                    // scan it for the device's effaceable-obliteration signals. The
                     // sink is cleared before the worker's own sender drops, so the
                     // caller's `rx` loop still terminates.
                     let tx_log = tx.clone();
+                    let scan = Arc::new(Mutex::new(ObliterationScan::default()));
+                    let scan_sink = Arc::clone(&scan);
                     sys::set_log_sink(Some(Box::new(move |level, line| {
+                        scan_sink
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .observe(line);
                         let _ = tx_log.send(Event::LogLine {
                             level,
                             line: line.to_string(),
@@ -223,8 +338,23 @@ fn restore_attempt(
                     })));
                     let rc = sys::idevicerestore_start(client);
                     sys::set_log_sink(None);
+                    let obliteration = match mode {
+                        Mode::Revive => Obliteration::NotApplicable,
+                        Mode::Erase => scan.lock().unwrap_or_else(|e| e.into_inner()).result(),
+                    };
+                    // Report the wipe verdict for BOTH outcomes: an erase can
+                    // destroy the media key early and still fail later (e.g. the
+                    // OS-image upload drops), and a refurb audit must capture
+                    // that the key is gone regardless. Skip the noise event for a
+                    // revive, which never obliterates.
+                    if !matches!(obliteration, Obliteration::NotApplicable) {
+                        let _ = tx.send(Event::Obliteration {
+                            status: obliteration.status().to_string(),
+                            detail: obliteration.evidence().unwrap_or_default().to_string(),
+                        });
+                    }
                     if rc == 0 {
-                        Ok(())
+                        Ok(obliteration)
                     } else {
                         let tail = sys::error_tail(20);
                         let log_tail = if tail.is_empty() {
@@ -273,6 +403,36 @@ mod tests {
             "uploading filesystem"
         );
         assert_eq!(step_name(999), "restoring");
+    }
+
+    #[test]
+    fn obliteration_scan_classifies_signals() {
+        // The real host-visible signal (verified on an M1 erase restore): a
+        // restore checkpoint with a result code. The "started" line is not a
+        // verdict; only the "completed … result=" line is.
+        let mut s = ObliterationScan::default();
+        s.observe("Checkpoint started   id: 0x61F (format_effaceable_storage)");
+        assert_eq!(s.result(), Obliteration::Unconfirmed);
+        s.observe("Checkpoint completed id: 0x61F (format_effaceable_storage) result=0");
+        assert!(matches!(s.result(), Obliteration::Confirmed { .. }));
+
+        // A non-zero checkpoint result is a failed wipe.
+        let mut s = ObliterationScan::default();
+        s.observe("Checkpoint completed id: 0x61F (format_effaceable_storage) result=5");
+        assert!(matches!(s.result(), Obliteration::Failed { .. }));
+
+        // Unrelated lines and the ambiguous "nothing to do" leave it unconfirmed.
+        let mut s = ObliterationScan::default();
+        s.observe("preparing NAND");
+        s.observe("restored_update: effaceable storage is formatted, nothing to do");
+        assert_eq!(s.result(), Obliteration::Unconfirmed);
+
+        // Textual fallback still works; failure dominates a prior success.
+        let mut s = ObliterationScan::default();
+        s.observe("effaceable storage formatted successfully");
+        assert!(matches!(s.result(), Obliteration::Confirmed { .. }));
+        s.observe("failed to format effaceable storage");
+        assert!(matches!(s.result(), Obliteration::Failed { .. }));
     }
 
     #[test]

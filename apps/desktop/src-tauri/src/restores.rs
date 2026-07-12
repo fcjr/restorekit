@@ -33,6 +33,9 @@ pub struct JobView {
     pub step: String,
     pub progress: f32,
     pub message: String,
+    /// Erase-restore key-wipe verdict once known (`confirmed` | `failed` |
+    /// `unconfirmed` | `not_applicable`); `None` until the worker reports it.
+    pub obliteration: Option<String>,
 }
 
 struct Job {
@@ -163,6 +166,7 @@ async fn run_job(
     let stdout = child.stdout.take().expect("piped stdout");
     let mut lines = BufReader::new(stdout).lines();
     let mut failure: Option<String> = None;
+    let mut obliteration: Option<String> = None;
 
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
@@ -183,6 +187,31 @@ async fn run_job(
                 let l = v.get("line").and_then(|x| x.as_str()).unwrap_or("");
                 emit_log(&app, id, level, l);
             }
+            Some("obliteration") => {
+                let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
+                if !status.is_empty() {
+                    // Keep a confirmed/failed verdict over a later unconfirmed one
+                    // (a retry that fails before re-reaching the wipe checkpoint).
+                    let strong = status == "confirmed" || status == "failed";
+                    if obliteration.is_none() || strong {
+                        obliteration = Some(status.to_string());
+                    }
+                }
+                let detail = v.get("detail").and_then(|x| x.as_str()).unwrap_or("");
+                emit_log(
+                    &app,
+                    id,
+                    if status == "failed" { 0 } else { 2 },
+                    &format!(
+                        "encryption-key obliteration: {status}{}",
+                        if detail.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({detail})")
+                        }
+                    ),
+                );
+            }
             Some("error") => {
                 failure = Some(
                     v.get("message")
@@ -196,6 +225,14 @@ async fn run_job(
     }
 
     let ok = matches!(child.wait().await, Ok(s) if s.success());
+    // Record the wipe verdict on the job before the terminal update so the UI's
+    // "done" snapshot (and the history entry it writes) carries it.
+    if obliteration.is_some() {
+        let mut g = inner.lock().await;
+        if let Some(job) = g.jobs.get_mut(&id) {
+            job.view.obliteration = obliteration;
+        }
+    }
     if ok && failure.is_none() {
         set_status(&inner, &app, id, "done", "restored", Some(100.0), "").await;
     } else {
@@ -236,6 +273,7 @@ pub async fn enqueue_restore(
             step: "queued".into(),
             progress: 0.0,
             message: String::new(),
+            obliteration: None,
         };
         g.jobs.insert(
             id,

@@ -16,9 +16,10 @@ fn record_list_export_clear_roundtrip() {
         ecid: "0x77aa22bb44cc".into(),
         model_identifier: Some("Mac14,2".into()),
         name: "MacBook Air (M2, 2022)".into(), // contains a comma → must be CSV-quoted
-        mode: "recovery".into(),
-        status: "captured".into(),
+        mode: "restore".into(),
+        status: "restored".into(),
         timestamp_rfc3339: "2026-01-01T00:00:00Z".into(),
+        obliteration: Some("confirmed".into()),
     };
     history::record(&entry).unwrap();
 
@@ -26,12 +27,14 @@ fn record_list_export_clear_roundtrip() {
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].serial_number.as_deref(), Some("C02XX1234567"));
     assert_eq!(all[0].name, "MacBook Air (M2, 2022)");
+    assert_eq!(all[0].obliteration.as_deref(), Some("confirmed"));
 
     let csv = dir.join("out.csv");
     history::export_csv(&csv).unwrap();
     let text = std::fs::read_to_string(&csv).unwrap();
-    assert!(text.starts_with("Timestamp,Serial,ECID,Model,Name,Mode,Status"));
+    assert!(text.starts_with("Timestamp,Serial,ECID,Model,Name,Mode,Status,Obliteration"));
     assert!(text.contains("\"MacBook Air (M2, 2022)\""));
+    assert!(text.trim_end().ends_with("confirmed"));
 
     history::clear().unwrap();
     assert_eq!(history::list().unwrap().len(), 0);

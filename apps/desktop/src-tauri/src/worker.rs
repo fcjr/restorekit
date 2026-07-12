@@ -57,7 +57,7 @@ pub fn maybe_run() -> bool {
     });
 
     match result {
-        Ok(()) => std::process::exit(0),
+        Ok(_) => std::process::exit(0),
         Err(e) => {
             emit_error(&e.to_string());
             std::process::exit(1);

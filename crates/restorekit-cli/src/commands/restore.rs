@@ -112,17 +112,79 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
         );
         b
     };
-    restore::restore(
+    // Capture the wipe verdict from the event stream. It is emitted even when the
+    // restore later fails (the key can be destroyed early), so grab it in the
+    // progress closure and keep a confirmed/failed verdict over a later
+    // unconfirmed one across retries.
+    let mut wipe: Option<(String, String)> = None;
+    let result = restore::restore(
         &ipsw_path,
         ecid,
         Some(&cache),
         mode,
         opts.verbose,
-        &mut |event| restore_render(&bar, event, json),
-    )?;
+        &mut |event| {
+            if let Event::Obliteration { status, detail } = &event {
+                let strong = status == "confirmed" || status == "failed";
+                if wipe.is_none() || strong {
+                    wipe = Some((status.clone(), detail.clone()));
+                }
+            }
+            restore_render(&bar, event, json);
+        },
+    );
     bar.finish_and_clear();
-    say(json, completion_message(device, mode));
-    Ok(())
+
+    // Report the wipe verdict regardless of the restore's overall outcome.
+    report_wipe(json, wipe.as_ref());
+
+    match result {
+        Ok(_) => {
+            // A device-reported wipe failure is fatal even if the restore itself
+            // returned success — the key is not proven destroyed.
+            if wipe.as_ref().map(|(s, _)| s.as_str()) == Some("failed") {
+                return Err(Error::RestoreFailed {
+                    status: -1,
+                    log_tail: "device reported the encryption-key wipe FAILED".into(),
+                });
+            }
+            say(json, completion_message(device, mode));
+            Ok(())
+        }
+        Err(e) => {
+            // If the key was destroyed before the restore failed, the data is
+            // already unrecoverable; the machine just needs a re-restore for an OS.
+            if wipe.as_ref().map(|(s, _)| s.as_str()) == Some("confirmed") {
+                say(
+                    json,
+                    "The encryption key was destroyed before the restore failed, so the \
+                     old data is unrecoverable. Re-run the restore to reinstall the OS.",
+                );
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Print the encryption-key obliteration verdict for an erase restore (nothing
+/// for a revive, which does not obliterate). Suppressed in `--json` mode, where
+/// it already went out as a machine-readable Obliteration event.
+fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
+    let Some((status, detail)) = wipe else { return };
+    match status.as_str() {
+        "confirmed" => say(json, &format!("Encryption key obliterated (verified): {detail}")),
+        "failed" => say(
+            json,
+            &format!("WARNING: the device reported the encryption-key wipe FAILED: {detail}"),
+        ),
+        "unconfirmed" => say(
+            json,
+            "Note: no encryption-key obliteration signal appeared in the device log. The \
+             erase still destroys the key; it just could not be verified. Re-run with \
+             --verbose to inspect the device log.",
+        ),
+        _ => {}
+    }
 }
 
 /// The closing status line, tailored to what the target will actually do next.

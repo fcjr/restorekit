@@ -25,6 +25,12 @@ pub struct HistoryEntry {
     pub mode: String,
     pub status: String,
     pub timestamp_rfc3339: String,
+    /// Encryption-key obliteration verdict for an erase restore (`confirmed`,
+    /// `failed`, `unconfirmed`, `not_applicable`); `None` for captures and rows
+    /// logged before this was tracked. Defaulted so older records and callers
+    /// that omit it still deserialize.
+    #[serde(default)]
+    pub obliteration: Option<String>,
 }
 
 /// One device ever seen by this host, deduped by ECID and enriched across the
@@ -50,6 +56,7 @@ fn migrations() -> &'static Migrations<'static> {
         Migrations::new(vec![
             M::up(include_str!("../migrations/001_init.sql")),
             M::up(include_str!("../migrations/002_seen_devices.sql")),
+            M::up(include_str!("../migrations/003_obliteration.sql")),
         ])
     })
 }
@@ -80,8 +87,8 @@ pub fn record(entry: &HistoryEntry) -> Result<()> {
     let conn = open()?;
     conn.execute(
         "INSERT INTO captures \
-         (serial_number, ecid, model_identifier, name, mode, status, timestamp_rfc3339) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         (serial_number, ecid, model_identifier, name, mode, status, timestamp_rfc3339, obliteration) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             entry.serial_number,
             entry.ecid,
@@ -90,6 +97,7 @@ pub fn record(entry: &HistoryEntry) -> Result<()> {
             entry.mode,
             entry.status,
             entry.timestamp_rfc3339,
+            entry.obliteration,
         ],
     )
     .map_err(db)?;
@@ -101,8 +109,8 @@ pub fn list() -> Result<Vec<HistoryEntry>> {
     let conn = open()?;
     let mut stmt = conn
         .prepare(
-            "SELECT serial_number, ecid, model_identifier, name, mode, status, timestamp_rfc3339 \
-             FROM captures ORDER BY id DESC",
+            "SELECT serial_number, ecid, model_identifier, name, mode, status, timestamp_rfc3339, \
+             obliteration FROM captures ORDER BY id DESC",
         )
         .map_err(db)?;
     let rows = stmt
@@ -115,6 +123,7 @@ pub fn list() -> Result<Vec<HistoryEntry>> {
                 mode: r.get(4)?,
                 status: r.get(5)?,
                 timestamp_rfc3339: r.get(6)?,
+                obliteration: r.get(7)?,
             })
         })
         .map_err(db)?;
@@ -139,7 +148,7 @@ fn csv_field(s: &str) -> String {
 /// Write the whole history to `path` as a spreadsheet-openable CSV.
 pub fn export_csv(path: &Path) -> Result<()> {
     let entries = list()?;
-    let mut out = String::from("Timestamp,Serial,ECID,Model,Name,Mode,Status\n");
+    let mut out = String::from("Timestamp,Serial,ECID,Model,Name,Mode,Status,Obliteration\n");
     for e in &entries {
         let cols = [
             e.timestamp_rfc3339.as_str(),
@@ -149,6 +158,7 @@ pub fn export_csv(path: &Path) -> Result<()> {
             e.name.as_str(),
             e.mode.as_str(),
             e.status.as_str(),
+            e.obliteration.as_deref().unwrap_or(""),
         ];
         out.push_str(
             &cols
@@ -270,14 +280,14 @@ mod tests {
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();
         super::migrations().to_latest(&mut conn).unwrap();
         conn.execute(
-            "INSERT INTO captures (ecid, name, mode, status, timestamp_rfc3339) \
-             VALUES ('0x1', 'Mac', 'recovery', 'captured', '2026-01-01T00:00:00Z')",
+            "INSERT INTO captures (ecid, name, mode, status, timestamp_rfc3339, obliteration) \
+             VALUES ('0x1', 'Mac', 'restore', 'restored', '2026-01-01T00:00:00Z', 'confirmed')",
             [],
         )
         .unwrap();
-        let n: i64 = conn
-            .query_row("SELECT count(*) FROM captures", [], |r| r.get(0))
+        let obl: Option<String> = conn
+            .query_row("SELECT obliteration FROM captures", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(obl.as_deref(), Some("confirmed"));
     }
 }
