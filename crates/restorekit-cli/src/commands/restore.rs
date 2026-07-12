@@ -205,7 +205,7 @@ fn record_restore_history(device: &Device, mode: Mode, wipe: Option<&(String, St
         model_identifier: device.identifier().map(str::to_string),
         name: device.display_name(),
         mode: match mode {
-            Mode::Erase => "erase",
+            Mode::Erase => "restore",
             Mode::Revive => "revive",
             Mode::Obliterate => "obliterate",
         }
@@ -254,7 +254,7 @@ fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
 fn completion_message(device: &Device, mode: Mode) -> &'static str {
     match (device.is_t2(), mode) {
         (_, Mode::Obliterate) => {
-            "Key obliterated. The Mac is wiped with no OS — run `restorekit erase` to reinstall."
+            "Key obliterated. The Mac is wiped with no OS — run `restorekit restore` to reinstall."
         }
         (true, Mode::Erase) => {
             "bridgeOS restore complete. Reinstall macOS via internet recovery (hold Cmd-R at boot)."
@@ -298,7 +298,7 @@ fn confirm(device: &Device, mode: Mode, yes: bool, json: bool) -> Result<bool> {
             "  This destroys the encryption key and STOPS — no OS is reinstalled. The Mac will"
         );
         println!(
-            "  be left wiped and unbootable; run `restorekit erase` afterward to make it usable."
+            "  be left wiped and unbootable; run `restorekit restore` afterward to make it usable."
         );
     } else if device.is_t2() {
         // A T2 erase restore only reinstalls bridgeOS — unlike Apple Silicon, it

@@ -49,17 +49,16 @@ enum Command {
         #[arg(long, value_parser = parse_ecid)]
         ecid: Option<u64>,
     },
-    /// Erase and restore the target Mac: triggers DFU entry if needed, then
-    /// downloads firmware and restores. This wipes all data on the target.
-    #[command(alias = "restore")]
-    Erase(RestoreArgs),
+    /// Restore the target Mac: triggers DFU entry if needed, then downloads
+    /// firmware and restores. This wipes all data on the target.
+    Restore(RestoreArgs),
     /// Revive the target Mac: reinstall firmware without erasing user data —
     /// use this to recover a Mac bricked by a failed update.
     Revive(ReviveArgs),
     /// Obliterate the target Mac's encryption key and stop, without reinstalling
     /// the OS: destroys the effaceable media key (cryptographically shredding all
     /// data) then halts, leaving the Mac wiped and OS-less. Fast decommissioning
-    /// wipe; run `erase` afterward to make it usable again.
+    /// wipe; run `restore` afterward to make it usable again.
     Obliterate(RestoreArgs),
     /// Show or manage the firmware cache.
     Cache {
@@ -300,7 +299,7 @@ fn main() {
             os_version,
             ecid,
         } => commands::download::run(identifier, os_version, ecid, cli.cache_dir, cli.json),
-        Command::Erase(args) => commands::restore::run(args.firmware.into_opts(
+        Command::Restore(args) => commands::restore::run(args.firmware.into_opts(
             restorekit::restore::Mode::Erase,
             args.yes,
             cli.cache_dir,
