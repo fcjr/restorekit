@@ -530,7 +530,7 @@
           The whole workflow is one command.
         </h2>
         <p class="mt-4 text-[13.5px] leading-7 text-mut">
-          Run <code class="text-ink2">sudo restorekit erase</code> and bam! It detects the mac,
+          Run <code class="text-ink2">sudo restorekit restore</code> and bam! It detects the mac,
           downloads the right firmware, and restores it to factory settings.
         </p>
         <ul class="mt-6 space-y-3 text-[12.5px] leading-6 text-mut">
@@ -544,15 +544,15 @@
       <div class="self-center">
         {@render cmd(
           "cli",
-          "sudo restorekit erase",
+          "sudo restorekit restore",
           `# wipe and reinstall the latest signed macOS
-$ sudo restorekit erase
+$ sudo restorekit restore
 
 # pick one of several connected Macs
-$ sudo restorekit erase --ecid 0xc60a812345678
+$ sudo restorekit restore --ecid 0xc60a812345678
 
 # no prompts, for scripts
-$ sudo restorekit erase --yes
+$ sudo restorekit restore --yes
 
 # just flip the target into DFU (macOS hosts)
 $ sudo restorekit dfu
@@ -710,9 +710,9 @@ $ restorekit setup-driver`,
           <h3 class="mb-3 text-[11px] tracking-[0.14em] uppercase text-mut">Linux · releases</h3>
           {@render cmd(
             "linux",
-            "sudo restorekit erase",
+            "sudo restorekit restore",
             `# .deb / .AppImage from GitHub releases
-$ sudo restorekit erase`,
+$ sudo restorekit restore`,
           )}
           <p class="mt-3 text-[11.5px] leading-5 text-fnt">
             Skip <code class="text-mut">sudo</code> by installing the bundled
