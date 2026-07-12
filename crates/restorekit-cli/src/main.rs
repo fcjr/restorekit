@@ -56,6 +56,11 @@ enum Command {
     /// Revive the target Mac: reinstall firmware without erasing user data —
     /// use this to recover a Mac bricked by a failed update.
     Revive(ReviveArgs),
+    /// Obliterate the target Mac's encryption key and stop, without reinstalling
+    /// the OS: destroys the effaceable media key (cryptographically shredding all
+    /// data) then halts, leaving the Mac wiped and OS-less. Fast decommissioning
+    /// wipe; run `erase` afterward to make it usable again.
+    Obliterate(RestoreArgs),
     /// Show or manage the firmware cache.
     Cache {
         /// Delete all cached firmware.
@@ -240,14 +245,14 @@ fn parse_ecid(s: &str) -> Result<u64, String> {
 impl FirmwareArgs {
     fn into_opts(
         self,
-        revive: bool,
+        mode: restorekit::restore::Mode,
         yes: bool,
         cache_dir: Option<PathBuf>,
         json: bool,
         verbose: bool,
     ) -> commands::restore::Opts {
         commands::restore::Opts {
-            revive,
+            mode,
             ipsw: self.ipsw,
             os_version: self.os_version,
             identifier: self.identifier,
@@ -296,15 +301,22 @@ fn main() {
             ecid,
         } => commands::download::run(identifier, os_version, ecid, cli.cache_dir, cli.json),
         Command::Erase(args) => commands::restore::run(args.firmware.into_opts(
-            false,
+            restorekit::restore::Mode::Erase,
             args.yes,
             cli.cache_dir,
             cli.json,
             cli.verbose,
         )),
         Command::Revive(args) => commands::restore::run(args.firmware.into_opts(
-            true,
+            restorekit::restore::Mode::Revive,
             false,
+            cli.cache_dir,
+            cli.json,
+            cli.verbose,
+        )),
+        Command::Obliterate(args) => commands::restore::run(args.firmware.into_opts(
+            restorekit::restore::Mode::Obliterate,
+            args.yes,
             cli.cache_dir,
             cli.json,
             cli.verbose,

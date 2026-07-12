@@ -10,7 +10,7 @@ use restorekit::{firmware, restore, Device, Error, Result};
 use super::render;
 
 pub struct Opts {
-    pub revive: bool,
+    pub mode: Mode,
     pub ipsw: Option<PathBuf>,
     pub os_version: Option<String>,
     pub identifier: Option<String>,
@@ -82,11 +82,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
         path
     };
 
-    let mode = if opts.revive {
-        Mode::Revive
-    } else {
-        Mode::Erase
-    };
+    let mode = opts.mode;
 
     if !confirm(device, mode, opts.yes, json)? {
         say(json, "Aborted.");
@@ -137,6 +133,28 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
 
     // Report the wipe verdict regardless of the restore's overall outcome.
     report_wipe(json, wipe.as_ref());
+
+    let wipe_status = wipe.as_ref().map(|(s, _)| s.as_str());
+
+    // Obliterate deliberately stops the restore right after the wipe, so a
+    // confirmed wipe is the intended outcome even though idevicerestore may
+    // report the truncated run as an error.
+    if mode == Mode::Obliterate {
+        return match wipe_status {
+            Some("confirmed") => {
+                record_restore_history(device, mode, wipe.as_ref(), true);
+                say(json, completion_message(device, mode));
+                Ok(())
+            }
+            _ => {
+                record_restore_history(device, mode, wipe.as_ref(), false);
+                Err(result.err().unwrap_or(Error::RestoreFailed {
+                    status: -1,
+                    log_tail: "obliterate did not confirm the encryption-key wipe".into(),
+                }))
+            }
+        };
+    }
 
     match result {
         Ok(_) => {
@@ -189,9 +207,15 @@ fn record_restore_history(device: &Device, mode: Mode, wipe: Option<&(String, St
         mode: match mode {
             Mode::Erase => "erase",
             Mode::Revive => "revive",
+            Mode::Obliterate => "obliterate",
         }
         .to_string(),
-        status: if ok { "restored" } else { "restore_failed" }.to_string(),
+        status: match (ok, mode) {
+            (true, Mode::Obliterate) => "obliterated",
+            (true, _) => "restored",
+            (false, _) => "restore_failed",
+        }
+        .to_string(),
         timestamp_rfc3339: history::now_rfc3339(),
         obliteration,
     };
@@ -229,6 +253,9 @@ fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
 /// separately; a T2 revive preserves macOS; Apple Silicon restores fully.
 fn completion_message(device: &Device, mode: Mode) -> &'static str {
     match (device.is_t2(), mode) {
+        (_, Mode::Obliterate) => {
+            "Key obliterated. The Mac is wiped with no OS — run `restorekit erase` to reinstall."
+        }
         (true, Mode::Erase) => {
             "bridgeOS restore complete. Reinstall macOS via internet recovery (hold Cmd-R at boot)."
         }
@@ -263,10 +290,20 @@ fn confirm(device: &Device, mode: Mode, yes: bool, json: bool) -> Result<bool> {
         device.display_name(),
         device.ecid_hex().unwrap_or_default()
     );
-    // A T2 erase restore only reinstalls bridgeOS — unlike Apple Silicon, it does
-    // not put macOS back. Make that explicit so the user isn't left with a Mac
-    // that won't boot. Use `revive` instead to update bridgeOS without erasing.
-    if device.is_t2() {
+    // Obliterate destroys the key and stops — no OS is put back at all. Make the
+    // "you must restore afterward" part explicit so nobody is surprised by a Mac
+    // that won't boot.
+    if mode == Mode::Obliterate {
+        println!(
+            "  This destroys the encryption key and STOPS — no OS is reinstalled. The Mac will"
+        );
+        println!(
+            "  be left wiped and unbootable; run `restorekit erase` afterward to make it usable."
+        );
+    } else if device.is_t2() {
+        // A T2 erase restore only reinstalls bridgeOS — unlike Apple Silicon, it
+        // does not put macOS back. Make that explicit so the user isn't left with
+        // a Mac that won't boot. Use `revive` to update bridgeOS without erasing.
         println!(
             "  This T2 Mac will be wiped and restored to bridgeOS only — macOS is NOT reinstalled."
         );
