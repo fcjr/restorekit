@@ -103,6 +103,8 @@ export interface JobView {
   step: string;
   progress: number;
   message: string;
+  /** Erase-restore key-wipe verdict once known, else null. */
+  obliteration?: string | null;
 }
 
 /** A device ever seen by this host, deduped by ECID across modes. */
@@ -128,6 +130,8 @@ export interface HistoryEntry {
   mode: string;
   status: string;
   timestamp_rfc3339: string;
+  /** Erase-restore key-wipe verdict: confirmed | failed | unconfirmed | not_applicable. */
+  obliteration?: string | null;
 }
 
 /** A library progress event, discriminated by `event` (matches the CLI --json). */
@@ -137,6 +141,7 @@ export type ProgressEvent =
   | { event: "download_progress"; received: number; total: number }
   | { event: "verifying" }
   | { event: "restore_step"; step: number; name: string; progress: number }
+  | { event: "obliteration"; status: string; detail: string }
   | { event: "done" }
   | { event: string; [k: string]: unknown };
 

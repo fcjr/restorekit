@@ -458,6 +458,7 @@ pub async fn restore(
                 let _ = app.emit("progress", &event);
             },
         )
+        .map(|_| ())
         .map_err(|e| e.to_string())
     })
     .await

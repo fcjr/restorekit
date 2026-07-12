@@ -49,6 +49,13 @@ pub enum Event {
         level: i32,
         line: String,
     },
+    /// Result of the encryption-key obliteration check after an erase restore.
+    /// `status` is one of `confirmed`, `failed`, `unconfirmed`, `not_applicable`;
+    /// `detail` carries the device log line that classified it, when any.
+    Obliteration {
+        status: String,
+        detail: String,
+    },
     /// A restore attempt failed on a transient transport error (e.g. a dropped
     /// USB write mid-transfer) and is being retried from the top.
     RestoreRetrying {

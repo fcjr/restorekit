@@ -483,7 +483,11 @@
       jobEnd[j.id] = Date.now();
     }
     // Log a finished restore to history once (best-effort; enrich from devices).
-    if (j.status === "done" && historyEnabled && !recordedJobs.has(j.id)) {
+    // Also log a failed restore when the key was still obliterated, so a wipe
+    // that completed before a later failure is captured for the refurb audit.
+    const wiped = j.obliteration === "confirmed" || j.obliteration === "failed";
+    const shouldRecord = j.status === "done" || (j.status === "failed" && wiped);
+    if (shouldRecord && historyEnabled && !recordedJobs.has(j.id)) {
       recordedJobs.add(j.id);
       const d = devices.find((x) => x.ecid === j.ecid);
       void api
@@ -493,8 +497,9 @@
           model_identifier: d?.identifier ?? null,
           name: j.name,
           mode: d?.mode ?? "restore",
-          status: "restored",
+          status: j.status === "done" ? "restored" : "restore_failed",
           timestamp_rfc3339: new Date().toISOString(),
+          obliteration: j.obliteration ?? null,
         })
         .then(loadHistory)
         .catch(() => {});

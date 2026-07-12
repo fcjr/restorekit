@@ -83,7 +83,7 @@ pub use dongle::{Connection, Dongle, DongleHandle, DongleStatus, DongleTarget, P
 pub use error::{Error, Result};
 pub use firmware::Firmware;
 pub use progress::Event;
-pub use restore::Mode;
+pub use restore::{Mode, Obliteration};
 
 /// A shared embedded usbmuxd the parent process holds while it spawns per-device
 /// restore workers. Child `restore` processes detect it (via the
