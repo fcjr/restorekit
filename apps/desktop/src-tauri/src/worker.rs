@@ -36,10 +36,10 @@ pub fn maybe_run() -> bool {
             None => s.parse().ok(),
         }
     });
-    let mode = if get("--mode").as_deref() == Some("revive") {
-        Mode::Revive
-    } else {
-        Mode::Erase
+    let mode = match get("--mode").as_deref() {
+        Some("revive") => Mode::Revive,
+        Some("obliterate") => Mode::Obliterate,
+        _ => Mode::Erase,
     };
     let cache = get("--cache-dir").map(PathBuf::from);
 

@@ -441,13 +441,17 @@ pub async fn restore(
     app: AppHandle,
     ipsw: String,
     serial: String,
-    revive: bool,
+    mode: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (_, _, ecid, _, _) =
             parse_serial(&serial).ok_or_else(|| "could not parse device serial".to_string())?;
         let cache = firmware::default_cache_dir().ok();
-        let mode = if revive { Mode::Revive } else { Mode::Erase };
+        let mode = match mode.as_str() {
+            "revive" => Mode::Revive,
+            "obliterate" => Mode::Obliterate,
+            _ => Mode::Erase,
+        };
         restore::restore(
             std::path::Path::new(&ipsw),
             ecid,

@@ -43,7 +43,8 @@ struct Job {
     abort: Option<AbortHandle>,
     // Retained so a job can be restarted.
     ipsw: String,
-    revive: bool,
+    // "restore" | "revive" | "obliterate".
+    mode: String,
 }
 
 #[derive(Default)]
@@ -130,7 +131,7 @@ async fn run_job(
     id: u64,
     ipsw: String,
     ecid: String,
-    revive: bool,
+    mode: String,
 ) {
     let _permit = match sem.acquire_owned().await {
         Ok(p) => p,
@@ -147,10 +148,9 @@ async fn run_job(
             return;
         }
     };
-    let mode = if revive { "revive" } else { "erase" };
     let mut child = match tokio::process::Command::new(exe)
         .arg(crate::worker::RESTORE_WORKER_ARG)
-        .args(["--ipsw", &ipsw, "--ecid", &ecid, "--mode", mode])
+        .args(["--ipsw", &ipsw, "--ecid", &ecid, "--mode", &mode])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
@@ -250,7 +250,7 @@ pub async fn enqueue_restore(
     ipsw: String,
     ecid: String,
     name: String,
-    revive: bool,
+    mode: String,
 ) -> Result<u64, String> {
     let inner = restores.inner.clone();
     let sem = restores.sem.clone();
@@ -281,7 +281,7 @@ pub async fn enqueue_restore(
                 view: view.clone(),
                 abort: None,
                 ipsw: ipsw.clone(),
-                revive,
+                mode: mode.clone(),
             },
         );
         g.order.push(id);
@@ -291,7 +291,7 @@ pub async fn enqueue_restore(
 
     let handle = restores
         .rt
-        .spawn(run_job(app, inner.clone(), sem, id, ipsw, ecid, revive));
+        .spawn(run_job(app, inner.clone(), sem, id, ipsw, ecid, mode));
     if let Some(job) = inner.lock().await.jobs.get_mut(&id) {
         job.abort = Some(handle.abort_handle());
     }
@@ -330,7 +330,7 @@ pub async fn restart_restore(
     let inner = restores.inner.clone();
     let sem = restores.sem.clone();
 
-    let (ipsw, ecid, revive) = {
+    let (ipsw, ecid, mode) = {
         let mut g = inner.lock().await;
         let Some(job) = g.jobs.get_mut(&id) else {
             return Err("no such job".into());
@@ -344,12 +344,12 @@ pub async fn restart_restore(
         job.view.message.clear();
         let view = job.view.clone();
         emit_update(&app, &view);
-        (job.ipsw.clone(), job.view.ecid.clone(), job.revive)
+        (job.ipsw.clone(), job.view.ecid.clone(), job.mode.clone())
     };
 
     let handle = restores
         .rt
-        .spawn(run_job(app, inner.clone(), sem, id, ipsw, ecid, revive));
+        .spawn(run_job(app, inner.clone(), sem, id, ipsw, ecid, mode));
     if let Some(job) = inner.lock().await.jobs.get_mut(&id) {
         job.abort = Some(handle.abort_handle());
     }
