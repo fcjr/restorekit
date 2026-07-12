@@ -190,10 +190,21 @@ fn is_transient_failure(err: &Error) -> bool {
         "Unable to place device into recovery mode from DFU mode",
         "Unable to send iBoot stage 1 components",
     ];
-    match err {
-        Error::RestoreFailed { log_tail, .. } => MARKERS.iter().any(|m| log_tail.contains(m)),
-        _ => false,
-    }
+    // The ASR filesystem push dropping mid-transfer (flaky USB) is transient, but
+    // its signature gets buried: the device emits dozens of trailing errors (the
+    // per-chunk send retries, then "Unable to discover device mode") that push
+    // the real marker out of the short display tail. So scan a much larger slice
+    // of the just-failed attempt's captured log for the ASR-drop signature.
+    // These are specific to the transport push and never appear in a genuine
+    // restore-operation failure, so they won't cause those to retry.
+    const TRANSPORT_MARKERS: &[&str] = &["Unable to send data to ASR", "Unable to send filesystem"];
+    let Error::RestoreFailed { log_tail, .. } = err else {
+        return false;
+    };
+    MARKERS.iter().any(|m| log_tail.contains(m))
+        || TRANSPORT_MARKERS
+            .iter()
+            .any(|m| sys::error_tail(500).contains(m))
 }
 
 /// Run a restore against the DFU device with the given ECID, streaming progress.
