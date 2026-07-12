@@ -339,11 +339,31 @@ fn restore_attempt(
                     let tx_log = tx.clone();
                     let scan = Arc::new(Mutex::new(ObliterationScan::default()));
                     let scan_sink = Arc::clone(&scan);
+                    // Full checkpoint messages the device reports, captured for the
+                    // history audit trail (emitted by idevicerestore patch 0004):
+                    // `CHECKPOINT_JSON <compact json>` and `CHECKPOINT_RAW <xml>`
+                    // (the exact, lossless plist). Kept out of the evictable sys
+                    // capture buffer so none are lost to log volume.
+                    let ckpt_json = Arc::new(Mutex::new(Vec::<String>::new()));
+                    let ckpt_raw = Arc::new(Mutex::new(Vec::<String>::new()));
+                    let ckpt_json_sink = Arc::clone(&ckpt_json);
+                    let ckpt_raw_sink = Arc::clone(&ckpt_raw);
                     sys::set_log_sink(Some(Box::new(move |level, line| {
                         scan_sink
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .observe(line);
+                        if let Some(pos) = line.find("CHECKPOINT_JSON ") {
+                            ckpt_json_sink
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push(line[pos + "CHECKPOINT_JSON ".len()..].to_string());
+                        } else if let Some(pos) = line.find("CHECKPOINT_RAW ") {
+                            ckpt_raw_sink
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push(line[pos + "CHECKPOINT_RAW ".len()..].to_string());
+                        }
                         let _ = tx_log.send(Event::LogLine {
                             level,
                             line: line.to_string(),
@@ -367,6 +387,16 @@ fn restore_attempt(
                             status: obliteration.status().to_string(),
                             detail: obliteration.evidence().unwrap_or_default().to_string(),
                         });
+                    }
+                    // Hand off the full checkpoint messages (device self-reported;
+                    // not Apple-signed) for the history record, on success or
+                    // failure alike.
+                    let json =
+                        std::mem::take(&mut *ckpt_json.lock().unwrap_or_else(|e| e.into_inner()));
+                    let raw =
+                        std::mem::take(&mut *ckpt_raw.lock().unwrap_or_else(|e| e.into_inner()));
+                    if !json.is_empty() || !raw.is_empty() {
+                        let _ = tx.send(Event::Checkpoints { json, raw });
                     }
                     if rc == 0 {
                         Ok(obliteration)

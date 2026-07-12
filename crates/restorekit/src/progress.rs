@@ -56,6 +56,15 @@ pub enum Event {
         status: String,
         detail: String,
     },
+    /// The full checkpoint messages the device reported during the restore,
+    /// captured for the history audit trail. `json` holds one compact-JSON plist
+    /// per entry; `raw` holds the exact plist as XML (lossless). Emitted once
+    /// near the end. These are the device's self-reported status messages, not
+    /// Apple-signed attestations.
+    Checkpoints {
+        json: Vec<String>,
+        raw: Vec<String>,
+    },
     /// A restore attempt failed on a transient transport error (e.g. a dropped
     /// USB write mid-transfer) and is being retried from the top.
     RestoreRetrying {

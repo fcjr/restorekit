@@ -31,6 +31,15 @@ pub struct HistoryEntry {
     /// that omit it still deserialize.
     #[serde(default)]
     pub obliteration: Option<String>,
+    /// Full checkpoint messages the device reported during the restore, as a
+    /// JSON array of compact-JSON plists (device self-report, not Apple-signed).
+    /// `None` for captures and older rows.
+    #[serde(default)]
+    pub checkpoints_json: Option<String>,
+    /// The same checkpoints as a JSON array of the exact plists serialized to XML
+    /// (lossless). `None` for captures and older rows.
+    #[serde(default)]
+    pub checkpoints_raw: Option<String>,
 }
 
 /// One device ever seen by this host, deduped by ECID and enriched across the
@@ -57,6 +66,7 @@ fn migrations() -> &'static Migrations<'static> {
             M::up(include_str!("../migrations/001_init.sql")),
             M::up(include_str!("../migrations/002_seen_devices.sql")),
             M::up(include_str!("../migrations/003_obliteration.sql")),
+            M::up(include_str!("../migrations/004_checkpoints.sql")),
         ])
     })
 }
@@ -99,8 +109,9 @@ pub fn record(entry: &HistoryEntry) -> Result<()> {
     let conn = open()?;
     conn.execute(
         "INSERT INTO captures \
-         (serial_number, ecid, model_identifier, name, mode, status, timestamp_rfc3339, obliteration) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         (serial_number, ecid, model_identifier, name, mode, status, timestamp_rfc3339, \
+          obliteration, checkpoints_json, checkpoints_raw) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             entry.serial_number,
             entry.ecid,
@@ -110,6 +121,8 @@ pub fn record(entry: &HistoryEntry) -> Result<()> {
             entry.status,
             entry.timestamp_rfc3339,
             entry.obliteration,
+            entry.checkpoints_json,
+            entry.checkpoints_raw,
         ],
     )
     .map_err(db)?;
@@ -122,7 +135,7 @@ pub fn list() -> Result<Vec<HistoryEntry>> {
     let mut stmt = conn
         .prepare(
             "SELECT serial_number, ecid, model_identifier, name, mode, status, timestamp_rfc3339, \
-             obliteration FROM captures ORDER BY id DESC",
+             obliteration, checkpoints_json, checkpoints_raw FROM captures ORDER BY id DESC",
         )
         .map_err(db)?;
     let rows = stmt
@@ -136,6 +149,8 @@ pub fn list() -> Result<Vec<HistoryEntry>> {
                 status: r.get(5)?,
                 timestamp_rfc3339: r.get(6)?,
                 obliteration: r.get(7)?,
+                checkpoints_json: r.get(8)?,
+                checkpoints_raw: r.get(9)?,
             })
         })
         .map_err(db)?;

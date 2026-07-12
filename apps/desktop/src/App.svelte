@@ -506,6 +506,8 @@
           status: j.status === "done" ? "restored" : "restore_failed",
           timestamp_rfc3339: new Date().toISOString(),
           obliteration: j.obliteration ?? null,
+          checkpoints_json: j.checkpoints_json ?? null,
+          checkpoints_raw: j.checkpoints_raw ?? null,
         })
         .then(loadHistory)
         .catch(() => {});
