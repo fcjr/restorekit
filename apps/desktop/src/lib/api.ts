@@ -105,6 +105,9 @@ export interface JobView {
   message: string;
   /** Erase-restore key-wipe verdict once known, else null. */
   obliteration?: string | null;
+  /** Full checkpoint messages as JSON-array strings (compact JSON / exact XML). */
+  checkpoints_json?: string | null;
+  checkpoints_raw?: string | null;
 }
 
 /** A device ever seen by this host, deduped by ECID across modes. */
@@ -132,6 +135,9 @@ export interface HistoryEntry {
   timestamp_rfc3339: string;
   /** Erase-restore key-wipe verdict: confirmed | failed | unconfirmed | not_applicable. */
   obliteration?: string | null;
+  /** Full checkpoint messages as JSON-array strings (device self-report). */
+  checkpoints_json?: string | null;
+  checkpoints_raw?: string | null;
 }
 
 /** A library progress event, discriminated by `event` (matches the CLI --json). */
@@ -142,6 +148,7 @@ export type ProgressEvent =
   | { event: "verifying" }
   | { event: "restore_step"; step: number; name: string; progress: number }
   | { event: "obliteration"; status: string; detail: string }
+  | { event: "checkpoints"; json: string[]; raw: string[] }
   | { event: "done" }
   | { event: string; [k: string]: unknown };
 

@@ -82,6 +82,28 @@ the history log. Because the key is destroyed inside the Secure Enclave, this
 checkpoint attestation is the strongest confirmation available — the key value
 itself is never readable, by design.
 
+### Are the checkpoints signed?
+
+No. Each checkpoint is a plist the restore daemon sends back to the host over the
+USB restore channel (received via `restored_receive`); there is no per-message
+signature. What you trust is one level down: the ramdisk emitting them is
+Apple-signed and personalized to the device by the boot chain, so it's genuine
+Apple restore firmware reporting `result=0` — but that is trust rooted in the
+boot chain, not a signature you can verify on the message. The protocol does have
+a `RestoreAttestation` step, but idevicerestore explicitly declines it
+(`RestoreShouldAttest: false`), so no signed attestation is collected. Treat the
+checkpoints as an authenticated-by-boot-chain self-report, not a signed
+certificate.
+
+### Full checkpoint audit log
+
+Every checkpoint message the device reports is captured to the history record
+(patch 0004 emits each as `CHECKPOINT_JSON <compact json>` and `CHECKPOINT_RAW
+<exact plist XML>`). The history DB stores them in two columns —
+`checkpoints_json` (readable/queryable) and `checkpoints_raw` (the exact,
+lossless plists) — each a JSON array with one entry per checkpoint. This gives a
+complete operation log of what the device reported during the wipe.
+
 ## End state and caveats
 
 - After `obliterate` the Mac is **wiped and has no OS**. It sits in restore mode

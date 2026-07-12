@@ -1,0 +1,30 @@
+diff --git a/src/restore.c b/src/restore.c
+index eaabef4..0541846 100644
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -5720,6 +5720,25 @@ int restore_device(struct idevicerestore_client_t* client, plist_t build_identit
+ 			if (node) {
+ 				logger(LL_VERBOSE, "Checkpoint FAILURE id: 0x%" PRIX64 " result=%" PRIi64 ": %s\n", ckpt_id, ckpt_res, plist_get_string_ptr(node, NULL));
+ 			}
++			// Emit the full checkpoint message for the host to log verbatim
++			// (restorekit captures these into the restore history): a compact
++			// JSON view, and the exact plist as XML (lossless — all plist types
++			// preserved). These are the device's self-reported status messages,
++			// not Apple-signed attestations.
++			{
++				char* ckpt_json = NULL;
++				uint32_t ckpt_json_len = 0;
++				if (plist_to_json(message, &ckpt_json, &ckpt_json_len, 0) == PLIST_ERR_SUCCESS && ckpt_json) {
++					logger(LL_VERBOSE, "CHECKPOINT_JSON %s\n", ckpt_json);
++				}
++				free(ckpt_json);
++				char* ckpt_xml = NULL;
++				uint32_t ckpt_xml_len = 0;
++				if (plist_to_xml(message, &ckpt_xml, &ckpt_xml_len) == PLIST_ERR_SUCCESS && ckpt_xml) {
++					logger(LL_VERBOSE, "CHECKPOINT_RAW %s\n", ckpt_xml);
++				}
++				free(ckpt_xml);
++			}
+ 		}
+ 
+ 		// baseband update message

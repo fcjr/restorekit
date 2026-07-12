@@ -19,7 +19,9 @@ void restorekit_log_capture(int level, const char *msg);
 
 static void restorekit_log_trampoline(enum loglevel level, const char *fmt, va_list ap)
 {
-	char buf[4096];
+	/* Large enough to hold a full CHECKPOINT_RAW line (the exact checkpoint
+	 * plist serialized to XML on one logger call); longer messages truncate. */
+	char buf[65536];
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	restorekit_log_capture((int)level, buf);
 }

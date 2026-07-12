@@ -36,6 +36,11 @@ pub struct JobView {
     /// Erase-restore key-wipe verdict once known (`confirmed` | `failed` |
     /// `unconfirmed` | `not_applicable`); `None` until the worker reports it.
     pub obliteration: Option<String>,
+    /// Full checkpoint messages the device reported, each a JSON array of
+    /// strings: `checkpoints_json` is the compact JSON view, `checkpoints_raw`
+    /// the exact plists as XML. `None` until reported.
+    pub checkpoints_json: Option<String>,
+    pub checkpoints_raw: Option<String>,
 }
 
 struct Job {
@@ -167,6 +172,8 @@ async fn run_job(
     let mut lines = BufReader::new(stdout).lines();
     let mut failure: Option<String> = None;
     let mut obliteration: Option<String> = None;
+    let mut checkpoints_json: Option<String> = None;
+    let mut checkpoints_raw: Option<String> = None;
 
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
@@ -212,6 +219,16 @@ async fn run_job(
                     ),
                 );
             }
+            Some("checkpoints") => {
+                // Store each array (of full checkpoint plists) verbatim as a JSON
+                // string for the history record.
+                if let Some(j) = v.get("json").filter(|a| a.as_array().is_some_and(|a| !a.is_empty())) {
+                    checkpoints_json = Some(j.to_string());
+                }
+                if let Some(r) = v.get("raw").filter(|a| a.as_array().is_some_and(|a| !a.is_empty())) {
+                    checkpoints_raw = Some(r.to_string());
+                }
+            }
             Some("error") => {
                 failure = Some(
                     v.get("message")
@@ -227,10 +244,14 @@ async fn run_job(
     let ok = matches!(child.wait().await, Ok(s) if s.success());
     // Record the wipe verdict on the job before the terminal update so the UI's
     // "done" snapshot (and the history entry it writes) carries it.
-    if obliteration.is_some() {
+    if obliteration.is_some() || checkpoints_json.is_some() || checkpoints_raw.is_some() {
         let mut g = inner.lock().await;
         if let Some(job) = g.jobs.get_mut(&id) {
-            job.view.obliteration = obliteration;
+            if obliteration.is_some() {
+                job.view.obliteration = obliteration;
+            }
+            job.view.checkpoints_json = checkpoints_json;
+            job.view.checkpoints_raw = checkpoints_raw;
         }
     }
     if ok && failure.is_none() {
@@ -274,6 +295,8 @@ pub async fn enqueue_restore(
             progress: 0.0,
             message: String::new(),
             obliteration: None,
+            checkpoints_json: None,
+            checkpoints_raw: None,
         };
         g.jobs.insert(
             id,

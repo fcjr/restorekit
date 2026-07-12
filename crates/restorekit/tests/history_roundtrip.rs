@@ -20,6 +20,8 @@ fn record_list_export_clear_roundtrip() {
         status: "restored".into(),
         timestamp_rfc3339: "2026-01-01T00:00:00Z".into(),
         obliteration: Some("confirmed".into()),
+        checkpoints_json: Some(r#"["{\"CHECKPOINT_NAME\":\"format_effaceable_storage\"}"]"#.into()),
+        checkpoints_raw: Some(r#"["<plist>…</plist>"]"#.into()),
     };
     history::record(&entry).unwrap();
 
