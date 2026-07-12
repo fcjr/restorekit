@@ -90,10 +90,10 @@ signature. What you trust is one level down: the ramdisk emitting them is
 Apple-signed and personalized to the device by the boot chain, so it's genuine
 Apple restore firmware reporting `result=0` — but that is trust rooted in the
 boot chain, not a signature you can verify on the message. The protocol does have
-a `RestoreAttestation` step, but idevicerestore explicitly declines it
-(`RestoreShouldAttest: false`), so no signed attestation is collected. Treat the
-checkpoints as an authenticated-by-boot-chain self-report, not a signed
-certificate.
+a `RestoreAttestation` step, but it's an Apple-account-gated dead end for a
+third-party tool (and not a proof of erasure anyway) — see
+[restore-attestation.md](restore-attestation.md). Treat the checkpoints as an
+authenticated-by-boot-chain self-report, not a signed certificate.
 
 ### Full checkpoint audit log
 
