@@ -14,6 +14,11 @@ pub enum Mode {
     Erase,
     /// Update-style restore that preserves user data ("revive").
     Revive,
+    /// Destroy the encryption (media) key and stop — the effaceable wipe runs
+    /// but the OS is not reinstalled, leaving the Mac wiped and OS-less. Fast
+    /// key destruction for decommissioning; requires a later restore to be
+    /// usable again (`FLAG_ERASE | FLAG_OBLITERATE_ONLY`).
+    Obliterate,
 }
 
 /// Outcome of the encryption-key obliteration check for an erase restore.
@@ -307,6 +312,7 @@ fn restore_attempt(
                     let flags = match mode {
                         Mode::Erase => sys::FLAG_ERASE,
                         Mode::Revive => 0,
+                        Mode::Obliterate => sys::FLAG_ERASE | sys::FLAG_OBLITERATE_ONLY,
                     };
                     sys::idevicerestore_set_flags(client, flags);
                     sys::idevicerestore_set_ipsw(client, ipsw_c.as_ptr());
@@ -340,7 +346,9 @@ fn restore_attempt(
                     sys::set_log_sink(None);
                     let obliteration = match mode {
                         Mode::Revive => Obliteration::NotApplicable,
-                        Mode::Erase => scan.lock().unwrap_or_else(|e| e.into_inner()).result(),
+                        Mode::Erase | Mode::Obliterate => {
+                            scan.lock().unwrap_or_else(|e| e.into_inner()).result()
+                        }
                     };
                     // Report the wipe verdict for BOTH outcomes: an erase can
                     // destroy the media key early and still fail later (e.g. the

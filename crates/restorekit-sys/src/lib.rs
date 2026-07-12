@@ -14,6 +14,9 @@ use std::os::raw::{c_char, c_int, c_void};
 // Restore flags from idevicerestore.h.
 pub const FLAG_DEBUG: c_int = 1 << 1;
 pub const FLAG_ERASE: c_int = 1 << 2;
+/// Stop the restore right after the effaceable media-key wipe, before the OS is
+/// written. Combine with `FLAG_ERASE`. Added by patch 0003 (see patches/).
+pub const FLAG_OBLITERATE_ONLY: c_int = 1 << 14;
 
 // idevicerestore log levels (enum loglevel in log.h).
 pub const LL_ERROR: c_int = 0;

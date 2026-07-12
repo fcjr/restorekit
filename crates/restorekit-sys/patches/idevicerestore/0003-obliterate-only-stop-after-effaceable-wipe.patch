@@ -1,0 +1,36 @@
+diff --git a/src/idevicerestore.h b/src/idevicerestore.h
+index ce8686f..76e7367 100644
+--- a/src/idevicerestore.h
++++ b/src/idevicerestore.h
+@@ -47,6 +47,7 @@ extern "C" {
+ #define FLAG_NO_RESTORE      (1 << 11)
+ #define FLAG_IGNORE_ERRORS   (1 << 12)
+ #define FLAG_KEEP_PERS       (1 << 13)
++#define FLAG_OBLITERATE_ONLY (1 << 14)
+ #define FLAG_IN_PROGRESS     (1 << 30)
+ 
+ #define RESTORE_VARIANT_ERASE_INSTALL      "Erase Install (IPSW)"
+diff --git a/src/restore.c b/src/restore.c
+index eaabef4..b64f59e 100644
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -5709,6 +5709,19 @@ int restore_device(struct idevicerestore_client_t* client, plist_t build_identit
+ 
+ 			if (ckpt_complete) {
+ 				logger(LL_VERBOSE, "Checkpoint completed id: 0x%" PRIX64 " (%s) result=%" PRIi64 "\n", ckpt_id, ckpt_name, ckpt_res);
++				// Obliterate-only: the effaceable-storage format destroys the
++				// media key that encrypts all user data. Once it completes we
++				// have achieved the wipe, so stop cleanly here instead of going
++				// on to write the OS. A non-zero result means the wipe failed.
++				if ((client->flags & FLAG_OBLITERATE_ONLY) && ckpt_name && !strcmp(ckpt_name, "format_effaceable_storage")) {
++					if (ckpt_res == 0) {
++						logger(LL_WARNING, "Obliterate-only: effaceable media key destroyed (result=0); stopping before OS install.\n");
++					} else {
++						logger(LL_ERROR, "Obliterate-only: effaceable wipe failed (result=%" PRIi64 "); aborting.\n", ckpt_res);
++						err = -1;
++					}
++					client->flags |= FLAG_QUIT;
++				}
+ 			} else {
+ 				logger(LL_VERBOSE, "Checkpoint started   id: 0x%" PRIX64 " (%s)\n", ckpt_id, ckpt_name);
+ 			}
