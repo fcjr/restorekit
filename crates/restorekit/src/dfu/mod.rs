@@ -2,7 +2,7 @@ pub mod discovery;
 pub mod trigger;
 
 pub use discovery::{watch, Watch};
-pub use trigger::{reboot, trigger_dfu, wait_manual, DfuOutcome, DfuVia};
+pub use trigger::{reboot, serial, trigger_dfu, wait_manual, DfuOutcome, DfuVia, SerialConsole};
 
 #[cfg(target_os = "macos")]
 pub mod vdm;

@@ -154,6 +154,112 @@ pub fn reboot(
     }
 }
 
+/// `restorekit serial` — put the cabled target Mac into serial-console mode and
+/// stream its debug UART. Routes through a dongle if one is present (its firmware
+/// bridges the SBU UART to a CDC port and keeps it live across reboots), else the
+/// host's own port controller (two-Apple-Silicon-Macs case). On the host path we
+/// **re-apply serial mode every time the target drops off the port**, so it
+/// survives a restore's DFU→recovery→restore reboots (a plain macvdmtool `serial`
+/// would go silent after the first reset).
+pub fn serial(
+    json: bool,
+    dongle: Option<String>,
+    ecid: Option<u64>,
+    port: Option<i32>,
+) -> Result<()> {
+    let enter = |quiet: bool| {
+        restorekit::dfu::serial(via_from(dongle.clone(), ecid, port), &mut |e| {
+            if !quiet {
+                emit_stage(json, e)
+            }
+        })
+    };
+
+    let console = match enter(false) {
+        Ok(c) => c,
+        Err(Error::UnsupportedHost(_)) => {
+            if !json {
+                eprintln!(
+                    "Serial needs a dongle, or an Apple Silicon macOS host cabled to the target's \
+                     DFU port with a SuperSpeed USB-C cable (USB-2/charge cables lack the SBU lines)."
+                );
+            }
+            return Err(Error::UnsupportedHost("cannot enter serial mode".into()));
+        }
+        Err(e) => return Err(e),
+    };
+
+    // Host path re-arms serial mode over VDM on each reconnect; a dongle keeps
+    // serial live in its own firmware, so we just reconnect its CDC port.
+    let (path, host_rearm) = match &console {
+        restorekit::SerialConsole::Host => ("/dev/cu.debug-console".to_string(), true),
+        restorekit::SerialConsole::Dongle(d) => {
+            let ttys = super::dongle::serial_ttys(d);
+            let ts = ttys.get(1).cloned().ok_or_else(|| {
+                Error::Dongle(format!(
+                    "no target-serial tty for dongle {} — is its USB data on this host?",
+                    d.serial
+                ))
+            })?;
+            (ts, false)
+        }
+    };
+
+    if !json {
+        println!("\nStreaming {path} (115200 8N1). Ctrl-C to stop.");
+        println!(
+            "{}\n",
+            if host_rearm {
+                "Re-arms serial across target reboots — leave it running through the restore."
+            } else {
+                "The dongle keeps serial live across target reboots — leave it running."
+            }
+        );
+    }
+
+    let cpath = std::ffi::CString::new(path).unwrap();
+    let mut buf = [0u8; 4096];
+    let mut out = std::io::stdout();
+    loop {
+        // (Re)open — bounded wait for the device to (re)appear after a reboot.
+        let mut fd = -1;
+        for _ in 0..15 {
+            fd = unsafe { libc::open(cpath.as_ptr(), libc::O_RDONLY | libc::O_NOCTTY) };
+            if fd >= 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        if fd < 0 {
+            if host_rearm {
+                let _ = enter(true); // target mid-reboot: re-arm and retry.
+            }
+            continue;
+        }
+        unsafe {
+            let mut tio: libc::termios = std::mem::zeroed();
+            if libc::tcgetattr(fd, &mut tio) == 0 {
+                libc::cfmakeraw(&mut tio);
+                libc::cfsetspeed(&mut tio, libc::B115200);
+                libc::tcsetattr(fd, libc::TCSANOW, &tio);
+            }
+        }
+        loop {
+            let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+            if n > 0 {
+                let _ = out.write_all(&buf[..n as usize]);
+                let _ = out.flush();
+            } else {
+                break; // EOF/error: target went away.
+            }
+        }
+        unsafe { libc::close(fd) };
+        if host_rearm {
+            let _ = enter(true); // re-arm serial mode before reopening.
+        }
+    }
+}
+
 /// Ensure a Mac is in DFU mode: return it if already there (with the interactive
 /// picker when several are present and no ECID pins one), otherwise trigger
 /// entry via a dongle or the host and wait. Shared by `restore`.

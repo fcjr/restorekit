@@ -523,6 +523,12 @@ impl Dongle {
         self.open()?.reboot()
     }
 
+    /// Put the cabled Mac into serial-console mode: the dongle muxes the target's
+    /// debug UART onto SBU and bridges it to its target-serial CDC port.
+    pub fn serial(&self) -> Result<()> {
+        self.open()?.serial()
+    }
+
     /// Read a live status snapshot.
     pub fn status(&self) -> Result<DongleStatus> {
         self.open()?.status()

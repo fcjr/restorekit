@@ -16,6 +16,7 @@ pub struct Opts {
     pub identifier: Option<String>,
     pub ecid: Option<u64>,
     pub dongle: Option<String>,
+    pub boot_args: Option<String>,
     pub yes: bool,
     pub cache_dir: Option<PathBuf>,
     pub json: bool,
@@ -119,6 +120,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
         ecid,
         Some(&cache),
         mode,
+        opts.boot_args.as_deref(),
         opts.verbose,
         &mut |event| {
             match &event {

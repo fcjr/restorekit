@@ -36,6 +36,9 @@ enum Command {
     Dfu(TargetArgs),
     /// Reboot the cabled target Mac back into normal mode (dongle or host).
     Reboot(TargetArgs),
+    /// Stream the target Mac's debug serial console (Apple Silicon macOS host +
+    /// SuperSpeed USB-C cable). Muxes the UART onto the SBU pins like macvdmtool.
+    Serial(TargetArgs),
     /// Resolve and download firmware for the detected (or specified) Mac.
     Download {
         /// Model identifier (e.g. MacBookPro17,1). Defaults to the DFU device.
@@ -211,6 +214,12 @@ struct FirmwareArgs {
     /// `restorekit dongle list`.
     #[arg(long)]
     dongle: Option<String>,
+    /// Experimental: extra boot-args appended to the restore ramdisk kernel
+    /// (e.g. transport-restriction probes like `disable-transport-rm`). Does
+    /// NOT enable Thunderbolt restore — the host transport stays USB. See
+    /// docs/thunderbolt-restore.md.
+    #[arg(long, hide = true)]
+    boot_args: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -257,6 +266,7 @@ impl FirmwareArgs {
             identifier: self.identifier,
             ecid: self.ecid,
             dongle: self.dongle,
+            boot_args: self.boot_args,
             yes,
             cache_dir,
             json,
@@ -294,6 +304,7 @@ fn main() {
         Command::List { watch } => commands::list::run(cli.json, watch),
         Command::Dfu(t) => commands::dfu::enter(cli.json, t.dongle, t.ecid, t.port),
         Command::Reboot(t) => commands::dfu::reboot(cli.json, t.dongle, t.ecid, t.port),
+        Command::Serial(t) => commands::dfu::serial(cli.json, t.dongle, t.ecid, t.port),
         Command::Download {
             identifier,
             os_version,
