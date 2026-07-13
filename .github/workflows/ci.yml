@@ -195,8 +195,9 @@ jobs:
       # toolbox — base-devel, autotools, perl, cmake, nasm, ~835 MiB — is dead
       # weight; install only what the warm path uses: gcc + binutils for
       # build.rs's cc step and the final link, pkgconf + libusb for the libusb
-      # probe, git for `git apply` on the idevicerestore patches. Either cache
-      # missing falls back to the full set.
+      # probe, and POSIX `patch` (build.rs applies the idevicerestore patches
+      # with `patch`, not `git apply`). Either cache missing falls back to the
+      # full set (base-devel already bundles `patch`).
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -207,7 +208,7 @@ jobs:
           update: false
           install: >-
             ${{ (steps.c-stack.outputs.cache-hit == 'true' && steps.rust-cache.outputs.cache-hit == 'true')
-                && 'git mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-libusb'
+                && 'git patch mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-libusb'
                 || 'base-devel git make autoconf automake libtool autoconf-archive gettext-devel pkgconf perl mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-cmake mingw-w64-x86_64-libusb mingw-w64-x86_64-nasm' }}
 
       - name: Test (windows-gnu, static C stack under MSYS2)
