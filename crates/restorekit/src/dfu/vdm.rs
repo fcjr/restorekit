@@ -327,6 +327,30 @@ impl Hpm {
         }
         Ok(())
     }
+
+    /// Capability probe: whether a partner is attached (register 0x3f bit0) and
+    /// whether the controller enters DBMa (debug/VDM) mode — *without* the
+    /// connection precondition [`enter_dbma`](Self::enter_dbma) enforces, and
+    /// without sending any DFU action. `Drop` leaves DBMa, so it's
+    /// non-destructive.
+    fn probe(&self, key: u32) -> (bool, Result<String>) {
+        let connected = self
+            .read_register(0x3f)
+            .map(|r| r[0] & 1 != 0)
+            .unwrap_or(false);
+        let dbma = (|| -> Result<String> {
+            let status = self.read_status_string(0x03)?;
+            if status == "DBMa" {
+                return Ok(status);
+            }
+            self.unlock(key)?;
+            if self.command(fourcc(b"DBMa"), &[0x01])? != 0 {
+                return Err(Error::Vdm("DBMa command NAK".into()));
+            }
+            self.read_status_string(0x03)
+        })();
+        (connected, dbma)
+    }
 }
 
 impl Drop for Hpm {
@@ -407,7 +431,7 @@ fn resolve_rid(target: &DfuTarget) -> Result<Option<i32>> {
 /// [`super::port`]) and we pick the first matching controller, falling back to
 /// `RID == 0` when that property is absent.
 fn find_device(target_rid: Option<i32>) -> Result<Hpm> {
-    let dfu_rids = super::port::dfu_capable_rids();
+    let dfu_rids = super::port::default_dfu_rids();
     let wanted = |rid: i32| match target_rid {
         Some(t) => rid == t,
         None => dfu_rids.contains(&rid),
@@ -526,6 +550,42 @@ fn connect(target: &DfuTarget, progress: &mut dyn FnMut(Event)) -> Result<Hpm> {
 
 /// Reboot the cabled target Mac into DFU mode. `target` selects which port to
 /// drive when the host has several DFU-capable ports (see [`DfuTarget`]).
+/// Probe every host HPM controller for DFU/VDM capability by entering (and, via
+/// `Drop`, immediately leaving) DBMa debug mode. Sends no DFU action. Backs
+/// [`super::probe_ports`].
+pub fn probe_ports(progress: ProgressFn) -> Result<Vec<super::PortProbe>> {
+    preflight()?;
+    let (key, mac_type) = unlock_key()?;
+    progress(Event::DfuTriggerStage {
+        stage: format!("host: {mac_type}"),
+    });
+    let mut out = Vec::new();
+    for (rid, location) in super::port::all_hpm_ports() {
+        progress(Event::DfuTriggerStage {
+            stage: format!("probing RID {rid}"),
+        });
+        let probe = match find_device(Some(rid)) {
+            Ok(hpm) => {
+                let (connected, dbma) = hpm.probe(key);
+                super::PortProbe {
+                    rid,
+                    location,
+                    connected,
+                    dbma: dbma.map_err(|e| e.to_string()),
+                }
+            }
+            Err(e) => super::PortProbe {
+                rid,
+                location,
+                connected: false,
+                dbma: Err(e.to_string()),
+            },
+        };
+        out.push(probe);
+    }
+    Ok(out)
+}
+
 pub fn enter_dfu(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
     let hpm = connect(target, progress)?;
     progress(Event::DfuTriggerStage {

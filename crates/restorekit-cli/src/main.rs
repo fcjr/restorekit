@@ -39,6 +39,11 @@ enum Command {
     /// Stream the target Mac's debug serial console (Apple Silicon macOS host +
     /// SuperSpeed USB-C cable). Muxes the UART onto the SBU pins like macvdmtool.
     Serial(TargetArgs),
+    /// Probe which host USB-C ports can accept DFU/VDM commands by entering and
+    /// leaving each port controller's debug mode (Apple Silicon macOS, root).
+    /// Diagnostic — sends no DFU action. Hidden.
+    #[command(hide = true)]
+    ProbePorts,
     /// Resolve and download firmware for the detected (or specified) Mac.
     Download {
         /// Model identifier (e.g. MacBookPro17,1). Defaults to the DFU device.
@@ -298,6 +303,7 @@ fn main() {
         Command::Dfu(t) => commands::dfu::enter(cli.json, t.dongle, t.ecid, t.port),
         Command::Reboot(t) => commands::dfu::reboot(cli.json, t.dongle, t.ecid, t.port),
         Command::Serial(t) => commands::dfu::serial(cli.json, t.dongle, t.ecid, t.port),
+        Command::ProbePorts => commands::dfu::probe_ports(cli.json),
         Command::Download {
             identifier,
             os_version,

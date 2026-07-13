@@ -260,6 +260,52 @@ pub fn serial(
     }
 }
 
+/// `restorekit probe-ports` — report which host USB-C ports can accept DFU/VDM
+/// commands. Enters and leaves each port controller's DBMa debug mode; sends no
+/// DFU action, so it's non-destructive (though it can briefly blip a live
+/// peripheral on a port).
+pub fn probe_ports(json: bool) -> Result<()> {
+    let probes = restorekit::dfu::probe_ports(&mut |e| {
+        if !json {
+            emit_stage(json, e)
+        }
+    })?;
+    if json {
+        for p in &probes {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "event": "port_probe",
+                    "rid": p.rid,
+                    "location": p.location,
+                    "connected": p.connected,
+                    "dfu_capable": matches!(&p.dbma, Ok(s) if s == "DBMa"),
+                    "status": p.dbma.as_ref().ok(),
+                    "error": p.dbma.as_ref().err(),
+                })
+            );
+        }
+        return Ok(());
+    }
+    println!("\nHost USB-C ports (DFU/VDM capability):\n");
+    for p in &probes {
+        let loc = p.location.as_deref().unwrap_or("?");
+        let conn = if p.connected {
+            "device attached"
+        } else {
+            "empty"
+        };
+        let verdict = match &p.dbma {
+            Ok(s) if s == "DBMa" => "DFU-capable".to_string(),
+            Ok(s) => format!("reached debug (status {s})"),
+            Err(e) => format!("not capable — {e}"),
+        };
+        println!("  RID {:<2}  {:<12}  {:<16}  {verdict}", p.rid, loc, conn);
+    }
+    println!();
+    Ok(())
+}
+
 /// Ensure a Mac is in DFU mode: return it if already there (with the interactive
 /// picker when several are present and no ECID pins one), otherwise trigger
 /// entry via a dongle or the host and wait. Shared by `restore`.
