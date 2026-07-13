@@ -400,7 +400,31 @@ fn unlock_key() -> Result<(u32, String)> {
 /// controller" — the historical [`DfuTarget::Auto`] behavior.
 fn resolve_rid(target: &DfuTarget) -> Result<Option<i32>> {
     match target {
-        DfuTarget::Auto => Ok(None),
+        // No explicit port/ecid: find the Apple device cabled to a DFU-capable
+        // port and drive *that* port. This only ever targets an actually
+        // enumerated device's port — it never fans the VDM out across every port
+        // (an Apple peripheral like a Studio Display can act on Apple VDMs). With
+        // nothing cabled we fall through to the default port, which then reports
+        // a clean "no target detected"; with several targets we ask the caller to
+        // disambiguate rather than guess.
+        DfuTarget::Auto => {
+            let devices = crate::device::list()?;
+            let mut rids: Vec<i32> = devices
+                .iter()
+                .filter_map(|d| super::port::dfu_rid_for_serial(&d.serial))
+                .collect();
+            rids.sort_unstable();
+            rids.dedup();
+            match rids.as_slice() {
+                [] => Ok(None),
+                [rid] => Ok(Some(*rid)),
+                _ => Err(Error::Vdm(
+                    "several Apple devices are cabled to DFU-capable ports; \
+                     select one with --port or --ecid"
+                        .into(),
+                )),
+            }
+        }
         DfuTarget::Port(rid) => {
             if super::port::all_ports()
                 .iter()
