@@ -1,0 +1,76 @@
+diff --git a/src/asr.c b/src/asr.c
+index 66f65e7..9a9871e 100644
+--- a/src/asr.c
++++ b/src/asr.c
+@@ -35,6 +35,15 @@
+ 
+ #include "asr.h"
+ #include "idevicerestore.h"
++
++/* Consecutive send/read failures tolerated before giving up on a chunk. The
++ * budget resets after every successful chunk, so this bounds a *continuous*
++ * stall, not the whole transfer. With the delay below, this is ~6s of
++ * uninterrupted failure (e.g. a fully dropped link) before falling back to the
++ * caller's whole-restore retry. */
++#define ASR_SEND_STALL_RETRIES 30
++/* Backoff between chunk retries, letting a transient USB-2 stall clear. */
++#define ASR_SEND_RETRY_DELAY_US 200000
+ #include "common.h"
+ #include "ipsw.h"
+ 
+@@ -366,7 +375,12 @@ int asr_send_payload(asr_client_t asr, ipsw_file_handle_t file)
+ 	data = (char*)malloc(ASR_PAYLOAD_CHUNK_SIZE + 20);
+ 
+ 	i = length;
+-	int retry = 10;
++	/* Retry budget is *per stall*, not per transfer: it is reset to the full
++	 * allowance after every successful chunk (see below). A flaky USB-2 restore
++	 * link blips repeatedly over a multi-GB upload, and a single global budget
++	 * (the upstream `retry = 10`) exhausts across the whole transfer and fails
++	 * the restore even though each blip would clear on its own. */
++	int retry = ASR_SEND_STALL_RETRIES;
+ 	while(i > 0 && retry >= 0) {
+ 		uint32_t size = ASR_PAYLOAD_CHUNK_SIZE;
+ 		uint32_t sendsize = 0;
+@@ -375,9 +389,22 @@ int asr_send_payload(asr_client_t asr, ipsw_file_handle_t file)
+ 			size = i;
+ 		}
+ 
++		/* Always (re-)seek to the current offset before reading. On a retry the
++		 * previous ipsw_file_read has already advanced the file position, so
++		 * without this seek the retry would read and send the *following* chunk
++		 * in place of the failed one, silently corrupting the filesystem image.
++		 * Re-seeking makes a retry re-send exactly the chunk that failed. */
++		if (ipsw_file_seek(file, (int64_t)(length - i), SEEK_SET) < 0) {
++			logger(LL_ERROR, "Error seeking in filesystem, retrying...\n");
++			retry--;
++			usleep(ASR_SEND_RETRY_DELAY_US);
++			continue;
++		}
++
+ 		if (ipsw_file_read(file, data, size) != (int64_t)size) {
+-			logger(LL_ERROR, "Error reading filesystem\n");
++			logger(LL_ERROR, "Error reading filesystem, retrying...\n");
+ 			retry--;
++			usleep(ASR_SEND_RETRY_DELAY_US);
+ 			continue;
+ 		}
+ 
+@@ -389,6 +416,9 @@ int asr_send_payload(asr_client_t asr, ipsw_file_handle_t file)
+ 		if (asr_send_buffer(asr, data, sendsize) < 0) {
+ 			logger(LL_ERROR, "Unable to send filesystem payload chunk, retrying...\n");
+ 			retry--;
++			/* Back off briefly to give a transient USB-2 stall time to clear
++			 * before re-sending the same chunk. */
++			usleep(ASR_SEND_RETRY_DELAY_US);
+ 			continue;
+ 		}
+ 
+@@ -400,6 +430,7 @@ int asr_send_payload(asr_client_t asr, ipsw_file_handle_t file)
+ 		}
+ 
+ 		i -= size;
++		retry = ASR_SEND_STALL_RETRIES;
+ 	}
+ 
+ 	free(data);

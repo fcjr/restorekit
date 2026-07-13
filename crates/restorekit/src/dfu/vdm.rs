@@ -564,6 +564,34 @@ pub fn reboot(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
     Ok(())
 }
 
+/// Put the cabled target Mac *and* the host's port controller into serial-console
+/// mode: the target muxes its debug UART onto the USB-C SBU pins and macOS
+/// exposes it as `/dev/cu.debug-console` (115200 8N1). Port of macvdmtool's
+/// `serial`. Needs a SuperSpeed USB-C cable — the SBU pins carry the console, so
+/// USB-2/charge-only cables won't work.
+pub fn serial(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
+    let hpm = connect(target, progress)?;
+    progress(Event::DfuTriggerStage {
+        stage: "putting target into serial mode".into(),
+    });
+    // Serial-mux VDM (Apple SVID 0x05AC): route the target's debug UART onto its
+    // SBU1/2 pins.
+    if !hpm.send_action(&[0x05ac_8012, 0x0184_0306])? {
+        return Err(Error::Vdm("target rejected the serial-mode VDM".into()));
+    }
+    progress(Event::DfuTriggerStage {
+        stage: "putting the host end into serial mode".into(),
+    });
+    // Local controller: macvdmtool's `DVEn` command with the same SBU-mux value,
+    // wiring the host's SBU lines through to /dev/cu.debug-console.
+    if hpm.command(fourcc(b"DVEn"), &0x0184_0306u32.to_le_bytes())? != 0 {
+        return Err(Error::Vdm(
+            "the host port controller rejected serial mode".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

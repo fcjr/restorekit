@@ -113,6 +113,36 @@ pub fn reboot(via: DfuVia, progress: ProgressFn) -> Result<()> {
     }
 }
 
+/// Where a [`serial`] session's console shows up, so the caller knows what to
+/// read from.
+pub enum SerialConsole {
+    /// Host VDM path: read `/dev/cu.debug-console`.
+    Host,
+    /// Bridged through a dongle: read this dongle's target-UART CDC port.
+    Dongle(Dongle),
+}
+
+/// Put the selected target into serial-console mode — via a dongle if one is
+/// present (its firmware bridges the target's SBU UART to a CDC port and keeps
+/// it live across reboots) or the host's own port controller (the two-Apple-
+/// Silicon-Macs case). Routes like [`trigger_dfu`]/[`reboot`]. Returns where the
+/// console appears.
+pub fn serial(via: DfuVia, progress: ProgressFn) -> Result<SerialConsole> {
+    match resolve(via)? {
+        Route::Host(target) => {
+            host_serial(&target, progress)?;
+            Ok(SerialConsole::Host)
+        }
+        Route::Dongle(d) => {
+            progress(Event::DfuTriggerStage {
+                stage: format!("putting the target into serial mode via dongle {}", d.serial),
+            });
+            d.serial()?;
+            Ok(SerialConsole::Dongle(d))
+        }
+    }
+}
+
 /// Is the Mac cabled to `d` currently in DFU mode (visible on this host)?
 fn dfu_attached(d: &Dongle) -> bool {
     matches!(d.attached_device(), Ok(Some(dev)) if dev.in_dfu())
@@ -272,6 +302,23 @@ fn host_reboot(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         vdm::reboot(target, progress)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (target, progress);
+        Ok(())
+    }
+}
+
+fn host_serial(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
+    if !host_can_trigger_dfu() {
+        return Err(Error::UnsupportedHost(
+            "serial mode needs an Apple Silicon macOS host".into(),
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        vdm::serial(target, progress)
     }
     #[cfg(not(target_os = "macos"))]
     {

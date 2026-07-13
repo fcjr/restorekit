@@ -77,7 +77,7 @@ pub mod usbmuxd;
 pub use device::{Device, Port, Target, UsbMode};
 pub use dfu::{
     host_can_trigger_dfu, manual_dfu_instructions, trigger_dfu, DfuOutcome, DfuTarget, DfuVia,
-    HostPortInfo,
+    HostPortInfo, SerialConsole,
 };
 pub use dongle::{Connection, Dongle, DongleHandle, DongleStatus, DongleTarget, PdState};
 pub use error::{Error, Result};

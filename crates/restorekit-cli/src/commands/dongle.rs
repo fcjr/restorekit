@@ -239,27 +239,7 @@ pub fn update(
 /// target's UART bridged over SBU (CDC1, live after `serial`).
 pub fn console(json: bool, target: DongleTarget) -> Result<()> {
     let d = dongle::find(target)?;
-    // The OS embeds the USB serial in the tty name but mangles it (macOS:
-    // `cu.usbmodemDL_5F4175361`; Linux by-id keeps it intact), so compare
-    // with everything but alphanumerics stripped.
-    let key = normalize(&d.serial);
-    let mut paths: Vec<String> = Vec::new();
-    for dir in ["/dev", "/dev/serial/by-id"] {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            // macOS callout devices; Linux stable by-id symlinks.
-            let is_serial_dev = name.starts_with("cu.") || dir.ends_with("by-id");
-            if is_serial_dev && normalize(&name).contains(&key) {
-                paths.push(entry.path().to_string_lossy().into_owned());
-            }
-        }
-    }
-    // The control console enumerates before the target bridge, and the OS
-    // suffixes (interface number) sort the same way.
-    paths.sort();
+    let paths = serial_ttys(&d);
     let (control, target_serial) = (paths.first(), paths.get(1));
 
     if json {
@@ -282,6 +262,31 @@ pub fn console(json: bool, target: DongleTarget) -> Result<()> {
     }
     println!("tip: screen {control}  (Ctrl-A K to exit)");
     Ok(())
+}
+
+/// The dongle's CDC tty paths, sorted so `[0]` is the control console (CDC0) and
+/// `[1]` is the target-UART bridge (CDC1, live after `serial`). The OS embeds the
+/// USB serial in the tty name but mangles it (macOS: `cu.usbmodemDL_5F4175361`;
+/// Linux by-id keeps it intact), so compare with non-alphanumerics stripped.
+pub(crate) fn serial_ttys(d: &restorekit::Dongle) -> Vec<String> {
+    let key = normalize(&d.serial);
+    let mut paths: Vec<String> = Vec::new();
+    for dir in ["/dev", "/dev/serial/by-id"] {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let is_serial_dev = name.starts_with("cu.") || dir.ends_with("by-id");
+            if is_serial_dev && normalize(&name).contains(&key) {
+                paths.push(entry.path().to_string_lossy().into_owned());
+            }
+        }
+    }
+    // The control console enumerates before the target bridge, and the OS
+    // suffixes (interface number) sort the same way.
+    paths.sort();
+    paths
 }
 
 fn normalize(s: &str) -> String {

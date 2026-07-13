@@ -167,11 +167,16 @@ unsafe extern "C" fn progress_trampoline(step: i32, step_progress: f64, userdata
 
 /// Total attempts for a restore that fails on a transient transport error (a
 /// dropped USB write/read mid-transfer). Non-transport failures never retry.
-const RESTORE_ATTEMPTS: u32 = 3;
+/// A flaky USB-2 link can fully drop the device off the bus mid-ASR; each
+/// attempt restarts from device detection, so allow a few of them.
+const RESTORE_ATTEMPTS: u32 = 5;
 
 /// Pause between attempts, giving the target time to settle back into a
-/// re-detectable state (recovery/DFU) after a failed restore.
-const RESTORE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+/// re-detectable state (recovery/DFU) after a failed restore. A full mid-ASR
+/// disconnect reboots the Mac, which then falls back to DFU; 5s was too short
+/// for that cycle, leaving the retry to fail with "Unable to discover device
+/// mode" before the device reappeared.
+const RESTORE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Whether a failed restore is worth retrying: the log tail indicates the
 /// device connection dropped mid-transfer rather than a real restore error
@@ -217,6 +222,7 @@ pub fn restore(
     ecid: u64,
     cache_dir: Option<&Path>,
     mode: Mode,
+    boot_args: Option<&str>,
     verbose: bool,
     progress: ProgressFn,
 ) -> Result<Obliteration> {
@@ -241,7 +247,7 @@ pub fn restore(
 
     let mut attempt = 1;
     loop {
-        match restore_attempt(ipsw, ecid, cache_dir, mode, verbose, progress) {
+        match restore_attempt(ipsw, ecid, cache_dir, mode, boot_args, verbose, progress) {
             Ok(obliteration) => {
                 // The worker already emitted the Obliteration event (it fires on
                 // failure too); just close out the successful run.
@@ -268,6 +274,7 @@ fn restore_attempt(
     ecid: u64,
     cache_dir: Option<&Path>,
     mode: Mode,
+    boot_args: Option<&str>,
     verbose: bool,
     progress: ProgressFn,
 ) -> Result<Obliteration> {
@@ -302,6 +309,7 @@ fn restore_attempt(
     // Owned copies to hand to the worker thread.
     let ipsw = ipsw.to_path_buf();
     let cache_dir = cache_dir.map(Path::to_path_buf);
+    let boot_args = boot_args.map(str::to_owned);
     let (tx, rx) = std::sync::mpsc::channel::<Event>();
 
     let worker = std::thread::Builder::new()
@@ -314,6 +322,10 @@ fn restore_attempt(
                 .map(|d| CString::new(d.as_os_str().to_string_lossy().as_bytes()))
                 .transpose()
                 .map_err(|_| Error::Download("cache path contains a NUL byte".into()))?;
+            let boot_args_c = boot_args
+                .map(CString::new)
+                .transpose()
+                .map_err(|_| Error::Download("boot args contain a NUL byte".into()))?;
 
             unsafe {
                 let client = sys::idevicerestore_client_new();
@@ -336,6 +348,9 @@ fn restore_attempt(
                     sys::idevicerestore_set_ipsw(client, ipsw_c.as_ptr());
                     if let Some(cache) = &cache_c {
                         sys::idevicerestore_set_cache_path(client, cache.as_ptr());
+                    }
+                    if let Some(ba) = &boot_args_c {
+                        sys::idevicerestore_set_boot_args(client, ba.as_ptr());
                     }
                     sys::idevicerestore_set_progress_callback(
                         client,

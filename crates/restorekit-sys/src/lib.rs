@@ -146,6 +146,7 @@ extern "C" {
     pub fn idevicerestore_set_flags(client: *mut idevicerestore_client_t, flags: c_int);
     pub fn idevicerestore_set_ipsw(client: *mut idevicerestore_client_t, path: *const c_char);
     pub fn idevicerestore_set_cache_path(client: *mut idevicerestore_client_t, path: *const c_char);
+    pub fn idevicerestore_set_boot_args(client: *mut idevicerestore_client_t, boot_args: *const c_char);
     pub fn idevicerestore_set_progress_callback(
         client: *mut idevicerestore_client_t,
         cbfunc: idevicerestore_progress_cb_t,
