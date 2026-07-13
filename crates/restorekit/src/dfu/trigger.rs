@@ -135,7 +135,10 @@ pub fn serial(via: DfuVia, progress: ProgressFn) -> Result<SerialConsole> {
         }
         Route::Dongle(d) => {
             progress(Event::DfuTriggerStage {
-                stage: format!("putting the target into serial mode via dongle {}", d.serial),
+                stage: format!(
+                    "putting the target into serial mode via dongle {}",
+                    d.serial
+                ),
             });
             d.serial()?;
             Ok(SerialConsole::Dongle(d))

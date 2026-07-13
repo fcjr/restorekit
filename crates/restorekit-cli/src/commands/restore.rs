@@ -367,7 +367,10 @@ fn record_restore_history(
 fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
     let Some((status, detail)) = wipe else { return };
     match status.as_str() {
-        "confirmed" => say(json, &format!("Encryption key obliterated (verified): {detail}")),
+        "confirmed" => say(
+            json,
+            &format!("Encryption key obliterated (verified): {detail}"),
+        ),
         "failed" => say(
             json,
             &format!("WARNING: the device reported the encryption-key wipe FAILED: {detail}"),
