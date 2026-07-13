@@ -99,7 +99,9 @@ fn open() -> Result<Connection> {
 pub fn now_rfc3339() -> String {
     Connection::open_in_memory()
         .and_then(|c| {
-            c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| r.get(0))
+            c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| {
+                r.get(0)
+            })
         })
         .unwrap_or_default()
 }
@@ -306,7 +308,10 @@ mod tests {
         let ts = super::now_rfc3339();
         // e.g. 2026-07-12T20:30:00Z
         assert_eq!(ts.len(), 20, "unexpected timestamp: {ts:?}");
-        assert!(ts.ends_with('Z') && ts.as_bytes()[10] == b'T', "bad shape: {ts:?}");
+        assert!(
+            ts.ends_with('Z') && ts.as_bytes()[10] == b'T',
+            "bad shape: {ts:?}"
+        );
     }
 
     #[test]
