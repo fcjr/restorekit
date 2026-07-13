@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use restorekit::progress::Event;
@@ -8,6 +8,104 @@ use restorekit::restore::Mode;
 use restorekit::{firmware, restore, Device, Error, Result};
 
 use super::render;
+
+/// Times each restore phase (idevicerestore's `RestoreStep`s) so we can see
+/// where a restore's wall-clock actually goes — the USB filesystem upload vs the
+/// device-side install/seal work that no cable speed affects. Each phase is
+/// split into *active* (progress climbing 0→100%) and *waiting* (progress pinned
+/// at 100% while the device works), since on Apple Silicon the long device-side
+/// install happens while idevicerestore still reports "uploading filesystem".
+struct PhaseTimer {
+    start: Instant,
+    /// (name, started, first time progress hit ~100%).
+    current: Option<(String, Instant, Option<Instant>)>,
+    /// (name, total, active-portion) — active is `Some` once progress topped out.
+    phases: Vec<(String, Duration, Option<Duration>)>,
+}
+
+impl PhaseTimer {
+    fn new() -> Self {
+        Self {
+            start: Instant::now(),
+            current: None,
+            phases: Vec::new(),
+        }
+    }
+
+    fn step(&mut self, name: &str, progress: f32) {
+        let now = Instant::now();
+        let full = if progress >= 0.98 { Some(now) } else { None };
+        match &mut self.current {
+            Some((cur, _, full_at)) if cur == name => {
+                if full_at.is_none() && progress >= 0.98 {
+                    *full_at = Some(now);
+                }
+            }
+            Some((cur, started, full_at)) => {
+                let active = full_at.map(|f| f - *started);
+                self.phases.push((cur.clone(), now - *started, active));
+                self.current = Some((name.to_string(), now, full));
+            }
+            None => self.current = Some((name.to_string(), now, full)),
+        }
+    }
+
+    fn finish(&mut self) {
+        if let Some((cur, started, full_at)) = self.current.take() {
+            let active = full_at.map(|f| f - started);
+            self.phases.push((cur, started.elapsed(), active));
+        }
+    }
+
+    fn report(&self, json: bool) {
+        if self.phases.is_empty() {
+            return;
+        }
+        let total = self.start.elapsed();
+        if json {
+            let phases: Vec<_> = self
+                .phases
+                .iter()
+                .map(|(n, d, a)| {
+                    serde_json::json!({
+                        "phase": n,
+                        "seconds": d.as_secs_f64(),
+                        "active_seconds": a.map(|a| a.as_secs_f64()),
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::json!({ "event": "phase_timing", "total_seconds": total.as_secs_f64(), "phases": phases })
+            );
+            return;
+        }
+        eprintln!("\nRestore phase timing (active = data moving, wait = device working):");
+        for (name, dur, active) in &self.phases {
+            match active {
+                // Meaningful active/wait split (>2s idle after topping out).
+                Some(a) if *dur > *a + Duration::from_secs(2) => eprintln!(
+                    "  {:<20} {:>7}   ({} active, {} device-side)",
+                    name,
+                    fmt_dur(*dur),
+                    fmt_dur(*a),
+                    fmt_dur(*dur - *a)
+                ),
+                _ => eprintln!("  {:<20} {:>7}", name, fmt_dur(*dur)),
+            }
+        }
+        eprintln!("  {:<20} {:>7}", "total", fmt_dur(total));
+    }
+}
+
+fn fmt_dur(d: Duration) -> String {
+    let s = d.as_secs();
+    if s >= 60 {
+        format!("{}m{:02}s", s / 60, s % 60)
+    } else {
+        format!("{s}s")
+    }
+}
 
 pub struct Opts {
     pub mode: Mode,
@@ -115,6 +213,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
     // unconfirmed one across retries.
     let mut wipe: Option<(String, String)> = None;
     let mut checkpoints: Option<(Vec<String>, Vec<String>)> = None;
+    let mut timer = PhaseTimer::new();
     let result = restore::restore(
         &ipsw_path,
         ecid,
@@ -124,6 +223,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
         opts.verbose,
         &mut |event| {
             match &event {
+                Event::RestoreStep { name, progress, .. } => timer.step(name, *progress),
                 Event::Obliteration { status, detail } => {
                     let strong = status == "confirmed" || status == "failed";
                     if wipe.is_none() || strong {
@@ -138,7 +238,10 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
             restore_render(&bar, event, json);
         },
     );
+    timer.finish();
     bar.finish_and_clear();
+    // Show where the wall-clock went, whether the restore succeeded or not.
+    timer.report(json);
 
     // Report the wipe verdict regardless of the restore's overall outcome.
     report_wipe(json, wipe.as_ref());
