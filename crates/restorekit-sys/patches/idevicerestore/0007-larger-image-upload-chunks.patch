@@ -1,0 +1,32 @@
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -54,6 +54,12 @@
+ #include "restore.h"
+ #include "common.h"
+ #include "endianness.h"
++
++/* Chunk size for restored FileData image uploads: each chunk is wrapped in a
++ * plist and sent as its own restored message, so the stock 8 KiB is one message
++ * per 8 KiB (~1M round-trips for a multi-GB image), capping that phase well
++ * under USB-2 line rate. 128 KiB (matching ASR) cuts the overhead ~16x. */
++#define RESTORE_FILE_CHUNK_SIZE       0x20000
+ 
+ #define CREATE_PARTITION_MAP          11
+ #define CREATE_FILESYSTEM             12
+@@ -4274,14 +4280,14 @@
+ 		int rc = 0;
+ 		if (path) {
+ 			register_progress(rctx.tag, component);
+-			rc = ipsw_extract_send(client->ipsw, path, 8192, (ipsw_send_cb)_restore_send_file_data, &rctx);
++			rc = ipsw_extract_send(client->ipsw, path, RESTORE_FILE_CHUNK_SIZE, (ipsw_send_cb)_restore_send_file_data, &rctx);
+ 		} else {
+ 			if (size > 0x2000000) {
+ 				register_progress(rctx.tag, component);
+ 			}
+ 			int64_t i = size;
+ 			while (i > 0) {
+-				int blob_size = i > 8192 ? 8192 : (int)i;
++				int blob_size = i > RESTORE_FILE_CHUNK_SIZE ? RESTORE_FILE_CHUNK_SIZE : (int)i;
+ 				if (_restore_send_file_data(&rctx, ((char*)data + size - i), blob_size, size-i, size) < 0) {
+ 					rc = -1;
+ 					break;
