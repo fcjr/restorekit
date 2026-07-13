@@ -49,7 +49,7 @@ pub fn maybe_run() -> bool {
     };
 
     let mut stdout = std::io::stdout();
-    let result = restore::restore(&ipsw, ecid, cache.as_deref(), mode, None, true, &mut |event| {
+    let result = restore::restore(&ipsw, ecid, cache.as_deref(), mode, true, &mut |event| {
         if let Ok(line) = serde_json::to_string(&event) {
             let _ = writeln!(stdout, "{line}");
             let _ = stdout.flush();

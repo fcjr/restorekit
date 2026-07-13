@@ -88,7 +88,8 @@ Our code sends it correctly — verified end to end:
   `restore_boot_args_extra`) → `recovery_enter_restore` appends to
   `restore_boot_args` → `recovery_send_kernelcache` issues
   `setenv boot-args rd=md0 nand-enable-reformat=1 -progress -restore <extra>` →
-  `bootx`. Patch 0005 confirmed applied in the built copy; `set_boot_args` runs
+  `bootx`. The boot-args patch was confirmed applied in the built copy (since
+  removed); `set_boot_args` ran
   before `idevicerestore_start`.
 - Flow: DFU → `dfu_enter_recovery` (auto-boot=false) → MODE_RECOVERY →
   `recovery_enter_restore` → `setenv boot-args … ; bootx`. That `setenv` *is* the
@@ -247,8 +248,12 @@ never starts in restore** — measured: target never joined the host TB fabric
 (`SPThunderboltDataType` = "No device connected", `AppleThunderboltIP` 0 instances)
 until the OS booted. It's `user-power-managed` and the minimal restore env never
 requests it. `acio_bringup` is a debug bitmask downstream of the controller
-starting (defaults 0 even in the booted OS). Host side is unreachable too: no
-public IOKit TB data-transport API; `MobileDevice.framework` uses USB-NCM only.
+starting (defaults 0 even in the booted OS). Host side is unreachable too: the
+TB/USB4 data transport (Apple Config I/O, ACIO/CIO) is gated behind a Transport
+Restriction Manager and the same account-attested "authorized transport" wall as
+restore attestation; there is no public IOKit TB data-transport API,
+`MobileDevice.framework` uses USB-NCM only, and `disable-transport-rm` had no
+effect. (This absorbs the former `docs/thunderbolt-restore.md`.)
 
 **`maximum-link-speed` DT property — it's PCIe, not USB.** A flat string-scan
 matched `maximum-link-speed` on the `apcie/pci-bridge0` node and a per-board survey
@@ -256,10 +261,11 @@ showed 2/3/4 tracking model age — which *looked* like a USB-restore story. A p
 tree-parse shows **no `usb-drd` node on any of 56 boards has `maximum-link-speed`**;
 the 2/3/4 is just PCIe generation. USB restore speed is not DT-capped.
 
-**Image-upload chunk size (patch 0007) — wrong bottleneck.** The `.dmg.aea` images
-are **Stored** (uncompressed) in the IPSW and extract at **347 MB/s** — not a
+**Image-upload chunk size — wrong bottleneck.** The `.dmg.aea` images are
+**Stored** (uncompressed) in the IPSW and extract at **347 MB/s** — not a
 bottleneck. The ~30 MB/s "uploading image" phase is the restored `FileData`/device
-path itself, so 8 KiB→128 KiB chunks didn't move it. Not host-optimizable.
+path itself, so 8 KiB→128 KiB chunks didn't move it. Not host-optimizable — the
+experimental "larger chunks" idevicerestore patch was reverted as a proven no-op.
 
 **Earlier HPM/`hpmAllowUsb3Restore` "two-gate" analysis — superseded.** The
 `AppleTCController::genericStart` / `createUSB3PortObject` disassembly (a
@@ -281,9 +287,12 @@ reaches the kernel.
   (2=USB2/480M, 3=USB3/5G, 4=USB3.1/10G) — `system_profiler SPUSBDataType` returns
   nothing in the sandbox. Watch kernel `enumerated … at N Mbps/Gbps` lines via
   `log stream`.
-- **Boot-args passthrough:** restorekit patch 0005 appends `--boot-args` to the
-  restore's `setenv boot-args`. Verified reaching the device; stripped by iBoot
-  unless permissive (§2, §3).
+- **Boot-args passthrough:** an idevicerestore patch appended a `--boot-args`
+  value to the restore's `setenv boot-args`, exposed as a hidden CLI flag.
+  Verified reaching the device but stripped by iBoot's allowlist (§2, §3), so it
+  could never take effect on retail silicon — **both the patch and the flag were
+  removed** after this conclusion. (Reproducing the tests would require
+  re-adding them.)
 - **Firmware analysis:** `blacktop/ipsw` (`ipsw img4 im4p extract`,
   `ipsw macho disass`), `nm`, and capstone (flat-image arm64 for iBEC). Targets:
   extracted j293 restore kernelcache, `DeviceTree.j293ap` payload, and

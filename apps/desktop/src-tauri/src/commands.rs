@@ -457,7 +457,6 @@ pub async fn restore(
             ecid,
             cache.as_deref(),
             mode,
-            None,
             false,
             &mut |event| {
                 let _ = app.emit("progress", &event);
