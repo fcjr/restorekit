@@ -268,6 +268,7 @@ pub fn console(json: bool, target: DongleTarget) -> Result<()> {
 /// `[1]` is the target-UART bridge (CDC1, live after `serial`). The OS embeds the
 /// USB serial in the tty name but mangles it (macOS: `cu.usbmodemDL_5F4175361`;
 /// Linux by-id keeps it intact), so compare with non-alphanumerics stripped.
+#[cfg(unix)]
 pub(crate) fn serial_ttys(d: &restorekit::Dongle) -> Vec<String> {
     let key = normalize(&d.serial);
     let mut paths: Vec<String> = Vec::new();
@@ -285,6 +286,28 @@ pub(crate) fn serial_ttys(d: &restorekit::Dongle) -> Vec<String> {
     }
     // The control console enumerates before the target bridge, and the OS
     // suffixes (interface number) sort the same way.
+    paths.sort();
+    paths
+}
+
+/// Non-Unix (Windows) variant: enumerate serial ports and match the dongle by
+/// its USB serial number, since COM-port names don't embed it. Same sort order —
+/// `[0]` control console, `[1]` target-UART bridge — as the COM numbers follow
+/// the CDC interface order.
+#[cfg(not(unix))]
+pub(crate) fn serial_ttys(d: &restorekit::Dongle) -> Vec<String> {
+    let key = normalize(&d.serial);
+    let mut paths: Vec<String> = serialport::available_ports()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| match p.port_type {
+            serialport::SerialPortType::UsbPort(usb) => {
+                let sn = normalize(usb.serial_number.as_deref()?);
+                (sn.contains(&key) || key.contains(&sn)).then_some(p.port_name)
+            }
+            _ => None,
+        })
+        .collect();
     paths.sort();
     paths
 }

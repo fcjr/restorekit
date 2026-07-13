@@ -161,10 +161,6 @@ pub fn reboot(
 /// **re-apply serial mode every time the target drops off the port**, so it
 /// survives a restore's DFU→recovery→restore reboots (a plain macvdmtool `serial`
 /// would go silent after the first reset).
-///
-/// Unix-only: the console stream is driven through `libc` termios. Non-Unix
-/// hosts get the stub below.
-#[cfg(unix)]
 pub fn serial(
     json: bool,
     dongle: Option<String>,
@@ -221,62 +217,46 @@ pub fn serial(
         );
     }
 
-    let cpath = std::ffi::CString::new(path).unwrap();
     let mut buf = [0u8; 4096];
     let mut out = std::io::stdout();
     loop {
-        // (Re)open — bounded wait for the device to (re)appear after a reboot.
-        let mut fd = -1;
+        // (Re)open — bounded wait for the port to (re)appear after a reboot.
+        let mut port = None;
         for _ in 0..15 {
-            fd = unsafe { libc::open(cpath.as_ptr(), libc::O_RDONLY | libc::O_NOCTTY) };
-            if fd >= 0 {
-                break;
+            match serialport::new(path.as_str(), 115_200)
+                .timeout(Duration::from_millis(200))
+                .open()
+            {
+                Ok(p) => {
+                    port = Some(p);
+                    break;
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(200)),
             }
-            std::thread::sleep(Duration::from_millis(200));
         }
-        if fd < 0 {
+        let Some(mut port) = port else {
             if host_rearm {
                 let _ = enter(true); // target mid-reboot: re-arm and retry.
             }
             continue;
-        }
-        unsafe {
-            let mut tio: libc::termios = std::mem::zeroed();
-            if libc::tcgetattr(fd, &mut tio) == 0 {
-                libc::cfmakeraw(&mut tio);
-                libc::cfsetspeed(&mut tio, libc::B115200);
-                libc::tcsetattr(fd, libc::TCSANOW, &tio);
-            }
-        }
+        };
+        // Stream until the port drops on the reboot. A read timeout just means
+        // the target is idle, so keep going; any other error means it's gone.
         loop {
-            let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-            if n > 0 {
-                let _ = out.write_all(&buf[..n as usize]);
-                let _ = out.flush();
-            } else {
-                break; // EOF/error: target went away.
+            match port.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let _ = out.write_all(&buf[..n]);
+                    let _ = out.flush();
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+                Err(_) => break, // device went away
             }
         }
-        unsafe { libc::close(fd) };
         if host_rearm {
             let _ = enter(true); // re-arm serial mode before reopening.
         }
     }
-}
-
-/// Serial console on non-Unix hosts: not yet wired. The streaming uses `libc`
-/// termios and the dongle CDC discovery scans `/dev`, so Windows needs a
-/// `serialport`-based path (COM-port enumeration + read) before this can work.
-#[cfg(not(unix))]
-pub fn serial(
-    _json: bool,
-    _dongle: Option<String>,
-    _ecid: Option<u64>,
-    _port: Option<i32>,
-) -> Result<()> {
-    Err(Error::UnsupportedHost(
-        "the serial console isn't available on this host yet (Unix only)".into(),
-    ))
 }
 
 /// `restorekit probe-ports` — report which host USB-C ports can accept DFU/VDM
