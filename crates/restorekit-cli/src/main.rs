@@ -214,12 +214,6 @@ struct FirmwareArgs {
     /// `restorekit dongle list`.
     #[arg(long)]
     dongle: Option<String>,
-    /// Experimental: extra boot-args appended to the restore ramdisk kernel
-    /// (e.g. transport-restriction probes like `disable-transport-rm`). Does
-    /// NOT enable Thunderbolt restore — the host transport stays USB. See
-    /// docs/thunderbolt-restore.md.
-    #[arg(long, hide = true)]
-    boot_args: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -266,7 +260,6 @@ impl FirmwareArgs {
             identifier: self.identifier,
             ecid: self.ecid,
             dongle: self.dongle,
-            boot_args: self.boot_args,
             yes,
             cache_dir,
             json,
