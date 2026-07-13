@@ -426,10 +426,12 @@ fn resolve_rid(target: &DfuTarget) -> Result<Option<i32>> {
             }
         }
         DfuTarget::Port(rid) => {
-            if super::port::all_ports()
-                .iter()
-                .any(|p| p.dfu && p.rid == *rid)
-            {
+            // Explicit --port is an escape hatch: drive any real port controller
+            // the user names — including power-only ones (e.g. MagSafe) that
+            // never surface in `list`/auto-detection because they have no USB
+            // data path. If nothing on the far end acts on the VDM the send just
+            // fails cleanly; naming a RID with no controller is the only error.
+            if super::port::all_hpm_ports().iter().any(|(r, _)| r == rid) {
                 Ok(Some(*rid))
             } else {
                 Err(Error::DfuPortNotFound(*rid))
