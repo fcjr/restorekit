@@ -161,6 +161,10 @@ pub fn reboot(
 /// **re-apply serial mode every time the target drops off the port**, so it
 /// survives a restore's DFU→recovery→restore reboots (a plain macvdmtool `serial`
 /// would go silent after the first reset).
+///
+/// Unix-only: the console stream is driven through `libc` termios. Non-Unix
+/// hosts get the stub below.
+#[cfg(unix)]
 pub fn serial(
     json: bool,
     dongle: Option<String>,
@@ -258,6 +262,21 @@ pub fn serial(
             let _ = enter(true); // re-arm serial mode before reopening.
         }
     }
+}
+
+/// Serial console on non-Unix hosts: not yet wired. The streaming uses `libc`
+/// termios and the dongle CDC discovery scans `/dev`, so Windows needs a
+/// `serialport`-based path (COM-port enumeration + read) before this can work.
+#[cfg(not(unix))]
+pub fn serial(
+    _json: bool,
+    _dongle: Option<String>,
+    _ecid: Option<u64>,
+    _port: Option<i32>,
+) -> Result<()> {
+    Err(Error::UnsupportedHost(
+        "the serial console isn't available on this host yet (Unix only)".into(),
+    ))
 }
 
 /// `restorekit probe-ports` — report which host USB-C ports can accept DFU/VDM
