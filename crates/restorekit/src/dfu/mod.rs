@@ -51,6 +51,39 @@ pub fn ports() -> Vec<HostPortInfo> {
     }
 }
 
+/// One host USB-C port's DFU/VDM capability-probe result (see [`probe_ports`]).
+#[derive(Debug, Clone)]
+pub struct PortProbe {
+    /// The AppleHPM `RID` addressing this port — the value `--port` takes.
+    pub rid: i32,
+    /// Physical location label from the firmware (e.g. "left-back"), if any.
+    pub location: Option<String>,
+    /// Whether a USB-C partner is attached on this port right now.
+    pub connected: bool,
+    /// `Ok("DBMa")` when the controller entered debug mode — i.e. this port
+    /// accepts the DFU/VDM path. `Ok(other)` if it landed elsewhere, `Err` with
+    /// the reason it couldn't.
+    pub dbma: std::result::Result<String, String>,
+}
+
+/// Probe every host USB-C port for whether it can accept DFU/VDM commands, by
+/// entering and immediately leaving the port controller's DBMa debug mode. Sends
+/// no DFU action, so it's non-destructive — but entering debug mode can briefly
+/// blip a live peripheral on a port. Apple Silicon macOS only; errors elsewhere.
+pub fn probe_ports(progress: crate::progress::ProgressFn) -> crate::error::Result<Vec<PortProbe>> {
+    #[cfg(target_os = "macos")]
+    {
+        vdm::probe_ports(progress)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = progress;
+        Err(crate::error::Error::UnsupportedHost(
+            "probing USB-C ports needs an Apple Silicon Mac".into(),
+        ))
+    }
+}
+
 /// Human label of the host's DFU-capable port (e.g. "left-back"), if the host
 /// can trigger DFU and the port topology is known. `None` on hosts that can't
 /// trigger DFU or where the label couldn't be read.

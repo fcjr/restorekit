@@ -174,10 +174,12 @@ unsafe fn for_each_service(class: &str, mut f: impl FnMut(IoObject)) {
     IOObjectRelease(iter);
 }
 
-/// RIDs of the HPM controllers that can send DFU VDMs, from `uart-hpm-rids`
-/// (a bitmask). Falls back to `[0]` when the property is absent — the port
-/// index [`vdm`](super::vdm) historically hardcoded.
-pub(crate) fn dfu_capable_rids() -> Vec<i32> {
+/// The **default** port RID(s) to drive when no `--port`/`--ecid` pins one, from
+/// `uart-hpm-rids` (a bitmask). *Every* data port can trigger DFU (see
+/// [`HostPort::dfu`]); this is just the sensible default — the UART/debug-harness
+/// port the tool historically used. Falls back to `[0]` when the property is
+/// absent (the RID `vdm` hardcoded).
+pub(crate) fn default_dfu_rids() -> Vec<i32> {
     read_uart_hpm_rids().unwrap_or_else(|| vec![0])
 }
 
@@ -213,6 +215,13 @@ fn read_uart_hpm_rids() -> Option<Vec<i32>> {
 struct HostPort {
     base: u32,
     location: Option<String>,
+    /// Whether DFU/VDM can be triggered on this port. Every Type-C **data** port
+    /// can — the DFU trigger is a USB-PD Vendor Defined Message and any port's
+    /// HPM controller sends it (verified by DBMa-probing each RID). This is
+    /// always true for `host_ports`, which are exactly the HPM controllers backed
+    /// by a USB data controller; power-only PD controllers (e.g. MagSafe) have no
+    /// USB controller, so they never make it into this list. (`uart-hpm-rids`,
+    /// which older code gated on here, is only the serial/UART-harness subset.)
     dfu: bool,
     /// The AppleHPM `RID` that drives this port's DFU/debug VDMs.
     rid: i32,
@@ -226,14 +235,17 @@ fn host_ports() -> &'static [HostPort] {
 }
 
 fn resolve_host_ports() -> Vec<HostPort> {
-    let dfu_rids = dfu_capable_rids();
     unsafe {
-        // Each Type-C controller → (port-number, location, is-dfu, rid).
+        // Each Type-C controller → (port-number, location, is-dfu, rid). Every
+        // controller that reaches here is later matched to a USB data controller
+        // (below), and every such data port can trigger DFU — so `dfu` is always
+        // true. (Power-only PD controllers like MagSafe have no USB controller
+        // and get dropped in the match, never appearing as a port.)
         let mut controllers: Vec<(u32, Option<String>, bool, i32)> = Vec::new();
         for_each_service("AppleHPM", |hpm| {
             if let (Some(rid), Some(pn)) = (prop_u32(hpm, "RID"), search_u32(hpm, "port-number")) {
                 let location = search_string(hpm, "port-location");
-                controllers.push((pn, location, dfu_rids.contains(&(rid as i32)), rid as i32));
+                controllers.push((pn, location, true, rid as i32));
             }
         });
         // Match each to the USB controller with the same port-number → its
@@ -269,6 +281,22 @@ pub(crate) fn all_ports() -> Vec<super::HostPortInfo> {
             dfu: p.dfu,
         })
         .collect()
+}
+
+/// Every `AppleHPM` controller as `(RID, port-location)`, unfiltered by the
+/// `uart-hpm-rids` UART-harness mask — the full set of port controllers the VDM
+/// probe can open and test for the debug/DFU path.
+pub(crate) fn all_hpm_ports() -> Vec<(i32, Option<String>)> {
+    let mut out = Vec::new();
+    unsafe {
+        for_each_service("AppleHPM", |hpm| {
+            if let Some(rid) = prop_u32(hpm, "RID") {
+                out.push((rid as i32, search_string(hpm, "port-location")));
+            }
+        });
+    }
+    out.sort_by_key(|&(rid, _)| rid);
+    out
 }
 
 /// The RID of the DFU-capable port the USB device with this serial is cabled to,
@@ -338,7 +366,7 @@ mod tests {
     #[test]
     #[ignore = "reads live host IORegistry"]
     fn port_topology() {
-        eprintln!("dfu_capable_rids: {:?}", super::dfu_capable_rids());
+        eprintln!("default_dfu_rids: {:?}", super::default_dfu_rids());
         for p in super::host_ports() {
             eprintln!(
                 "port: base={:#010x} location={:?} dfu={}",
