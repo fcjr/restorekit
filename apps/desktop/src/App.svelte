@@ -1014,14 +1014,15 @@
   {#snippet copyicon()}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="1.5" /><path d="M5 15V5.5A1.5 1.5 0 0 1 6.5 4H16" /></svg>{/snippet}
   <!-- titlebar -->
   <div class="titlebar" data-tauri-drag-region>
-    <div class="brand">
-      <svg viewBox="0 0 32 32" width="15" height="15" aria-hidden="true">
-        <rect x="7" y="7" width="18" height="18" rx="3" fill="none" stroke="var(--ink)" stroke-width="1.8" />
-        <path d="M4 16 H10 L12.2 11 L16 21 L19 16 H28" fill="none" stroke="var(--acc)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <span class="name">restorekit</span>
+    <div class="tbside" data-tauri-drag-region>
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="15" height="15" aria-hidden="true">
+          <rect x="7" y="7" width="18" height="18" rx="3" fill="none" stroke="var(--ink)" stroke-width="1.8" />
+          <path d="M4 16 H10 L12.2 11 L16 21 L19 16 H28" fill="none" stroke="var(--acc)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span class="name">restorekit</span>
+      </div>
     </div>
-    <div class="grow"></div>
     <span class="seg tabs">
       <button class="segbtn" class:on={tab === "restore"} onclick={() => (tab = "restore")}>Restore</button>
       <button class="segbtn" class:on={tab === "list"} onclick={() => (tab = "list")}>Devices</button>
@@ -1033,17 +1034,18 @@
       {/if}
       <button class="segbtn" class:on={tab === "about"} onclick={() => (tab = "about")}>About</button>
     </span>
-    <div class="grow"></div>
-    {#if tab === "restore"}
-      <span class="seg viewseg">
-        <button class="segbtn" class:on={restoreView === "detail"} onclick={() => (restoreView = "detail")}>Detail</button>
-        <button class="segbtn" class:on={restoreView === "list"} onclick={() => (restoreView = "list")}>List</button>
+    <div class="tbside right" data-tauri-drag-region>
+      {#if tab === "restore"}
+        <span class="seg viewseg">
+          <button class="segbtn" class:on={restoreView === "detail"} onclick={() => (restoreView = "detail")}>Detail</button>
+          <button class="segbtn" class:on={restoreView === "list"} onclick={() => (restoreView = "list")}>List</button>
+        </span>
+      {/if}
+      <span class="host">
+        <span class="hostdot" style="background:{canTrigger ? 'var(--acc)' : 'var(--fnt)'}"></span>
+        {hostLabel}
       </span>
-    {/if}
-    <span class="host">
-      <span class="hostdot" style="background:{canTrigger ? 'var(--acc)' : 'var(--fnt)'}"></span>
-      {hostLabel}
-    </span>
+    </div>
   </div>
 
   <!-- setup banner -->
@@ -1691,9 +1693,20 @@
     border-bottom: 1px solid var(--line);
     flex: none;
   }
-  /* The tabs center between the grow spacers rather than against the whole
-     bar: absolute centering looked steadier but slid the tabs under the
-     right-side controls (Detail/List, host label) on narrow windows. */
+  /* Equal-weight side wrappers keep the tabs centered against the whole bar
+     even when one side carries more controls (Detail/List on Restore), while
+     staying in flow so nothing overlaps on narrow windows the way absolute
+     centering did. */
+  .tbside {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+  }
+  .tbside.right {
+    justify-content: flex-end;
+  }
   .brand {
     display: flex;
     align-items: center;
