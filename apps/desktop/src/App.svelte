@@ -50,10 +50,11 @@
   let fwUpdating = $state<string>(""); // serial of the dongle mid-firmware-update
   let fwProgress = $state(0); // 0-100 while fwUpdating
 
-  // ---- views: restore (device-centric) / list / dongles / history / about ----
-  let tab = $state<"restore" | "list" | "dongles" | "history" | "about">("restore");
+  // ---- views: restore (device-centric) / list / dongles / history ----
+  let tab = $state<"restore" | "list" | "dongles" | "history">("restore");
   let appVersion = $state("");
   const licenseCount = (licensesHtml.match(/class="lic-name"/g) ?? []).length;
+  let showLicenses = $state(false); // third-party licenses modal (footer link)
   let devSubtab = $state<"connected" | "history">("connected"); // Devices tab mode
   let seenDevices = $state<SeenDevice[]>([]);
   let restoreView = $state<"detail" | "list">("detail"); // Restore tab layout
@@ -1032,7 +1033,6 @@
       {#if historyEnabled}
         <button class="segbtn" class:on={tab === "history"} onclick={() => { tab = "history"; loadHistory(); }}>History</button>
       {/if}
-      <button class="segbtn" class:on={tab === "about"} onclick={() => (tab = "about")}>About</button>
     </span>
     <div class="tbside right" data-tauri-drag-region>
       {#if tab === "restore"}
@@ -1494,29 +1494,6 @@
         <div class="tabempty">No captures yet. Connect a Mac in recovery mode and its serial is logged here automatically.</div>
       {/if}
     </section>
-  {:else}
-    <section class="tabview about">
-      <div class="tabhead"><span class="eyebrow">About</span></div>
-      <h1 class="dtitle">restorekit{appVersion ? ` · ${appVersion}` : ""}</h1>
-      <p class="lede">
-        DFU-restore Apple Silicon Macs, from macOS, Linux or Windows. Free and open source under
-        Apache-2.0. The DFU trigger is a Rust port of AsahiLinux's macvdmtool.
-      </p>
-      <div class="aboutmeta">
-        <button class="cellcopy" onclick={() => copy("https://github.com/fcjr/restorekit")}>github.com/fcjr/restorekit</button>
-      </div>
-
-      <div class="tabhead" style="margin-top:26px">
-        <span class="eyebrow">Third-party licenses · {licenseCount}</span>
-      </div>
-      <p class="tabnote" style="margin:0 0 12px">
-        restorekit bundles these open-source components (generated with cargo-about plus the
-        vendored C libraries). The restorekit source is Apache-2.0; macOS builds link Apache,
-        LGPL and BSD components, while Linux and Windows builds also bundle GPL-3.0 usbmuxd and
-        are conveyed as a whole under GPL-3.0.
-      </p>
-      <div class="licenses">{@html licensesHtml}</div>
-    </section>
   {/if}
 
   <!-- footer -->
@@ -1530,6 +1507,9 @@
       {#if isMac}
         <button class="linkbtn" onclick={openConfigurator}>Apple Configurator</button>
       {/if}
+      <!-- macOS has the native About panel in the app menu; other hosts have no
+           menu bar, so this modal doubles as their About. -->
+      <button class="linkbtn" onclick={() => (showLicenses = true)}>{isMac ? "Licenses" : "About"}</button>
       {#if configuratorErr}<span class="faint">{configuratorErr}</span>{/if}
     </span>
     {#if cache}
@@ -1630,6 +1610,26 @@
         <div class="modal-actions">
           <button class="btn" onclick={() => (confirmingClear = false)}>Cancel</button>
           <button class="btn danger" onclick={clearCache}>Clear cache</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showLicenses}
+    <div class="scrim">
+      <div class="modal licmodal">
+        <div class="eyebrow" style="color:var(--acc)">restorekit{appVersion ? ` · ${appVersion}` : ""}</div>
+        <h3>Third-party licenses · {licenseCount}</h3>
+        <p class="modal-body" style="margin-bottom:12px">
+          restorekit bundles these open-source components (generated with cargo-about plus the
+          vendored C libraries). The restorekit source is Apache-2.0; macOS builds link Apache,
+          LGPL and BSD components, while Linux and Windows builds also bundle GPL-3.0 usbmuxd and
+          are conveyed as a whole under GPL-3.0.
+          <button class="cellcopy" onclick={() => copy("https://github.com/fcjr/restorekit")}>github.com/fcjr/restorekit</button>
+        </p>
+        <div class="licenses licscroll">{@html licensesHtml}</div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button class="btn" onclick={() => (showLicenses = false)}>Close</button>
         </div>
       </div>
     </div>
@@ -2305,14 +2305,17 @@
     color: var(--fnt);
   }
 
-  /* about + licenses */
-  .about .lede {
-    max-width: 58ch;
+  /* licenses modal */
+  .licmodal {
+    width: 560px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 80px);
   }
-  .aboutmeta {
-    margin-top: 4px;
-    font-size: 12px;
-    color: var(--mut);
+  .licscroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
   .licenses {
     border: 1px solid var(--line);

@@ -26,6 +26,7 @@
   },
   "bundle": {
     "active": true,
+    "copyright": "© 2026 Frank Chiarulli Jr.",
     "createUpdaterArtifacts": true,
     "targets": ["app", "dmg", "deb", "appimage", "nsis"],
     "icon": [
