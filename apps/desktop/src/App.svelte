@@ -2074,6 +2074,7 @@
 
   /* list / history table views */
   .tabview {
+    flex: 1;
     padding: 20px 24px 24px;
     overflow-y: auto;
     min-height: 0;
