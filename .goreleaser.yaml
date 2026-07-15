@@ -92,10 +92,6 @@ snapcrafts:
       put it in DFU mode (automatic DFU only works from a macOS host), then:
 
           sudo restorekit-cli erase
-
-      This snap needs raw USB access to talk to the device:
-
-          sudo snap connect restorekit-cli:raw-usb
     license: Apache-2.0
     grade: stable
     confinement: strict

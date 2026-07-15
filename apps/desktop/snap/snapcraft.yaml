@@ -16,10 +16,6 @@ description: |
   put it in DFU mode (automatic DFU only works from a macOS host), and
   restore.
 
-  This snap needs raw USB access to talk to the device:
-
-      sudo snap connect restorekit:raw-usb
-
 license: Apache-2.0
 grade: stable
 confinement: strict
