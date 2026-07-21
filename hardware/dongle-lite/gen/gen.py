@@ -102,7 +102,7 @@ def lib_symbols_section(syms, used):
     out.append("\t)")
     return "\n".join(out)
 
-def comp_instance(ref, name, at, value, footprint, root_uuid, fields, project="dongle-lite"):
+def comp_instance(ref, name, at, value, footprint, root_uuid, fields, project="dongle-lite", in_bom=True):
     X,Y,rot = at
     props = [
         ('Reference', ref, 0, 3.0),
@@ -113,7 +113,7 @@ def comp_instance(ref, name, at, value, footprint, root_uuid, fields, project="d
          f'\t\t(lib_id "{LIBNAME}:{name}")',
          f'\t\t(at {X} {Y} {rot})',
          f'\t\t(unit 1)',
-         f'\t\t(exclude_from_sim no)(in_bom yes)(on_board yes)(dnp no)',
+         f'\t\t(exclude_from_sim no)(in_bom {"yes" if in_bom else "no"})(on_board yes)(dnp no)',
          f'\t\t(uuid "{uid()}")']
     for pn,pv,px,py in props:
         hide = "" if pn=="Reference" or pn=="Value" else " (hide yes)"
@@ -234,7 +234,8 @@ def build_wired(components, out_path, power_nets, wires=None, auto_wire_dist=45.
         fields = dict(c.get("fields", {}))
         if s["lcsc"] and "LCSC" not in fields: fields["LCSC"] = s["lcsc"]
         b.append(comp_instance(c["ref"], c["sym"], c["at"], c.get("value") or s["mpn"],
-                               c.get("fp") or s["fp"], root_uuid, fields, project))
+                               c.get("fp") or s["fp"], root_uuid, fields, project,
+                               in_bom=c.get("in_bom", True)))
         for num,pin in s["pins"].items():
             net = c["nets"].get(num)
             key = (c["ref"],num)

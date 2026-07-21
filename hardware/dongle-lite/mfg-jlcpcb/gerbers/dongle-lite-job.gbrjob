@@ -1,0 +1,204 @@
+{
+  "Header": {
+    "GenerationSoftware": {
+      "Vendor": "KiCad",
+      "Application": "Pcbnew",
+      "Version": "10.0.4"
+    },
+    "CreationDate": "2026-07-20T18:38:35-04:00"
+  },
+  "GeneralSpecs": {
+    "ProjectId": {
+      "Name": "dongle-lite",
+      "GUID": "646f6e67-6c65-42d6-9c69-74652e6b6963",
+      "Revision": "rev?"
+    },
+    "Size": {
+      "X": 16.1,
+      "Y": 55.1
+    },
+    "LayerNumber": 6,
+    "BoardThickness": 1.6,
+    "Finish": "None"
+  },
+  "DesignRules": [
+    {
+      "Layers": "Outer",
+      "PadToPad": 0.09,
+      "PadToTrack": 0.09,
+      "TrackToTrack": 0.09,
+      "MinLineWidth": 0.12,
+      "TrackToRegion": 0.2,
+      "RegionToRegion": 0.2
+    },
+    {
+      "Layers": "Inner",
+      "PadToPad": 0.09,
+      "PadToTrack": 0.09,
+      "TrackToTrack": 0.09,
+      "MinLineWidth": 0.12,
+      "TrackToRegion": 0.2,
+      "RegionToRegion": 0.2
+    }
+  ],
+  "FilesAttributes": [
+    {
+      "Path": "dongle-lite-F_Cu.gbr",
+      "FileFunction": "Copper,L1,Top",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-GND1_Cu.gbr",
+      "FileFunction": "Copper,L2,Inr",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-Sig2_Cu.gbr",
+      "FileFunction": "Copper,L3,Inr",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-Sig3_Cu.gbr",
+      "FileFunction": "Copper,L4,Inr",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-PWR4_Cu.gbr",
+      "FileFunction": "Copper,L5,Inr",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-B_Cu.gbr",
+      "FileFunction": "Copper,L6,Bot",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-F_Paste.gbr",
+      "FileFunction": "SolderPaste,Top",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-B_Paste.gbr",
+      "FileFunction": "SolderPaste,Bot",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-F_Silkscreen.gbr",
+      "FileFunction": "Legend,Top",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-B_Silkscreen.gbr",
+      "FileFunction": "Legend,Bot",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "dongle-lite-F_Mask.gbr",
+      "FileFunction": "SolderMask,Top",
+      "FilePolarity": "Negative"
+    },
+    {
+      "Path": "dongle-lite-B_Mask.gbr",
+      "FileFunction": "SolderMask,Bot",
+      "FilePolarity": "Negative"
+    },
+    {
+      "Path": "dongle-lite-Edge_Cuts.gbr",
+      "FileFunction": "Profile",
+      "FilePolarity": "Positive"
+    }
+  ],
+  "MaterialStackup": [
+    {
+      "Type": "Legend",
+      "Name": "Top Silk Screen"
+    },
+    {
+      "Type": "SolderPaste",
+      "Name": "Top Solder Paste"
+    },
+    {
+      "Type": "SolderMask",
+      "Thickness": 0.01,
+      "Name": "Top Solder Mask"
+    },
+    {
+      "Type": "Copper",
+      "Thickness": 0.035,
+      "Name": "F.Cu"
+    },
+    {
+      "Type": "Dielectric",
+      "Thickness": 0.274,
+      "Material": "FR4",
+      "Name": "F.Cu/GND1.Cu",
+      "Notes": "Type: dielectric layer 1 (from F.Cu to GND1.Cu)"
+    },
+    {
+      "Type": "Copper",
+      "Thickness": 0.035,
+      "Name": "GND1.Cu"
+    },
+    {
+      "Type": "Dielectric",
+      "Thickness": 0.274,
+      "Material": "FR4",
+      "Name": "GND1.Cu/Sig2.Cu",
+      "Notes": "Type: dielectric layer 2 (from GND1.Cu to Sig2.Cu)"
+    },
+    {
+      "Type": "Copper",
+      "Thickness": 0.035,
+      "Name": "Sig2.Cu"
+    },
+    {
+      "Type": "Dielectric",
+      "Thickness": 0.274,
+      "Material": "FR4",
+      "Name": "Sig2.Cu/Sig3.Cu",
+      "Notes": "Type: dielectric layer 3 (from Sig2.Cu to Sig3.Cu)"
+    },
+    {
+      "Type": "Copper",
+      "Thickness": 0.035,
+      "Name": "Sig3.Cu"
+    },
+    {
+      "Type": "Dielectric",
+      "Thickness": 0.274,
+      "Material": "FR4",
+      "Name": "Sig3.Cu/PWR4.Cu",
+      "Notes": "Type: dielectric layer 4 (from Sig3.Cu to PWR4.Cu)"
+    },
+    {
+      "Type": "Copper",
+      "Thickness": 0.035,
+      "Name": "PWR4.Cu"
+    },
+    {
+      "Type": "Dielectric",
+      "Thickness": 0.274,
+      "Material": "FR4",
+      "Name": "PWR4.Cu/B.Cu",
+      "Notes": "Type: dielectric layer 5 (from PWR4.Cu to B.Cu)"
+    },
+    {
+      "Type": "Copper",
+      "Thickness": 0.035,
+      "Name": "B.Cu"
+    },
+    {
+      "Type": "SolderMask",
+      "Thickness": 0.01,
+      "Name": "Bottom Solder Mask"
+    },
+    {
+      "Type": "SolderPaste",
+      "Name": "Bottom Solder Paste"
+    },
+    {
+      "Type": "Legend",
+      "Name": "Bottom Silk Screen"
+    }
+  ]
+}
