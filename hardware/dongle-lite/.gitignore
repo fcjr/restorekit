@@ -11,3 +11,7 @@ __pycache__/
 # KiCad lock files
 ~*.lck
 *.lck
+
+# Freerouting round-trip intermediates
+*.dsn
+*.ses
