@@ -31,6 +31,8 @@ fn main() {
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
-    println!("cargo:rustc-link-arg-bins=-Tlink-rp.x");
+    // No -Tlink-rp.x: that script only exists for rp2040 (it places .boot2).
+    // On rp235x embassy-rp doesn't emit it; this app is imagedef-none, so it
+    // needs no start/end-block sections — plain cortex-m-rt link.x is enough.
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
 }

@@ -1,4 +1,4 @@
-//! RecoverKit dongle bootloader: embassy-boot on RP2040.
+//! RecoverKit dongle bootloader: embassy-boot on RP2354A (RP2350).
 //!
 //! Runs before the app (`dongle-lite-fw`). If the app staged an update in the
 //! DFU slot and marked it, this swaps it into ACTIVE (power-fail-safe: a swap
@@ -28,7 +28,7 @@ fn main() -> ! {
     // never got here; solid on forever = hung/crashed below; a single pulse
     // then dark = the app never came up; fast strobe = panic-reset loop.
     let mut led = Output::new(p.PIN_25, Level::High);
-    cortex_m::asm::delay(37_500_000); // ~300 ms at 125 MHz
+    cortex_m::asm::delay(45_000_000); // ~300 ms at 150 MHz (RP2350 default)
 
     // The watchdog-fed flash keeps a wedged swap from bricking the board: if
     // the bootloader hangs mid-copy, the watchdog resets and the swap resumes.

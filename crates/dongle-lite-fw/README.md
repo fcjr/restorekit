@@ -8,11 +8,13 @@ work before we commit any copper:
 2. The **1.2 V SBU serial** console reads back cleanly in **both** cable
    orientations (the level-shift + orientation swap is the highest-risk item).
 
-It runs on a stock Raspberry Pi Pico (RP2040) plus an FUSB302B breakout and two
-74AVC1T45 level translators. No custom PCB. The firmware is Rust/Embassy and is
-the seed of the production dongle firmware - the FUSB302 driver, the PD source
-state machine, and the Apple VDMs all carry over unchanged; the product build
-swaps the bench pin map for the real board's and adds the USB 2.0 hub path.
+It targets the RP2354A (RP2350) on the dongle-lite board, and the same image
+runs on a Raspberry Pi Pico 2 (RP2350) bench rig plus an FUSB302B breakout and
+two 74AVC1T45 level translators. The firmware is Rust/Embassy: the FUSB302
+driver, the PD source state machine, and the Apple VDMs are shared with the
+production build. The GPIO map below now matches the board schematic netlist
+(`../../hardware/dongle-lite/gen/board.py`); the product build adds the USB 2.0
+hub path.
 
 The PD/VDM logic is a port of AsahiLinux
 [`vdmtool`](https://github.com/AsahiLinux/vdmtool) and Marc Zyngier's
@@ -20,8 +22,8 @@ The PD/VDM logic is a port of AsahiLinux
 
 ## What you need
 
-- Raspberry Pi Pico (RP2040). A Pico 2 (RP2350) would need a target tweak; use a
-  Pico for M0.
+- Raspberry Pi Pico 2 (RP2350) for a bench rig — the firmware builds for
+  `thumbv8m.main-none-eabihf` / RP2350, matching the board's RP2354A.
 - FUSB302B breakout (LCSC C132291 on the real board). Common breakouts:
   "FUSB302 USB-C PD" modules with SDA/SCL/INT/VBUS/GND broken out.
 - 2x 74AVC1T45 single-bit level translators (LCSC C282330), one per SBU line.
@@ -36,21 +38,21 @@ The PD/VDM logic is a port of AsahiLinux
 
 ## Wiring (bench pin map)
 
-All pins are RP2040 GPIO numbers as printed on the Pico. See `src/main.rs` for
-the authoritative map (the `main()` peripheral setup).
+These GPIO numbers match the board netlist (`gen/board.py`) and `src/main.rs`
+(the authoritative map, in the `main()` peripheral setup).
 
-| Signal | Pico GPIO | Connect to |
-|--------|-----------|------------|
+| Signal | GPIO | Connect to |
+|--------|------|------------|
 | I2C0 SDA | GP16 | FUSB302 SDA |
 | I2C0 SCL | GP17 | FUSB302 SCL |
-| FUSB302 INT | GP20 | FUSB302 INT (active low) |
+| FUSB302 INT | GP18 | FUSB302 INT (active low) |
 | Target VBUS enable | GP19 | 5 V load-switch enable for target VBUS (see note) |
 | Status LED | GP25 | on-board LED (PD contract up) |
-| 1.2 V shifter supply enable | GP14 | enable for the 1.2 V rail / translator Vcc(low) |
-| SBU1 data | GP12 | 74AVC1T45 #1, A-side (RP2040) |
-| SBU2 data | GP13 | 74AVC1T45 #2, A-side (RP2040) |
-| SBU1 dir | GP10 | 74AVC1T45 #1 DIR |
-| SBU2 dir | GP11 | 74AVC1T45 #2 DIR |
+| 1.2 V shifter supply enable | GP24 | enable for the 1.2 V rail / translator Vcc(low) |
+| SBU1 data | GP22 | 74AVC1T45 #1, A-side |
+| SBU2 data | GP23 | 74AVC1T45 #2, A-side |
+| SBU1 dir | GP20 | 74AVC1T45 #1 DIR |
+| SBU2 dir | GP21 | 74AVC1T45 #2 DIR |
 
 FUSB302 breakout to the **target** USB-C breakout:
 
@@ -63,9 +65,9 @@ FUSB302 breakout to the **target** USB-C breakout:
 
 74AVC1T45 wiring (per SBU line):
 
-- **A-side** = RP2040 GPIO (GP12 or GP13), **Vcc(A)** = 3V3.
+- **A-side** = RP2350 GPIO (GP22 or GP23), **Vcc(A)** = 3V3.
 - **B-side** = the SBU pin on the target USB-C breakout, **Vcc(B)** = 1.2 V.
-- **DIR** = GP10 / GP11. The firmware drives DIR **high** = A->B (RP2040 drives
+- **DIR** = GP20 / GP21. The firmware drives DIR **high** = A->B (RP2350 drives
   the target, i.e. our TX) and **low** = B->A (target drives us, i.e. our RX).
   If your translator's A/B sides are swapped relative to this, flip the
   `DIR_TO_TARGET` / `DIR_FROM_TARGET` constants in `src/main.rs`.
@@ -83,7 +85,7 @@ Repo-root shortcuts (prereqs: `just install`):
 - `just fw-update` - the everyday path, dev loop and production alike: streams
   the app image to a running dongle over its vendor USB interface. The dongle
   stages it to the spare slot, CRC-checks it, reboots, and the bootloader
-  swaps it in - no bootrom, no `RPI-RP2` drive, and an image that fails to
+  swaps it in - no bootrom, no `RP2350` drive, and an image that fails to
   boot is rolled back. The same flow is exposed as
   `restorekit dongle update --file <image.bin>`; without `--file` it fetches
   the latest published release if it's newer than what the dongle reports.
@@ -93,8 +95,8 @@ The firmware reports its crate version as a string over the vendor interface
 version, then tag the commit `dongle-lite-fw-v<version>` - CI (release-fw.yml)
 builds and attaches the update image and the factory UF2.
 - `just fw-flash-full` - factory / recovery only: bootloader + app in one
-  merged UF2 over the RP2040 bootrom (hold BOOTSEL when plugging in a fresh
-  board; flashed with picotool when installed, else the RPI-RP2 drive).
+  merged UF2 over the RP2350 bootrom (hold BOOTSEL when plugging in a fresh
+  board; picotool is required to build and flash the RP2350-family UF2).
 
 The bootrom path first sends `restorekit dongle bootsel`, which reboots a
 running dongle into the bootrom via `reset_to_usb_boot` (same as typing
@@ -112,11 +114,11 @@ With `probe-rs` and a debug probe you can instead `cargo run --release` and get
 defmt logs. (Note that flashes only the app; the bootloader is a separate
 `cargo run --release` in `../dongle-lite-boot`.)
 
-The raw update image for `dongle update` is the ACTIVE-slot contents, without
-the boot2 blob:
+The raw update image for `dongle update` is the ACTIVE-slot contents (on RP2350
+there's no boot2 blob to strip):
 
 ```
-cargo objcopy --release -- -O binary --remove-section=.boot2 target/dongle-lite-fw.bin
+cargo objcopy --release -- -O binary target/dongle-lite-fw.bin
 ```
 
 ## Bench test procedure
@@ -180,7 +182,7 @@ Besides the human CDC console, the firmware exposes a **vendor-specific USB
 interface** (`bInterfaceClass = 0xFF`) that the `restorekit` SDK drives over
 `nusb` control transfers — no serial port, no OS driver, works the same on
 macOS/Linux/Windows (Windows needs the interface bound to WinUSB). The device
-also enumerates with a **unique USB serial** derived from the RP2040 flash UID
+also enumerates with a **unique USB serial** derived from the RP2350 chip ID
 (e.g. `DL-1A2B3C4D`), so multiple dongles are individually addressable.
 
 Vendor control protocol (interface recipient, `wIndex` = the vendor interface

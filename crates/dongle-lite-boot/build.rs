@@ -16,5 +16,6 @@ fn main() {
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
-    println!("cargo:rustc-link-arg-bins=-Tlink-rp.x");
+    // On rp235x the start/end IMAGE_DEF block sections live in memory.x's
+    // SECTIONS (see below); there is no -Tlink-rp.x as there is for rp2040.
 }

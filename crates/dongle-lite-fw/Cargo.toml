@@ -1,4 +1,4 @@
-# Standalone crate: this is a bare-metal thumbv6m target, kept out of the
+# Standalone crate: this is a bare-metal thumbv8m (RP2350) target, kept out of the
 # host-side restorekit workspace (see `exclude` in the root Cargo.toml). It
 # shares the USB wire protocol with the SDK via restorekit-dongle-proto.
 [workspace]
@@ -8,7 +8,7 @@ name = "dongle-lite-fw"
 edition = "2021"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "RecoverKit Dongle Lite M0 bench firmware (RP2040 + FUSB302B)"
+description = "RecoverKit Dongle Lite firmware (RP2354A / RP2350 + FUSB302B)"
 publish = false
 
 [[bin]]
@@ -22,11 +22,13 @@ restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }
 embassy-boot-rp = "0.10.0"
 embassy-embedded-hal = "0.6.0"
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-# boot2-none: the app runs behind the dongle-lite-boot bootloader, whose boot2
-# already configured XIP. Linking a boot2 here would make every app image
-# carry a zero-padded sector at 0x10000000 that flashing would smear over the
-# bootloader.
-embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040", "boot2-none"] }
+# imagedef-none: the app runs behind the dongle-lite-boot bootloader, which the
+# RP2350 boot ROM launches via *its* IMAGE_DEF; the bootloader then jumps
+# straight to this app's vector table at the ACTIVE partition. So the app image
+# carries no IMAGE_DEF/start-block of its own — it's a plain M33 image whose
+# vector table sits at ORIGIN(FLASH) (the ACTIVE slot), exactly what the loader
+# jumps to.
+embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "imagedef-none"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }
 embassy-usb = { version = "0.6.0", features = ["defmt", "max-interface-count-8"] }

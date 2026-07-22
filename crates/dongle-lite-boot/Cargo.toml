@@ -1,4 +1,4 @@
-# Standalone crate: bare-metal thumbv6m, kept out of the host-side restorekit
+# Standalone crate: bare-metal thumbv8m (RP2350), kept out of the host-side restorekit
 # workspace (see `exclude` in the root Cargo.toml). This is the embassy-boot
 # second-stage bootloader the dongle app (dongle-lite-fw) runs behind: it
 # power-fail-safely swaps in firmware staged to the DFU slot and reverts if
@@ -11,7 +11,7 @@ name = "dongle-lite-boot"
 edition = "2021"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "RecoverKit Dongle Lite bootloader (embassy-boot on RP2040)"
+description = "RecoverKit Dongle Lite bootloader (embassy-boot on RP2354A / RP2350)"
 publish = false
 
 [[bin]]
@@ -21,7 +21,7 @@ bench = false
 
 [dependencies]
 embassy-boot-rp = "0.10.0"
-embassy-rp = { version = "0.10.0", features = ["rp2040", "critical-section-impl"] }
+embassy-rp = { version = "0.10.0", features = ["rp235xa", "critical-section-impl"] }
 embassy-time = "0.5.1"
 embassy-sync = "0.8.0"
 

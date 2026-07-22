@@ -1,10 +1,12 @@
 //! RecoverKit Dongle Lite - M0 bench firmware.
 //!
-//! Target: RP2040 (e.g. a Raspberry Pi Pico) wired to an FUSB302B breakout and
-//! two 74AVC1T45 level translators on the target's SBU lines. This is the M0
-//! de-risking milestone from the PRD: prove, against a real Apple Silicon / T2
-//! Mac, that (a) the Apple DFU-trigger VDM works and (b) the 1.2 V SBU serial
-//! console works in BOTH cable orientations, before committing a PCB.
+//! Target: RP2354A (RP2350, Cortex-M33) on the dongle-lite board, wired to an
+//! FUSB302B and two 74AVC1T45 level translators on the target's SBU lines. The
+//! GPIO map matches the schematic netlist in `hardware/dongle-lite/gen/board.py`.
+//! (The same firmware runs on a Pico 2 bench rig for the M0 de-risking work
+//! from the PRD: proving, against a real Apple Silicon / T2 Mac, that (a) the
+//! Apple DFU-trigger VDM works and (b) the 1.2 V SBU serial console works in
+//! BOTH cable orientations.)
 //!
 //! The host sees two USB CDC serial ports:
 //!   CDC0 - control console. Commands (matching macvdmtool): `nop`, `dfu`,
@@ -39,7 +41,7 @@ use embassy_rp::flash::{Blocking, Flash};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{self, I2c};
 use embassy_rp::peripherals::{I2C0, PIO0, USB};
-use embassy_rp::peripherals::{PIN_12, PIN_13};
+use embassy_rp::peripherals::{PIN_22, PIN_23};
 use embassy_rp::pio::{self, Pio};
 use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
@@ -124,15 +126,15 @@ const HANDSHAKE_RETRY_TICKS: i32 = 10;
 // SBU serial console parameters (Asahi: 1.2 V, 115200 8N1).
 const SBU_BAUD: u32 = 115_200;
 
-// 74AVC1T45 DIR levels. Wiring: A-side = RP2040 GPIO, B-side = SBU pin.
-// DIR high => A->B (RP2040 drives target = our TX). DIR low => B->A (our RX).
+// 74AVC1T45 DIR levels. Wiring: A-side = RP2350 GPIO, B-side = SBU pin.
+// DIR high => A->B (RP2350 drives target = our TX). DIR low => B->A (our RX).
 const DIR_TO_TARGET: Level = Level::High;
 const DIR_FROM_TARGET: Level = Level::Low;
 
 // --- Vendor USB interface (class 0xFF), driven by the recoverkit SDK over
 // nusb control transfers. Runs alongside the human CDC console; both funnel
 // into the same command path. ---
-const FLASH_SIZE: usize = 2 * 1024 * 1024; // Pico: 2 MiB QSPI flash.
+const FLASH_SIZE: usize = 2 * 1024 * 1024; // RP2354A: 2 MiB internal flash.
 
 // The VREQ_*/VCMD_*/RES_*/FLAG_* wire constants live in the shared
 // restorekit-dongle-proto crate (imported above).
@@ -381,29 +383,27 @@ async fn main(_spawner: Spawner) {
     // --- USB composite device: two CDC-ACM ports + a vendor interface. ---
     let driver = Driver::new(p.USB, Irqs);
 
-    // Flash is shared between the one-shot UID read and the firmware updater.
+    // Flash backs the firmware updater (staged images swapped by the bootloader).
     static FLASH_CELL: StaticCell<FlashMutex> = StaticCell::new();
     let flash = FLASH_CELL.init(embassy_sync::blocking_mutex::Mutex::new(RefCell::new(
         Flash::new_blocking(p.FLASH),
     )));
 
-    // Unique per-unit USB serial derived from the RP2040 flash UID, so multiple
-    // dongles on one host are individually addressable (e.g. "DL-1A2B3C4D").
+    // Unique per-unit USB serial derived from the RP2350 chip ID (OTP), so
+    // multiple dongles on one host are individually addressable (e.g.
+    // "DL-1A2B3C4D"). On RP2040 this came from the QSPI flash unique ID.
     static SERIAL: StaticCell<String<24>> = StaticCell::new();
     let serial = {
-        let mut uid = [0u8; 8];
-        flash.lock(|f| {
-            let _ = f.borrow_mut().blocking_unique_id(&mut uid);
-        });
+        let uid = embassy_rp::otp::get_chipid().unwrap_or(0).to_le_bytes();
         let s = SERIAL.init(String::new());
         let _ = core::write!(
             s,
             "{}{:02X}{:02X}{:02X}{:02X}",
             proto::SERIAL_PREFIX_LITE,
-            uid[4],
-            uid[5],
-            uid[6],
-            uid[7]
+            uid[0],
+            uid[1],
+            uid[2],
+            uid[3]
         );
         s.as_str()
     };
@@ -411,7 +411,7 @@ async fn main(_spawner: Spawner) {
     // The embassy-boot updater for streamed firmware updates. Marking this
     // boot healthy confirms a freshly swapped image, so the bootloader won't
     // revert it on the next reset.
-    // The state buffer must be exactly the flash's WRITE_SIZE (1 on RP2040);
+    // The state buffer must be exactly the flash's WRITE_SIZE (1 on RP2350);
     // embassy-boot asserts on it, and a panic here would boot-loop the board.
     static UPDATER_BUF: StaticCell<AlignedBuffer<1>> = StaticCell::new();
     let mut updater = BlockingFirmwareUpdater::new(
@@ -498,13 +498,13 @@ async fn main(_spawner: Spawner) {
 
     // FUSB302 INT (active low), target VBUS enable. The boot-beacon LED from
     // the top of main is handed to the engine, which manages it from here on.
-    let mut int = Input::new(p.PIN_20, Pull::Up);
+    let mut int = Input::new(p.PIN_18, Pull::Up);
     let vbus = Output::new(p.PIN_19, Level::Low);
 
     // SBU level-translator control.
-    let shifter_supply = Output::new(p.PIN_14, Level::Low);
-    let sbu1_dir = Output::new(p.PIN_10, Level::Low);
-    let sbu2_dir = Output::new(p.PIN_11, Level::Low);
+    let shifter_supply = Output::new(p.PIN_24, Level::Low);
+    let sbu1_dir = Output::new(p.PIN_20, Level::Low);
+    let sbu2_dir = Output::new(p.PIN_21, Level::Low);
 
     let mut engine = Engine {
         fusb,
@@ -532,7 +532,7 @@ async fn main(_spawner: Spawner) {
 
     let pd_fut = engine.run(&mut int);
 
-    let serial_fut = serial_bridge(p.PIO0, p.PIN_12, p.PIN_13, target_serial);
+    let serial_fut = serial_bridge(p.PIO0, p.PIN_22, p.PIN_23, target_serial);
 
     join4(usb_fut, control_fut, pd_fut, serial_fut).await;
 }
@@ -1140,8 +1140,8 @@ fn vdm_hdr(cnt: u16) -> u16 {
 
 async fn serial_bridge(
     pio: Peri<'static, PIO0>,
-    pin12: Peri<'static, PIN_12>,
-    pin13: Peri<'static, PIN_13>,
+    sbu1: Peri<'static, PIN_22>,
+    sbu2: Peri<'static, PIN_23>,
     cdc: CdcAcmClass<'static, Driver<'static, USB>>,
 ) {
     // Wait until the PD engine has muxed the UART and told us the orientation.
@@ -1158,15 +1158,15 @@ async fn serial_bridge(
     let rx_prog = PioUartRxProgram::new(&mut common);
 
     // Active-CC-side SBU is the target's TX (our RX); the other is our TX.
-    // polarity 0 (CC1/normal): RX=SBU1(PIN_12), TX=SBU2(PIN_13).
-    // polarity 1 (CC2/flipped): RX=SBU2(PIN_13), TX=SBU1(PIN_12).
+    // polarity 0 (CC1/normal): RX=SBU1(GP22), TX=SBU2(GP23).
+    // polarity 1 (CC2/flipped): RX=SBU2(GP23), TX=SBU1(GP22).
     let (mut uart_rx, mut uart_tx) = if polarity == 0 {
-        let rx = PioUartRx::new(SBU_BAUD, &mut common, sm1, pin12, &rx_prog);
-        let tx = PioUartTx::new(SBU_BAUD, &mut common, sm0, pin13, &tx_prog);
+        let rx = PioUartRx::new(SBU_BAUD, &mut common, sm1, sbu1, &rx_prog);
+        let tx = PioUartTx::new(SBU_BAUD, &mut common, sm0, sbu2, &tx_prog);
         (rx, tx)
     } else {
-        let rx = PioUartRx::new(SBU_BAUD, &mut common, sm1, pin13, &rx_prog);
-        let tx = PioUartTx::new(SBU_BAUD, &mut common, sm0, pin12, &tx_prog);
+        let rx = PioUartRx::new(SBU_BAUD, &mut common, sm1, sbu2, &rx_prog);
+        let tx = PioUartTx::new(SBU_BAUD, &mut common, sm0, sbu1, &tx_prog);
         (rx, tx)
     };
 

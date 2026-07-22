@@ -5,9 +5,11 @@ default:
 # Install dev dependencies: JS workspace + the firmware's Rust toolchain
 install:
     pnpm install
-    rustup target add thumbv6m-none-eabi
+    rustup target add thumbv8m.main-none-eabihf
     rustup component add llvm-tools
-    cargo install flip-link elf2uf2-rs cargo-binutils
+    cargo install flip-link cargo-binutils
+    # RP2350 UF2s are built with picotool (elf2uf2-rs only knows the RP2040
+    # family id): `brew install picotool` (macOS) / `apt install picotool`.
 
 # Release the software (bump + tag via CI; kind: patch|minor|major)
 release kind="patch": (_dispatch "bump-release.yml" kind)
@@ -70,30 +72,39 @@ app-build:
 app-build-signed:
     cd apps/desktop && pnpm build:signed
 
-# Build the RP2040 dongle firmware + bootloader (prereqs: just install)
+# Build the RP2354A (RP2350) dongle firmware + bootloader (prereqs: just install)
 fw-build:
     cd crates/dongle-lite-fw && cargo build --release
     cd crates/dongle-lite-boot && cargo build --release
 
-# Update a dongle's firmware over USB (production path: no bootrom, no drive)
+# Update a dongle's firmware over USB (production path: no bootrom, no drive).
+# The .bin is the raw ACTIVE-slot image; on RP2350 there's no .boot2 to strip.
 fw-update: fw-build
-    cd crates/dongle-lite-fw && cargo objcopy --release -- -O binary --remove-section=.boot2 target/dongle-lite-fw.bin
+    cd crates/dongle-lite-fw && cargo objcopy --release -- -O binary target/dongle-lite-fw.bin
     cargo run -q -p restorekit-cli -- dongle update --file crates/dongle-lite-fw/target/dongle-lite-fw.bin
 
-# Flash bootloader + app over the RP2040 bootrom (factory / first flash)
+# Flash bootloader + app over the RP2350 bootrom (factory / first flash)
 fw-flash-full: fw-build
     #!/usr/bin/env bash
     set -euo pipefail
+    if ! command -v picotool > /dev/null; then
+        echo "error: picotool is required to build RP2350 UF2s — brew install picotool" >&2
+        exit 1
+    fi
     {{bootsel_kick}}
-    elf2uf2-rs crates/dongle-lite-boot/target/thumbv6m-none-eabi/release/dongle-lite-boot \
-               crates/dongle-lite-boot/target/dongle-lite-boot.uf2
-    elf2uf2-rs crates/dongle-lite-fw/target/thumbv6m-none-eabi/release/dongle-lite-fw \
-               crates/dongle-lite-fw/target/dongle-lite-fw.uf2
+    # RP2350 UF2s: objcopy each image to a raw .bin at its flash offset, then
+    # let picotool stamp the rp2350-arm-s family id (elf2uf2-rs only knows
+    # RP2040, and picotool's ELF path trips over the app's zero-fill BSS).
+    boot=crates/dongle-lite-boot/target/dongle-lite-boot
+    fw=crates/dongle-lite-fw/target/dongle-lite-fw
+    ( cd crates/dongle-lite-boot && cargo objcopy --release -- -O binary target/dongle-lite-boot.bin )
+    ( cd crates/dongle-lite-fw   && cargo objcopy --release -- -O binary target/dongle-lite-fw.bin )
+    picotool uf2 convert "$boot.bin" -t bin -o 0x10000000 --family rp2350-arm-s "$boot.uf2"
+    picotool uf2 convert "$fw.bin"   -t bin -o 0x10007000 --family rp2350-arm-s "$fw.uf2"
     # --fill wipes the bootloader state sector (see dongle-lite-boot/memory.x):
     # leftover bytes there from older firmware can read as a bogus swap state.
     node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
-        crates/dongle-lite-boot/target/dongle-lite-boot.uf2 \
-        crates/dongle-lite-fw/target/dongle-lite-fw.uf2 \
+        "$boot.uf2" "$fw.uf2" \
         crates/dongle-lite-fw/target/dongle-lite-full.uf2
     # Prefer picotool: it writes over PICOBOOT and verifies the readback,
     # unlike the drive copy, which macOS corrupts often enough to matter
@@ -126,7 +137,7 @@ fw-flash-full: fw-build
     echo "the dongle did not come back within 10s — check the board" >&2
     exit 1
 
-# Shell snippet: reboot a running dongle into the RP2040 bootrom over its
+# Shell snippet: reboot a running dongle into the RP2350 bootrom over its
 # vendor USB interface; on failure explain the manual paths and keep going.
 bootsel_kick := '''
     if ! cargo run -q -p restorekit-cli -- dongle bootsel; then
@@ -136,14 +147,14 @@ bootsel_kick := '''
     fi
 '''
 
-# Shell snippet: wait for the RP2040 bootrom drive, print its mount point.
+# Shell snippet: wait for the RP2350 bootrom drive, print its mount point.
 wait_rpi_rp2 := '''
     for _ in $(seq 1 30); do
-        for m in /Volumes/RPI-RP2 "/run/media/$USER/RPI-RP2" "/media/$USER/RPI-RP2"; do
+        for m in /Volumes/RP2350 "/run/media/$USER/RP2350" "/media/$USER/RP2350"; do
             if [ -d "$m" ]; then echo "$m"; exit 0; fi
         done
         sleep 0.5
     done
-    echo "RPI-RP2 drive never appeared; is the board in BOOTSEL?" >&2
+    echo "RP2350 drive never appeared; is the board in BOOTSEL?" >&2
     exit 1
 '''

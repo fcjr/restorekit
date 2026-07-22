@@ -35,8 +35,13 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --no-self-update --component llvm-tools
           rustup default stable
-          rustup target add thumbv6m-none-eabi
-          cargo install flip-link elf2uf2-rs cargo-binutils --locked
+          rustup target add thumbv8m.main-none-eabihf
+          cargo install flip-link cargo-binutils --locked
+
+      # picotool stamps the rp2350-arm-s UF2 family id (elf2uf2-rs only knows
+      # RP2040). Packaged in Ubuntu 24.04 universe.
+      - name: Install picotool
+        run: sudo apt-get update && sudo apt-get install -y picotool
 
       - name: Build firmware and bootloader
         run: |
@@ -45,16 +50,15 @@ jobs:
 
       - name: Stage release assets
         run: |
-          cd crates/dongle-lite-fw
-          cargo objcopy --release -- -O binary --remove-section=.boot2 target/dongle-lite-fw.bin
-          cd ../..
-          elf2uf2-rs crates/dongle-lite-boot/target/thumbv6m-none-eabi/release/dongle-lite-boot \
-                     crates/dongle-lite-boot/target/dongle-lite-boot.uf2
-          elf2uf2-rs crates/dongle-lite-fw/target/thumbv6m-none-eabi/release/dongle-lite-fw \
-                     crates/dongle-lite-fw/target/dongle-lite-fw.uf2
+          # The .bin is the raw ACTIVE-slot image; on RP2350 there's no .boot2.
+          ( cd crates/dongle-lite-fw && cargo objcopy --release -- -O binary target/dongle-lite-fw.bin )
+          ( cd crates/dongle-lite-boot && cargo objcopy --release -- -O binary target/dongle-lite-boot.bin )
+          boot=crates/dongle-lite-boot/target/dongle-lite-boot
+          fw=crates/dongle-lite-fw/target/dongle-lite-fw
+          picotool uf2 convert "$boot.bin" -t bin -o 0x10000000 --family rp2350-arm-s "$boot.uf2"
+          picotool uf2 convert "$fw.bin"   -t bin -o 0x10007000 --family rp2350-arm-s "$fw.uf2"
           node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
-              crates/dongle-lite-boot/target/dongle-lite-boot.uf2 \
-              crates/dongle-lite-fw/target/dongle-lite-fw.uf2 \
+              "$boot.uf2" "$fw.uf2" \
               crates/dongle-lite-fw/target/dongle-lite-full.uf2
 
       - name: Create release
@@ -70,6 +74,6 @@ jobs:
             --latest=false \
             --title "Dongle Lite firmware $version" \
             --notes "Install on a connected dongle with \`restorekit dongle update\`. \
-          \`dongle-lite-full.uf2\` is the factory/recovery image (bootloader + app) for the RP2040 bootrom." \
+          \`dongle-lite-full.uf2\` is the factory/recovery image (bootloader + app) for the RP2350 bootrom." \
             crates/dongle-lite-fw/target/dongle-lite-fw.bin \
             crates/dongle-lite-fw/target/dongle-lite-full.uf2
