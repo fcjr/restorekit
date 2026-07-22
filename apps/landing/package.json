@@ -16,6 +16,7 @@
     "@sveltejs/vite-plugin-svelte": "^5",
     "@tailwindcss/vite": "^4",
     "@types/three": "^0.185.0",
+    "drizzle-kit": "^0.31.10",
     "svelte": "^5",
     "svelte-check": "^4",
     "tailwindcss": "^4",
@@ -25,6 +26,7 @@
   },
   "dependencies": {
     "@threlte/core": "^8.5.16",
+    "drizzle-orm": "^0.45.2",
     "shiki": "^4.3.1",
     "three": "^0.185.1"
   }

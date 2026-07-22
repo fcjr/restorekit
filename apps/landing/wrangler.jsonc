@@ -13,6 +13,14 @@
     { "pattern": "www.restorekit.org", "custom_domain": true },
     { "pattern": "restorekit.org", "custom_domain": true }
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "restorekit-landing",
+      "database_id": "9bfbaf97-83d7-4144-9380-75bf4426ef3e",
+      "migrations_dir": "migrations"
+    }
+  ],
   "observability": {
     "enabled": true
   }

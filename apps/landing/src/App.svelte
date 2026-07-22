@@ -124,7 +124,7 @@
     {
       label: "Automatic DFU trigger",
       cells: [
-        { text: "✓ on Mac hosts¹", tone: "ok" },
+        { text: "✓ on Mac hosts · any host with dongle-lite¹", tone: "ok", href: "#dongle" },
         { text: "✓ (Auto DFU)" },
         { text: "No DFU · manual boot to Recovery", tone: "dim" },
         { text: "✓ (post-trial: DFU + reboot only)" },
@@ -189,32 +189,71 @@
     },
   ];
 
-  // The 3D bench is decoration, so three.js only loads when the section is
+  // The 3D scenes are decoration, so three.js only loads when a section is
   // close to the viewport and the browser actually has WebGL.
-  let sceneHost = $state<HTMLElement>();
-  let showScene = $state(false);
-  $effect(() => {
-    if (!sceneHost) return;
-    let ok = false;
+  function hasWebgl(): boolean {
     try {
       const probe = document.createElement("canvas");
-      ok = !!(probe.getContext("webgl2") ?? probe.getContext("webgl"));
+      return !!(probe.getContext("webgl2") ?? probe.getContext("webgl"));
     } catch {
-      ok = false;
+      return false;
     }
-    if (!ok) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          showScene = true;
-          io.disconnect();
-        }
-      },
-      { rootMargin: "300px" },
-    );
-    io.observe(sceneHost);
-    return () => io.disconnect();
-  });
+  }
+  function lazyScene(host: () => HTMLElement | undefined, show: () => void) {
+    $effect(() => {
+      const el = host();
+      if (!el || !hasWebgl()) return;
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            show();
+            io.disconnect();
+          }
+        },
+        { rootMargin: "300px" },
+      );
+      io.observe(el);
+      return () => io.disconnect();
+    });
+  }
+  let sceneHost = $state<HTMLElement>();
+  let showScene = $state(false);
+  lazyScene(
+    () => sceneHost,
+    () => (showScene = true),
+  );
+  let dongleHost = $state<HTMLElement>();
+  let showDongle = $state(false);
+  lazyScene(
+    () => dongleHost,
+    () => (showDongle = true),
+  );
+
+  // dongle-lite preorder-interest form → POST /api/reserve → D1.
+  let reserveEmail = $state("");
+  let reserveState = $state<"idle" | "busy" | "done" | "error">("idle");
+  let reserveError = $state("");
+  async function reserve(e: SubmitEvent) {
+    e.preventDefault();
+    if (reserveState === "busy" || reserveState === "done") return;
+    reserveState = "busy";
+    try {
+      const res = await fetch("/api/reserve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: reserveEmail }),
+      });
+      if (!res.ok) {
+        const body: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "");
+      }
+      reserveState = "done";
+    } catch (err) {
+      reserveState = "error";
+      reserveError =
+        err instanceof Error && err.message ? err.message : "something broke, mind trying again?";
+    }
+  }
 
   const dfuPorts = [
     ["14″ / 16″ MacBook Pro", "Left side, port next to MagSafe"],
@@ -252,6 +291,7 @@
     </a>
     <div class="grow"></div>
     <div class="hidden items-center gap-5 text-[12px] text-mut md:flex">
+      <a href="#dongle" class="text-amber hover:text-amber-hov">Dongle</a>
       <a href="#how" class="hover:text-ink">How it works</a>
       <a href="#desktop" class="hover:text-ink">App</a>
       <a href="#cli" class="hover:text-ink">CLI</a>
@@ -272,7 +312,7 @@
   <section class="border-b border-line bg-panel">
     <div class="mx-auto grid max-w-6xl items-center gap-10 px-5 pt-14 pb-14 md:pt-20 lg:grid-cols-[1fr_1.15fr] lg:gap-12">
       <div>
-        {@render eyebrow("Open-source Mac recovery · CLI + desktop app", "text-amber")}
+        {@render eyebrow("Free open-source software · open hardware dongle", "text-amber")}
         <h1 class="max-w-xl text-[clamp(26px,3.2vw,38px)] font-bold leading-[1.12] tracking-[-0.02em] text-ink">
           Reformat any T2 or Apple Silicon mac from macOS, linux or windows with a single
           command.<span class="caret" aria-hidden="true"></span>
@@ -280,21 +320,23 @@
         <p class="mt-5 max-w-lg text-[13.5px] leading-7 text-mut">
           restorekit is a standalone rust library, cli tool, and gui that fully wipes or restores
           a T2 or M series mac without any apple tools. Binaries are statically linked, so there
-          is nothing else to install or configure.
+          is nothing else to install or configure. An optional
+          <a href="#dongle" class="text-amber hover:text-amber-hov">dongle</a> adds automatic DFU
+          on hosts that can't trigger it themselves.
         </p>
 
         <div class="mt-8 flex flex-col items-stretch gap-3 sm:flex-row">
           <a
-            href="#install"
+            href="#dongle"
             class="bg-amber px-6 py-3 text-center text-[13px] font-semibold text-amber-ink transition-colors hover:bg-amber-hov"
           >
-            Install the CLI
+            Reserve dongle-lite
           </a>
           <a
-            href="#desktop"
+            href="#install"
             class="border border-line2 px-6 py-3 text-center text-[13px] text-ink2 transition-colors hover:border-fnt"
           >
-            Get the desktop app
+            Install the free software
           </a>
         </div>
 
@@ -349,6 +391,97 @@
     </div>
   </section>
 
+  <!-- dongle-lite -->
+  <section id="dongle" class="border-b border-line bg-bar">
+    <div class="mx-auto max-w-6xl px-5 py-12 md:py-14">
+      <div class="grid items-start gap-4 lg:grid-cols-[1fr_1.35fr] lg:gap-10">
+        <div>
+          {@render eyebrow("New hardware · dongle-lite", "text-amber")}
+          <h2 class="text-[clamp(20px,2.2vw,26px)] font-semibold leading-[1.2] tracking-tight text-ink">
+            Automatic DFU from any host. Yes, even windows.
+          </h2>
+          <p class="mt-4 text-[13px] leading-6 text-mut">
+            The DFU trigger is a USB-PD message a normal PC port can't send, so it's always taken
+            a second mac. dongle-lite speaks PD itself: host side into any linux, windows, or mac
+            box, target side into the mac, and restorekit does the rest over one cable. It breaks
+            out apple's hidden serial console too, so you can watch a failing restore instead of
+            guessing.
+          </p>
+
+          <div class="mt-5 grid grid-cols-2 gap-px border border-line bg-line text-[11.5px]">
+            {#each [
+              ["ports", "2× usb-c · host + target"],
+              ["mcu", "RP2350 · rust firmware"],
+              ["serial console", "target UART over SBU"],
+              ["open hardware", "fab files in the repo"],
+            ] as [k, v] (k)}
+              <div class="bg-bar px-3 py-2.5">
+                <div class="text-[9.5px] tracking-[0.12em] uppercase text-fnt">{k}</div>
+                <div class="mt-0.5 text-ink2">{v}</div>
+              </div>
+            {/each}
+          </div>
+
+          <div class="mt-3 flex gap-px border border-line bg-line text-[10px] tracking-[0.12em] uppercase">
+            <div class="flex-1 bg-bar px-3 py-2 text-dim">batch 01 · fully claimed</div>
+            <div class="flex-1 bg-bar px-3 py-2 text-amber">
+              <span class="pulse-dot mr-1.5 inline-block h-1.5 w-1.5 bg-amber align-middle"></span>batch 02 · reserving now
+            </div>
+          </div>
+
+          <div class="mt-3">
+            {#if reserveState === "done"}
+              <div class="border border-ok/40 bg-page px-5 py-3.5 text-[13px] text-ok">
+                ✓ you're on the batch 2 list. talk soon.
+              </div>
+            {:else}
+              <form onsubmit={reserve} class="flex flex-col gap-2.5 sm:flex-row">
+                <input
+                  type="email"
+                  required
+                  placeholder="you@example.com"
+                  autocomplete="email"
+                  bind:value={reserveEmail}
+                  class="grow border border-line2 bg-page px-4 py-2.5 text-[13px] text-ink placeholder:text-dim focus:border-amber focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={reserveState === "busy"}
+                  class="shrink-0 bg-amber px-5 py-2.5 text-[13px] font-semibold text-amber-ink transition-colors hover:bg-amber-hov disabled:opacity-60"
+                >
+                  {reserveState === "busy" ? "saving..." : "Reserve interest"}
+                </button>
+              </form>
+              {#if reserveState === "error"}
+                <p class="mt-2 text-[11.5px] text-danger">{reserveError}</p>
+              {/if}
+            {/if}
+            <p class="mt-2.5 text-[11px] leading-5 text-fnt">
+              The first batch is spoken for; this list is for batch 2. One email when it's
+              orderable, no spam, no commitment. Building
+              <a href="{GITHUB}/tree/main/hardware/dongle-lite" class="text-mut underline underline-offset-4 hover:text-ink2">your own</a>
+              is fair game; buying one keeps the software funded.
+            </p>
+          </div>
+        </div>
+
+        <div
+          bind:this={dongleHost}
+          class="relative h-[280px] overflow-hidden border border-line bg-page sm:h-[340px] lg:h-[420px]"
+          aria-hidden="true"
+        >
+          {#if showDongle}
+            {#await import("./components/DongleScene.svelte") then Mod}
+              <Mod.default />
+            {/await}
+          {/if}
+          <span class="absolute top-3 left-4 text-[10px] tracking-[0.14em] uppercase text-dim">dongle-lite · 77 × 22 mm · usb 2.0</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
   <!-- why -->
   <section class="border-b border-line">
     <div class="mx-auto grid max-w-6xl gap-10 px-5 py-16 md:grid-cols-[1fr_1.4fr] md:py-20">
@@ -369,6 +502,11 @@
           when a simple reset would have fixed it.
         </p>
         <p class="text-ink2">I think this sucks.</p>
+        <p>
+          So the software is free, Apache-2.0, and stays that way.
+          <a href="#dongle" class="text-amber hover:text-amber-hov">dongle-lite</a> is the part you
+          can buy, and selling it is what pays for the work on all of this.
+        </p>
       </div>
     </div>
   </section>
@@ -400,7 +538,7 @@
           <p class="mt-3 text-[12.5px] leading-6 text-mut">
             Cable the target mac to your host's DFU port. If your host is a mac, restorekit will
             automatically set the target machine into DFU mode. On linux or windows it shows you
-            the manual steps instead.
+            the manual steps instead, or a <a href="#dongle" class="text-amber hover:text-amber-hov">dongle-lite</a> skips them.
           </p>
         </div>
         <div class="bg-panel p-6">
@@ -624,8 +762,9 @@ $ restorekit -h`,
         ¹ Triggering DFU over USB-PD needs a T2 or Apple Silicon host. That's a hardware limit and
         it applies to every tool here. On linux and windows you put the target into DFU by hand
         (restorekit shows you the steps), and detection, firmware download, and restore all run
-        natively. Vendor pricing and features as published July 2026, check their sites for
-        current terms.
+        natively. The upcoming <a href="#dongle" class="text-amber hover:text-amber-hov">dongle-lite</a>
+        removes the limit entirely by putting the PD hardware in the cable path. Vendor pricing and
+        features as published July 2026, check their sites for current terms.
       </p>
       <p class="mt-3 max-w-3xl text-[11.5px] leading-6 text-fnt">
         ³ It's already a bit ridiculous that Acroname hubs
@@ -782,6 +921,7 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
       </div>
       <div class="grow"></div>
       <div class="flex flex-wrap gap-5">
+        <a href="#dongle" class="text-amber hover:text-amber-hov">Reserve dongle-lite</a>
         <a href={GITHUB} class="hover:text-ink2">GitHub</a>
         <a href={SPONSOR} class="hover:text-ink2">Sponsor</a>
         <a href="{GITHUB}/releases" class="hover:text-ink2">Releases</a>
