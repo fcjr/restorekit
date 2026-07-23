@@ -36,10 +36,14 @@ pub const PRODUCT_LITE: &str = "Dongle-Lite";
 /// iProduct string of the Dongle Pro (the USB 3.1 Gen 1 passthrough variant;
 /// same firmware crate built with the `pro` feature).
 pub const PRODUCT_PRO: &str = "Dongle-Pro";
+/// iProduct for the Dongle-Pro-Power (Pro plus a 100W PD source path).
+pub const PRODUCT_POWER: &str = "Dongle-Pro-Power";
 /// iSerial prefix of the Dongle Lite (e.g. `DL-1A2B3C4D`).
 pub const SERIAL_PREFIX_LITE: &str = "DL-";
 /// iSerial prefix of the Dongle Pro (e.g. `DP-1A2B3C4D`).
 pub const SERIAL_PREFIX_PRO: &str = "DP-";
+/// Serial prefix for Dongle-Pro-Power units.
+pub const SERIAL_PREFIX_POWER: &str = "DPP-";
 
 /// Class of the vendor-specific interface the SDK drives.
 pub const VENDOR_CLASS: u8 = 0xFF;

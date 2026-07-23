@@ -399,7 +399,9 @@ async fn main(_spawner: Spawner) {
         let _ = core::write!(
             s,
             "{}{:02X}{:02X}{:02X}{:02X}",
-            if cfg!(feature = "pro") {
+            if cfg!(feature = "power") {
+                proto::SERIAL_PREFIX_POWER
+            } else if cfg!(feature = "pro") {
                 proto::SERIAL_PREFIX_PRO
             } else {
                 proto::SERIAL_PREFIX_LITE
@@ -431,7 +433,9 @@ async fn main(_spawner: Spawner) {
     // string (see DongleModel in the SDK's dongle.rs).
     let mut config = Config::new(proto::VID, proto::PID);
     config.manufacturer = Some(proto::MANUFACTURER);
-    config.product = Some(if cfg!(feature = "pro") {
+    config.product = Some(if cfg!(feature = "power") {
+        proto::PRODUCT_POWER
+    } else if cfg!(feature = "pro") {
         proto::PRODUCT_PRO
     } else {
         proto::PRODUCT_LITE
@@ -519,6 +523,18 @@ async fn main(_spawner: Spawner) {
     // 10k pull-down keeps the flipped lane selected until PD connects.
     // Unconnected (harmless) on the USB 2.0 Lite board.
     let ss_sel = Output::new(p.PIN_26, Level::Low);
+    // Dongle-Pro-Power power path, parked safe at boot: 20V source path off,
+    // vSafe switch pass-through (the AP22653 still gates the actual flow),
+    // discharge FET off. The PD source policy engine (M2) drives these; the
+    // GPIO map lives in hardware/dongle-pro-power/gen/board.py.
+    #[cfg(feature = "power")]
+    let _power_pins = {
+        let src20_en = Output::new(p.PIN_12, Level::Low);
+        let vsafe_en = Output::new(p.PIN_13, Level::High);
+        let vbus_dischg = Output::new(p.PIN_14, Level::Low);
+        let stusb_alert = embassy_rp::gpio::Input::new(p.PIN_15, embassy_rp::gpio::Pull::None);
+        (src20_en, vsafe_en, vbus_dischg, stusb_alert)
+    };
 
     let mut engine = Engine {
         fusb,

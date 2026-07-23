@@ -22,6 +22,10 @@ bench = false
 # Same board family; GP26 drives the HD3SS3212 SS lane select (harmlessly
 # unconnected on the USB 2.0 Lite board).
 pro = []
+# Dongle-Pro-Power: the Pro plus a 100W USB-PD source path (third USB-C fed
+# by an STUSB4500 sink; LM74800-switched 20V and vSafe5V rails into the
+# target). Implies `pro`. The PD source policy engine lands with this model.
+power = ["pro"]
 
 [dependencies]
 restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }

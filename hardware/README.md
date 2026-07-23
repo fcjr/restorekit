@@ -3,8 +3,11 @@
 Two variants of the same board: an inline USB dongle that sits between a host
 computer and an Apple Silicon / T2 Mac and puts the target into DFU without
 anyone touching the target's keyboard. `dongle-lite/` is the USB 2.0 version,
-`dongle-pro/` adds a 5 Gbps SuperSpeed passthrough. Each directory has its own
-PRD and README; this page explains what they share and where they differ.
+`dongle-pro/` adds a 5 Gbps SuperSpeed passthrough, and `dongle-pro-power/`
+(schematic-complete) adds a third USB-C that takes up to 100 W from a PD
+charger and re-sources it to the target — charge and restore over one cable,
+including Macs with dead batteries. Each directory has its own PRD and README;
+this page explains what they share and where they differ.
 
 ## What both boards do
 
@@ -42,6 +45,13 @@ flips the target's state.
 | Firmware build | default | `--features pro` |
 | iProduct / serial | `Dongle-Lite` / `DL-…` | `Dongle-Pro` / `DP-…` |
 | Update asset | `dongle-lite-fw.bin` | `dongle-pro-fw.bin` (same release tag) |
+
+The **Dongle-Pro-Power** is the Pro plus a PD sink (STUSB4500) on a third
+port and a firmware PD *source* on the target port: iProduct
+`Dongle-Pro-Power`, serial `DPP-…`, `--features power`, asset
+`dongle-pro-power-fw.bin`. Same two-CC-owners discipline, now three domains:
+HD3SS3220 owns host CC, STUSB4500 owns power-in CC, FUSB302B owns target CC
+(DFU VDMs plus the source policy engine). See `dongle-pro-power/PRD.md`.
 
 **The part that surprises people:** the Pro does *not* restore faster. Apple
 hard-caps the target side of a DFU restore at USB 2.0 (FB13555999), so DFU and

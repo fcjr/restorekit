@@ -61,6 +61,8 @@ pub enum DongleModel {
     Lite,
     /// `Dongle-Pro` — the USB 3.1 Gen 1 passthrough variant.
     Pro,
+    /// `Dongle-Pro-Power` — the Pro plus a 100W USB-PD source path.
+    ProPower,
 }
 
 impl DongleModel {
@@ -70,6 +72,7 @@ impl DongleModel {
         match product {
             proto::PRODUCT_LITE => Some(Self::Lite),
             proto::PRODUCT_PRO => Some(Self::Pro),
+            proto::PRODUCT_POWER => Some(Self::ProPower),
             _ => None,
         }
     }
@@ -80,7 +83,7 @@ impl DongleModel {
     /// receives a Lite image (and vice versa).
     fn release_tag_prefix(self) -> &'static str {
         match self {
-            Self::Lite | Self::Pro => "dongle-lite-v",
+            Self::Lite | Self::Pro | Self::ProPower => "dongle-lite-v",
         }
     }
 
@@ -89,6 +92,7 @@ impl DongleModel {
         match self {
             Self::Lite => "dongle-lite-fw.bin",
             Self::Pro => "dongle-pro-fw.bin",
+            Self::ProPower => "dongle-pro-power-fw.bin",
         }
     }
 }
@@ -778,6 +782,10 @@ mod tests {
             DongleModel::from_product(proto::PRODUCT_PRO),
             Some(DongleModel::Pro)
         );
+        assert_eq!(
+            DongleModel::from_product(proto::PRODUCT_POWER),
+            Some(DongleModel::ProPower)
+        );
         assert_eq!(DongleModel::from_product("Dongle-Unknown"), None);
         // Shared release tag, distinct per-model assets.
         assert_eq!(
@@ -787,6 +795,14 @@ mod tests {
         assert_ne!(
             DongleModel::Lite.release_asset(),
             DongleModel::Pro.release_asset()
+        );
+        assert_eq!(
+            DongleModel::Pro.release_tag_prefix(),
+            DongleModel::ProPower.release_tag_prefix()
+        );
+        assert_ne!(
+            DongleModel::Pro.release_asset(),
+            DongleModel::ProPower.release_asset()
         );
     }
 

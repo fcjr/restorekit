@@ -4,9 +4,9 @@ name: release-fw
 # crates/dongle-lite-fw's crate version, which is embedded in the USB
 # bcdDevice field) and this attaches, for each model (Lite and Pro build
 # from the same crate; the updater picks the asset for the detected model):
-#   - dongle-{lite,pro}-fw.bin    raw update images `restorekit dongle update`
-#                                 fetches when it finds a newer release
-#   - dongle-{lite,pro}-full.uf2  factory/recovery images (bootloader + app)
+#   - dongle-{lite,pro,pro-power}-fw.bin    raw update images the updater
+#                                           fetches when it finds a newer release
+#   - dongle-{lite,pro,pro-power}-full.uf2  factory/recovery images (bootloader + app)
 
 on:
   push:
@@ -55,9 +55,10 @@ jobs:
           ( cd crates/dongle-lite-boot && cargo objcopy --release -- -O binary target/dongle-lite-boot.bin )
           boot=crates/dongle-lite-boot/target/dongle-lite-boot
           picotool uf2 convert "$boot.bin" -t bin -o 0x10000000 --family rp2350-arm-s "$boot.uf2"
-          for model in lite pro; do
+          for model in lite pro pro-power; do
             features=""
             [ "$model" = pro ] && features="--features pro"
+            [ "$model" = pro-power ] && features="--features power"
             ( cd crates/dongle-lite-fw && \
               cargo objcopy --release --locked $features -- -O binary "target/dongle-$model-fw.bin" )
             fw=crates/dongle-lite-fw/target/dongle-$model-fw
@@ -80,9 +81,11 @@ jobs:
             --latest=false \
             --title "Dongle firmware $version" \
             --notes "Install on a connected dongle with \`restorekit dongle update\` — it picks \
-          the image for the detected model (Lite or Pro). The \`-full.uf2\` files are the \
+          the image for the detected model (Lite, Pro, or Pro-Power). The \`-full.uf2\` files are the \
           factory/recovery images (bootloader + app) for the RP2350 bootrom." \
             crates/dongle-lite-fw/target/dongle-lite-fw.bin \
             crates/dongle-lite-fw/target/dongle-lite-full.uf2 \
             crates/dongle-lite-fw/target/dongle-pro-fw.bin \
-            crates/dongle-lite-fw/target/dongle-pro-full.uf2
+            crates/dongle-lite-fw/target/dongle-pro-full.uf2 \
+            crates/dongle-lite-fw/target/dongle-pro-power-fw.bin \
+            crates/dongle-lite-fw/target/dongle-pro-power-full.uf2
