@@ -59,6 +59,8 @@ pub const DONGLE_PID: u16 = proto::PID;
 pub enum DongleModel {
     /// `Dongle-Lite`
     Lite,
+    /// `Dongle-Pro` — the USB 3.1 Gen 1 passthrough variant.
+    Pro,
 }
 
 impl DongleModel {
@@ -67,14 +69,18 @@ impl DongleModel {
     pub fn from_product(product: &str) -> Option<Self> {
         match product {
             proto::PRODUCT_LITE => Some(Self::Lite),
+            proto::PRODUCT_PRO => Some(Self::Pro),
             _ => None,
         }
     }
 
     /// Git-tag prefix this model's firmware releases are published under.
+    /// Lite and Pro build from the one firmware crate and share a release
+    /// tag; the updater picks the per-model asset below, so a Pro never
+    /// receives a Lite image (and vice versa).
     fn release_tag_prefix(self) -> &'static str {
         match self {
-            Self::Lite => "dongle-lite-fw-v",
+            Self::Lite | Self::Pro => "dongle-lite-fw-v",
         }
     }
 
@@ -82,6 +88,7 @@ impl DongleModel {
     fn release_asset(self) -> &'static str {
         match self {
             Self::Lite => "dongle-lite-fw.bin",
+            Self::Pro => "dongle-pro-fw.bin",
         }
     }
 }

@@ -399,7 +399,11 @@ async fn main(_spawner: Spawner) {
         let _ = core::write!(
             s,
             "{}{:02X}{:02X}{:02X}{:02X}",
-            proto::SERIAL_PREFIX_LITE,
+            if cfg!(feature = "pro") {
+                proto::SERIAL_PREFIX_PRO
+            } else {
+                proto::SERIAL_PREFIX_LITE
+            },
             uid[0],
             uid[1],
             uid[2],
@@ -427,7 +431,11 @@ async fn main(_spawner: Spawner) {
     // string (see DongleModel in the SDK's dongle.rs).
     let mut config = Config::new(proto::VID, proto::PID);
     config.manufacturer = Some(proto::MANUFACTURER);
-    config.product = Some(proto::PRODUCT_LITE);
+    config.product = Some(if cfg!(feature = "pro") {
+        proto::PRODUCT_PRO
+    } else {
+        proto::PRODUCT_LITE
+    });
     config.serial_number = Some(serial);
     config.max_power = 250;
     config.max_packet_size_0 = 64;
@@ -505,6 +513,12 @@ async fn main(_spawner: Spawner) {
     let shifter_supply = Output::new(p.PIN_24, Level::Low);
     let sbu1_dir = Output::new(p.PIN_20, Level::Low);
     let sbu2_dir = Output::new(p.PIN_21, Level::Low);
+    // USB3 variant: HD3SS3212 SS lane select. Board wiring maps chip channel
+    // C to the target's normal-orientation lane (SEL high) and channel B to
+    // the flipped lane (SEL low); see hardware/dongle-pro/PRD.md. The
+    // 10k pull-down keeps the flipped lane selected until PD connects.
+    // Unconnected (harmless) on the USB 2.0 Lite board.
+    let ss_sel = Output::new(p.PIN_26, Level::Low);
 
     let mut engine = Engine {
         fusb,
@@ -513,6 +527,7 @@ async fn main(_spawner: Spawner) {
         shifter_supply,
         sbu1_dir,
         sbu2_dir,
+        ss_sel,
         state: PdState::Disconnected,
         source_cap_timer: 0,
         cc_debounce: 0,
@@ -632,6 +647,7 @@ struct Engine<'a, I2C: embedded_hal_async::i2c::I2c> {
     shifter_supply: Output<'a>,
     sbu1_dir: Output<'a>,
     sbu2_dir: Output<'a>,
+    ss_sel: Output<'a>,
     state: PdState,
     source_cap_timer: i32,
     cc_debounce: i32,
@@ -749,6 +765,10 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         self.fusb.set_msg_header(true, true).await; // Source, DFP
         self.cc_line = !(cc1 > cc2);
         self.fusb.set_polarity(self.cc_line as i8).await;
+        // USB3 variant: steer the SS mux to the active lane (SEL = high for
+        // normal/CC1, low for flipped/CC2 — chip channel C is the normal lane).
+        self.ss_sel
+            .set_level(if self.cc_line { Level::Low } else { Level::High });
         logline!(
             "connected: cc1={} cc2={} polarity=CC{} ({})",
             cc1,

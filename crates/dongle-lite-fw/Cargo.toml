@@ -16,6 +16,13 @@ name = "dongle-lite-fw"
 test = false
 bench = false
 
+[features]
+# Dongle Pro (USB 3.1 Gen 1 passthrough variant): identifies as Dongle-Pro
+# with a DP- serial, so the host SDK and updater can tell the models apart.
+# Same board family; GP26 drives the HD3SS3212 SS lane select (harmlessly
+# unconnected on the USB 2.0 Lite board).
+pro = []
+
 [dependencies]
 restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }
 
