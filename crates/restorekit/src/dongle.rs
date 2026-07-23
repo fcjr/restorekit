@@ -600,7 +600,7 @@ impl DongleHandle {
 
     /// Reboot the dongle itself into its USB bootloader for a firmware update.
     /// Fire-and-forget: the dongle drops off the bus and re-enumerates as the
-    /// RP2040 bootloader, so there is no status to poll.
+    /// RP2350 bootloader, so there is no status to poll.
     pub fn bootsel(&self) -> Result<()> {
         self.vendor_out_raw(proto::VREQ_CMD, proto::VCMD_BOOTSEL, &[], CTRL_TIMEOUT)
             .map_err(|e| match e {
@@ -766,6 +766,28 @@ mod tests {
             port_chain: Vec::new(),
             vendor_iface: 0,
         }
+    }
+
+    #[test]
+    fn model_from_product_maps_both_models() {
+        assert_eq!(
+            DongleModel::from_product(proto::PRODUCT_LITE),
+            Some(DongleModel::Lite)
+        );
+        assert_eq!(
+            DongleModel::from_product(proto::PRODUCT_PRO),
+            Some(DongleModel::Pro)
+        );
+        assert_eq!(DongleModel::from_product("Dongle-Unknown"), None);
+        // Shared release tag, distinct per-model assets.
+        assert_eq!(
+            DongleModel::Lite.release_tag_prefix(),
+            DongleModel::Pro.release_tag_prefix()
+        );
+        assert_ne!(
+            DongleModel::Lite.release_asset(),
+            DongleModel::Pro.release_asset()
+        );
     }
 
     #[test]

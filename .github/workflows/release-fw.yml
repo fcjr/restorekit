@@ -2,10 +2,11 @@ name: release-fw
 
 # Publish dongle firmware. Tag the commit `dongle-lite-v<version>` (matching
 # crates/dongle-lite-fw's crate version, which is embedded in the USB
-# bcdDevice field) and this attaches:
-#   - dongle-lite-fw.bin   the raw update image `restorekit dongle update`
-#                          fetches when it finds a newer release
-#   - dongle-lite-full.uf2 the factory/recovery image (bootloader + app)
+# bcdDevice field) and this attaches, for each model (Lite and Pro build
+# from the same crate; the updater picks the asset for the detected model):
+#   - dongle-{lite,pro}-fw.bin    raw update images `restorekit dongle update`
+#                                 fetches when it finds a newer release
+#   - dongle-{lite,pro}-full.uf2  factory/recovery images (bootloader + app)
 
 on:
   push:
@@ -43,23 +44,28 @@ jobs:
       - name: Install picotool
         run: sudo apt-get update && sudo apt-get install -y picotool
 
-      - name: Build firmware and bootloader
-        run: |
-          cd crates/dongle-lite-fw && cargo build --release --locked
-          cd ../dongle-lite-boot && cargo build --release --locked
+      - name: Build bootloader
+        run: cd crates/dongle-lite-boot && cargo build --release --locked
 
       - name: Stage release assets
         run: |
-          # The .bin is the raw ACTIVE-slot image; on RP2350 there's no .boot2.
-          ( cd crates/dongle-lite-fw && cargo objcopy --release -- -O binary target/dongle-lite-fw.bin )
+          # One firmware crate, one image per model: the default build is the
+          # Lite, --features pro the Pro. The .bin is the raw ACTIVE-slot
+          # image; on RP2350 there's no .boot2.
           ( cd crates/dongle-lite-boot && cargo objcopy --release -- -O binary target/dongle-lite-boot.bin )
           boot=crates/dongle-lite-boot/target/dongle-lite-boot
-          fw=crates/dongle-lite-fw/target/dongle-lite-fw
           picotool uf2 convert "$boot.bin" -t bin -o 0x10000000 --family rp2350-arm-s "$boot.uf2"
-          picotool uf2 convert "$fw.bin"   -t bin -o 0x10007000 --family rp2350-arm-s "$fw.uf2"
-          node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
-              "$boot.uf2" "$fw.uf2" \
-              crates/dongle-lite-fw/target/dongle-lite-full.uf2
+          for model in lite pro; do
+            features=""
+            [ "$model" = pro ] && features="--features pro"
+            ( cd crates/dongle-lite-fw && \
+              cargo objcopy --release --locked $features -- -O binary "target/dongle-$model-fw.bin" )
+            fw=crates/dongle-lite-fw/target/dongle-$model-fw
+            picotool uf2 convert "$fw.bin" -t bin -o 0x10007000 --family rp2350-arm-s "$fw.uf2"
+            node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
+                "$boot.uf2" "$fw.uf2" \
+                "crates/dongle-lite-fw/target/dongle-$model-full.uf2"
+          done
 
       - name: Create release
         env:
@@ -72,8 +78,11 @@ jobs:
           # /releases/latest expect the software, not dongle firmware.
           gh release create "$GITHUB_REF_NAME" \
             --latest=false \
-            --title "Dongle Lite firmware $version" \
-            --notes "Install on a connected dongle with \`restorekit dongle update\`. \
-          \`dongle-lite-full.uf2\` is the factory/recovery image (bootloader + app) for the RP2350 bootrom." \
+            --title "Dongle firmware $version" \
+            --notes "Install on a connected dongle with \`restorekit dongle update\` — it picks \
+          the image for the detected model (Lite or Pro). The \`-full.uf2\` files are the \
+          factory/recovery images (bootloader + app) for the RP2350 bootrom." \
             crates/dongle-lite-fw/target/dongle-lite-fw.bin \
-            crates/dongle-lite-fw/target/dongle-lite-full.uf2
+            crates/dongle-lite-fw/target/dongle-lite-full.uf2 \
+            crates/dongle-lite-fw/target/dongle-pro-fw.bin \
+            crates/dongle-lite-fw/target/dongle-pro-full.uf2

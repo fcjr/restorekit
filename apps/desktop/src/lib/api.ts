@@ -274,6 +274,7 @@ function browserMock(cmd: string): Promise<unknown> {
   const dongles: Dongle[] = [
     { serial: "DL-1A2B3C4D", product: "Dongle-Lite", fw_version: "0.1.0", status: { pd_state: "connected", target_attached: true, polarity_cc2: true }, target: devices[0] },
     { serial: "DL-99887766", product: "Dongle-Lite", fw_version: "0.1.0", status: { pd_state: "disconnected", target_attached: false, polarity_cc2: false }, target: null },
+    { serial: "DP-4E5F6A7B", product: "Dongle-Pro", fw_version: "0.1.0", status: { pd_state: "idle", target_attached: false, polarity_cc2: false }, target: null },
   ];
   const map: Record<string, unknown> = {
     host_can_trigger: true,
