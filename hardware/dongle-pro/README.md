@@ -81,4 +81,4 @@ Same firmware crate as the Lite (`crates/dongle-lite-fw`) built with
 HD3SS3212 lane select on GP26 (SEL = high for CC1/normal orientation — chip
 channel C is the normal lane). GP27 is `HUB_RSTn` (drive low to force hub
 re-enumeration). The host updater picks `dongle-pro-fw.bin` from the shared
-`dongle-lite-fw-v*` release tag by detected model.
+`dongle-lite-v*` release tag by detected model.

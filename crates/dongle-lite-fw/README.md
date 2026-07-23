@@ -92,7 +92,7 @@ Repo-root shortcuts (prereqs: `just install`):
 
 The firmware reports its crate version as a string over the vendor interface
 (`restorekit dongle list` shows it). To publish a release: bump this crate's
-version, then tag the commit `dongle-lite-fw-v<version>` - CI (release-fw.yml)
+version, then tag the commit `dongle-lite-v<version>` - CI (release-fw.yml)
 builds and attaches the update image and the factory UF2.
 - `just fw-flash-full` - factory / recovery only: bootloader + app in one
   merged UF2 over the RP2350 bootrom (hold BOOTSEL when plugging in a fresh

@@ -100,7 +100,7 @@ PD connects.
 Per `restorekit-dongle-proto`: shared VID:PID 16D0:14F0; iProduct
 `Dongle-Pro`; serial prefix `DP-`. Host SDK maps it to `DongleModel::Pro`.
 Firmware is the Lite crate built with `--features pro`; releases publish both
-images under one `dongle-lite-fw-v*` tag and the updater selects
+images under one `dongle-lite-v*` tag and the updater selects
 `dongle-pro-fw.bin` by detected model, so cross-model flashes can't happen.
 
 ## 7. Bring-up additions over Lite

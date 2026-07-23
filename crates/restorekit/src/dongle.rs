@@ -80,7 +80,7 @@ impl DongleModel {
     /// receives a Lite image (and vice versa).
     fn release_tag_prefix(self) -> &'static str {
         match self {
-            Self::Lite | Self::Pro => "dongle-lite-fw-v",
+            Self::Lite | Self::Pro => "dongle-lite-v",
         }
     }
 
@@ -94,7 +94,7 @@ impl DongleModel {
 }
 
 /// GitHub repo firmware releases are published to, via tags like
-/// `dongle-lite-fw-v0.2.0` (see .github/workflows/release-fw.yml).
+/// `dongle-lite-v0.2.0` (see .github/workflows/release-fw.yml).
 const FW_RELEASE_REPO: &str = "fcjr/restorekit";
 
 /// A firmware release published on GitHub.
@@ -102,7 +102,7 @@ const FW_RELEASE_REPO: &str = "fcjr/restorekit";
 pub struct FirmwareRelease {
     /// Firmware version, e.g. `0.2.0`.
     pub version: String,
-    /// The release tag, e.g. `dongle-lite-fw-v0.2.0`.
+    /// The release tag, e.g. `dongle-lite-v0.2.0`.
     pub tag: String,
     /// Direct download URL of the update image.
     #[serde(skip)]

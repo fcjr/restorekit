@@ -73,7 +73,7 @@ orientation (GP26, high = CC1/normal).
 Same VID:PID, distinguished by USB descriptors: iProduct string and serial
 prefix (see table). The host SDK maps this to `DongleModel::{Lite,Pro}`
 (`crates/restorekit-dongle-proto`), and the firmware updater selects the
-per-model asset from the shared `dongle-lite-fw-v*` release tag — a Pro can
+per-model asset from the shared `dongle-lite-v*` release tag — a Pro can
 never be flashed with a Lite image by accident.
 
 ## Layout

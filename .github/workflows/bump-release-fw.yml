@@ -1,7 +1,7 @@
 name: bump-release-fw
 
 # One-click dongle-firmware release from the Actions tab: bump the firmware
-# crate version, commit, tag dongle-lite-fw-vX.Y.Z, and push — the tag then
+# crate version, commit, tag dongle-lite-vX.Y.Z, and push — the tag then
 # triggers release-fw.yml, which builds and publishes the update image that
 # `restorekit dongle update` installs. Runs with a GitHub App token because
 # pushes made with the default GITHUB_TOKEN don't trigger other workflows.
@@ -50,5 +50,5 @@ jobs:
 
       - name: Tag and push
         run: |
-          git tag "dongle-lite-fw-v${{ steps.bump.outputs.version }}"
-          git push --no-verify origin HEAD "dongle-lite-fw-v${{ steps.bump.outputs.version }}"
+          git tag "dongle-lite-v${{ steps.bump.outputs.version }}"
+          git push --no-verify origin HEAD "dongle-lite-v${{ steps.bump.outputs.version }}"

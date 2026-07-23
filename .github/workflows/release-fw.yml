@@ -1,6 +1,6 @@
 name: release-fw
 
-# Publish dongle firmware. Tag the commit `dongle-lite-fw-v<version>` (matching
+# Publish dongle firmware. Tag the commit `dongle-lite-v<version>` (matching
 # crates/dongle-lite-fw's crate version, which is embedded in the USB
 # bcdDevice field) and this attaches:
 #   - dongle-lite-fw.bin   the raw update image `restorekit dongle update`
@@ -9,7 +9,7 @@ name: release-fw
 
 on:
   push:
-    tags: ["dongle-lite-fw-v*"]
+    tags: ["dongle-lite-v*"]
 
 permissions:
   contents: write
@@ -24,7 +24,7 @@ jobs:
       # would publish a release that misreports itself to every dongle.
       - name: Check tag matches the crate version
         run: |
-          tag_version="${GITHUB_REF_NAME#dongle-lite-fw-v}"
+          tag_version="${GITHUB_REF_NAME#dongle-lite-v}"
           crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/dongle-lite-fw/Cargo.toml)
           if [ "$tag_version" != "$crate_version" ]; then
             echo "tag is v$tag_version but crates/dongle-lite-fw is v$crate_version" >&2
@@ -65,7 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#dongle-lite-fw-v}"
+          version="${GITHUB_REF_NAME#dongle-lite-v}"
           # --latest=false: the repo's "Latest" release must stay on the
           # newest app/CLI release — the desktop updater fetches
           # releases/latest/download/latest.json, and humans landing on
