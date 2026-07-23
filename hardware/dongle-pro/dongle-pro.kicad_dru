@@ -1,0 +1,17 @@
+(version 1)
+
+# The SHOU HAN TYPE-C 24P QT (C2681555) shell/leg slot pads use the
+# manufacturer's recommended oval-slot pattern (JLCPCB-proven part); KiCad's
+# annular-width check misjudges the rotated oval slots. Relax it for the two
+# receptacles only.
+(rule usbc_shell_annular
+  (condition "A.memberOfFootprint('J1') || A.memberOfFootprint('J2')")
+  (constraint annular_width (min 0mm)))
+
+# The USB3_SS net-class clearance (0.127mm) exceeds the fixed 0.4mm-pitch pad
+# gaps inside the HD3SS3220 / GL3510 / HD3SS3212 packages. Pad-to-pad spacing
+# within one footprint is package geometry, not routing — fall back to the
+# board minimum there.
+(rule ss_ic_intra_footprint_clearance
+  (condition "(A.memberOfFootprint('U3') && B.memberOfFootprint('U3')) || (A.memberOfFootprint('U4') && B.memberOfFootprint('U4')) || (A.memberOfFootprint('U7') && B.memberOfFootprint('U7'))")
+  (constraint clearance (min 0.09mm)))
