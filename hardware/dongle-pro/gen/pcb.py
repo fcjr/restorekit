@@ -14,7 +14,7 @@ import pcbnew
 # --- netlist from board-usb3.py (stub out gen so nothing is regenerated) ---
 stub = types.ModuleType('gen'); stub.build_wired = lambda *a, **k: None
 sys.modules['gen'] = stub
-ns = {}
+ns = {'__file__': os.path.abspath('gen/board.py')}
 exec(compile(open('gen/board.py').read(), 'board.py', 'exec'), ns)
 comps = [c for c in ns['comps'] if not c['ref'].startswith('#')]
 

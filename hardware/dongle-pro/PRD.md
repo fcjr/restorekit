@@ -116,5 +116,6 @@ Known risks (in order): GL3510 external values are inferred from GL3523
 reference practice (no public GL3510 reference schematic) — RESETJ/VBUS levels
 and buck inductor are the specific unknowns, all reworkable 0402s; 0.4 mm-pitch
 QFN-64 + USON-10 assembly yield (ENIG + CPL rotation audit); SS impedance on
-the standard 4-layer stackup; intra-pair skew at the crossunders is not
-length-tuned in v1 (acceptable at Gen 1, tighten if eye margins disappoint).
+the standard 4-layer stackup. Intra-pair skew is length-tuned (gen/tune.py
+serpentines every pair above 0.25 mm mismatch down to <0.2 mm, ~1.3 ps); the
+short mux-to-hub links retain up to ~0.8 mm (~5 ps), inside the Gen 1 budget.

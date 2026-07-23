@@ -64,6 +64,7 @@ $KPY gen/finish.py              # hand corridors for freerouting-resistant nets
 # autoroute the rest: export DSN (mark wiring protected, GND1 as power layer),
 # run freerouting-2.1.0 -de/-do -mt 1, then:
 $KPY gen/ses.py                 # duplicate-aware SES import + board-edge cleanup
+$KPY gen/tune.py                # null intra-pair SS skew with serpentine bumps
 $KPY gen/zones.py               # GND pours on all 4 layers + stitching vias
 $KPY gen/silk.py                # front labels + back artwork (idempotent)
 kicad-cli pcb drc dongle-pro.kicad_pcb

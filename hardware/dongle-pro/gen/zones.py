@@ -13,18 +13,12 @@ gnd = board.GetNetInfo().NetsByName()['GND']
 
 X0, Y0, X1, Y1 = 96.0, 99.0, 122.0, 197.0
 
-# wipe old zones (idempotent)
-for z in list(board.Zones()):
-    board.Remove(z)
-
+# Reuse zones already on the board (recreating a ZONE after board.Remove
+# segfaults pcbnew's SWIG layer); create them only on a zone-less board.
 def add_zone(layer, prio):
     z = pcbnew.ZONE(board)
     pts = [(X0, Y0), (X1, Y0), (X1, Y1), (X0, Y1)]
-    chain = pcbnew.SHAPE_LINE_CHAIN()
-    for x, y in pts:
-        chain.Append(pcbnew.VECTOR2I_MM(x, y))
-    chain.SetClosed(True)
-    z.Outline().AddOutline(chain)
+    z.AddPolygon(pcbnew.VECTOR_VECTOR2I([pcbnew.VECTOR2I_MM(x, y) for x, y in pts]))
     z.SetLayer(layer)
     z.SetNet(gnd)
     z.SetAssignedPriority(prio)
@@ -37,8 +31,10 @@ def add_zone(layer, prio):
     board.Add(z)
     return z
 
+have = {z.GetLayer() for z in board.Zones()}
 for layer in (pcbnew.F_Cu, pcbnew.In1_Cu, pcbnew.In2_Cu, pcbnew.B_Cu):
-    add_zone(layer, 0)
+    if layer not in have:
+        add_zone(layer, 0)
 
 # GND stitching vias: near SS crossunder via clusters + spread along corridors.
 STITCH = [
@@ -76,8 +72,17 @@ def clear_of_everything(x, y, min_d=0.55):
                 return False
     return True
 
+existing = set()
+for t in board.GetTracks():
+    if t.Type() == pcbnew.PCB_VIA_T and t.GetNetname() == 'GND':
+        p = t.GetPosition()
+        existing.add((round(p.x / 1e5), round(p.y / 1e5)))
+
 placed = skipped = 0
 for x, y in STITCH:
+    if (round(x * 10), round(y * 10)) in existing:
+        skipped += 1
+        continue
     if not clear_of_everything(x, y):
         skipped += 1
         continue
