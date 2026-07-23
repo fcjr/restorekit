@@ -767,8 +767,11 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         self.fusb.set_polarity(self.cc_line as i8).await;
         // USB3 variant: steer the SS mux to the active lane (SEL = high for
         // normal/CC1, low for flipped/CC2 — chip channel C is the normal lane).
-        self.ss_sel
-            .set_level(if self.cc_line { Level::Low } else { Level::High });
+        self.ss_sel.set_level(if self.cc_line {
+            Level::Low
+        } else {
+            Level::High
+        });
         logline!(
             "connected: cc1={} cc2={} polarity=CC{} ({})",
             cc1,
