@@ -239,34 +239,37 @@ add("U11","STUSB4500QTR",(1100,260,0),{
  "2":"PWR_CC1","1":"PWR_CC1","4":"PWR_CC2","5":"PWR_CC2",
  "7":"I2C_SCL","8":"I2C_SDA","19":"STUSB_ALERT",
  "6":"GND","12":"GND","13":"GND",
- "18":"PWR_VBUS","9":"PWR_VBUS",
+ "18":"STUSB_VS","9":"STUSB_DIS",
  "21":"STUSB_1V2","23":"STUSB_2V7",
  "3":None,"11":None,"14":None,"15":None,"16":None,"17":None,"20":None})
 c("C60","1uF",(1160,300,0),"STUSB_1V2","GND"); c("C61","1uF",(1190,300,0),"STUSB_2V7","GND")
 c("C62","1uF",(1220,300,0),"PWR_VBUS","GND")
 r("R37","10k",(1160,330,0),"STUSB_ALERT","+3V3")
+r("R41","1k",(1220,330,0),"PWR_VBUS","STUSB_VS"); r("R42","1k",(1250,330,0),"STUSB_DIS","PWR_VBUS")
 
 # 20V source path: PWR_VBUS -> Q1/Q2 (B2B) -> SRC20 -> R26 sense -> TGT_VBUS
 add("U12","LM74800QDRRRQ1",(1100,400,0),{
- "2":"PWR_VBUS","3":"PWR_VBUS","10":"PWR_VBUS",
- "1":"SRC20_DG","4":"SRC20_SW","8":"SRC20_HG","11":"SRC20_CP",
- "9":"SRC20","12":"SRC20","13":"GND","6":"SRC20_EN","5":"GND"})
-add("Q1","AOD4184A",(1030,430,0),{"2":"PWR_VBUS","1":"SRC20_DG","3":"SRC20_SW"})
-add("Q2","AOD4184A",(1170,430,0),{"2":"SRC20","1":"SRC20_HG","3":"SRC20_SW"})
-c("C63","100nF",(1100,440,0),"SRC20_CP","SRC20_SW")
+ "2":"PWR_VBUS","3":"SRC20_MID","4":"SRC20_MID","10":"SRC20_MID","12":"SRC20_MID",
+ "1":"SRC20_DG","8":"SRC20_HG","11":"SRC20_CP",
+ "9":"SRC20","13":None,"6":"SRC20_EN","5":"GND","7":"GND"})
+add("Q1","NVMFD5853NL",(1030,430,0),{"1":"PWR_VBUS","2":"PWR_VBUS","3":"PWR_VBUS","4":"SRC20_DG","5":"SRC20_MID","6":"SRC20_MID","7":"SRC20_MID","8":"SRC20_MID","9":"SRC20_MID"})
+add("Q2","NVMFD5853NL",(1170,430,0),{"1":"SRC20","2":"SRC20","3":"SRC20","4":"SRC20_HG","5":"SRC20_MID","6":"SRC20_MID","7":"SRC20_MID","8":"SRC20_MID","9":"SRC20_MID"})
+c("C63","100nF",(1100,440,0),"SRC20_CP","SRC20_MID")
+c("C73","100nF",(1130,440,0),"SRC20_MID","GND")
 r("R38","100k",(1030,470,0),"SRC20_EN","GND")
-r("R26","10mR",(1220,430,0),"SRC20","TGT_VBUS")
+add("R26","HOJLR2512-3W-10MR-1%",(1220,430,0),{"1":"SRC20","2":"TGT_VBUS"},"10mR-2512")
 add("U15","INA180A1IDBVR",(1220,470,0),{"3":"SRC20","4":"TGT_VBUS","5":"+3V3","1":"I_SENSE","2":"GND"})
 r("R33","100k",(1250,430,0),"TGT_VBUS","V_SENSE"); r("R34","10k",(1250,460,0),"V_SENSE","GND")
 
 # vSafe5V path: (host AP22653 || buck via D20) -> VSAFE_SRC -> Q3/Q4 -> TGT_VBUS
 add("U13","LM74800QDRRRQ1",(1100,540,0),{
- "2":"VSAFE_SRC","3":"VSAFE_SRC","10":"VSAFE_SRC",
- "1":"VSAFE_DG","4":"VSAFE_SW","8":"VSAFE_HG","11":"VSAFE_CP",
- "9":"TGT_VBUS","12":"TGT_VBUS","13":"GND","6":"VSAFE_EN","5":"GND"})
-add("Q3","AOD4184A",(1030,570,0),{"2":"VSAFE_SRC","1":"VSAFE_DG","3":"VSAFE_SW"})
-add("Q4","AOD4184A",(1170,570,0),{"2":"TGT_VBUS","1":"VSAFE_HG","3":"VSAFE_SW"})
-c("C64","100nF",(1100,580,0),"VSAFE_CP","VSAFE_SW")
+ "2":"VSAFE_SRC","3":"VSAFE_MID","4":"VSAFE_MID","10":"VSAFE_MID","12":"VSAFE_MID",
+ "1":"VSAFE_DG","8":"VSAFE_HG","11":"VSAFE_CP",
+ "9":"TGT_VBUS","13":None,"6":"VSAFE_EN","5":"GND","7":"GND"})
+add("Q3","NVMFD5853NL",(1030,570,0),{"1":"VSAFE_SRC","2":"VSAFE_SRC","3":"VSAFE_SRC","4":"VSAFE_DG","5":"VSAFE_MID","6":"VSAFE_MID","7":"VSAFE_MID","8":"VSAFE_MID","9":"VSAFE_MID"})
+add("Q4","NVMFD5853NL",(1170,570,0),{"1":"TGT_VBUS","2":"TGT_VBUS","3":"TGT_VBUS","4":"VSAFE_HG","5":"VSAFE_MID","6":"VSAFE_MID","7":"VSAFE_MID","8":"VSAFE_MID","9":"VSAFE_MID"})
+c("C64","100nF",(1100,580,0),"VSAFE_CP","VSAFE_MID")
+c("C74","100nF",(1130,580,0),"VSAFE_MID","GND")
 r("R39","100k",(1030,610,0),"VSAFE_EN","GND")
 
 # 20V -> 5.15V buck (only alive when the charger is present)
@@ -275,7 +278,7 @@ add("U14","TPS54331DR",(1100,680,0),{
  "5":"BUCK_FB","6":"BUCK_COMP","4":"BUCK_SS","7":"GND"})
 r("R28","100k",(1030,650,0),"PWR_VBUS","BUCK_EN"); r("R29","20k",(1030,680,0),"BUCK_EN","GND")
 c("C65","100nF",(1170,650,0),"BUCK_BOOT","BUCK_PH")
-add("L3","AOTA-B201610S3R3-101-T",(1170,680,0),{"1":"BUCK_PH","2":"+5V_BUCK"},"10uH")
+add("L3","SLW5040S100MST",(1170,680,0),{"1":"BUCK_PH","2":"+5V_BUCK"},"10uH")
 r("R30","54.9k",(1220,650,0),"+5V_BUCK","BUCK_FB"); r("R31","10k",(1220,680,0),"BUCK_FB","GND")
 r("R32","10k",(1030,710,0),"BUCK_COMP","BUCK_CZ")
 c("C66","3.3nF",(1030,740,0),"BUCK_CZ","GND")
@@ -291,13 +294,16 @@ add("D21","SS34_C8678",(1100,780,0),{"2":"+5V_BUCK","1":"+5V"})
 add("D22","SS34_C8678",(1170,780,0),{"2":"HOST_VBUS","1":"+5V"})
 
 # VBUS discharge to vSafe0V for source voltage transitions (940R, split)
-add("Q5","AOD4184A",(1250,540,0),{"2":"VBUS_DR","1":"VBUS_DISCHG","3":"GND"})
+add("Q5","NVMFD5853NL",(1250,540,0),{"1":"GND","2":"GND","3":"GND","4":"VBUS_DISCHG","5":"VBUS_DR","6":"VBUS_DR","7":"VBUS_DR","8":"VBUS_DR","9":"VBUS_DR"})
 r("R35","470R",(1250,500,0),"TGT_VBUS","VBUS_DR2"); r("R36","470R",(1250,520,0),"VBUS_DR2","VBUS_DR")
 r("R40","100k",(1290,560,0),"VBUS_DISCHG","GND")
+add("D23","SMBJ24A-C87268",(1260,110,0),{"1":"PWR_VBUS","2":"GND"})
+add("D24","SMBJ24A-C87268",(1290,110,0),{"1":"TGT_VBUS","2":"GND"})
 add("#FLG9","PWR_FLAG",(1100,80,0),{"1":"PWR_VBUS"},"PWR_FLAG")
 add("#FLG10","PWR_FLAG",(1030,810,0),{"1":"HOST_VBUS"},"PWR_FLAG")
 add("#FLG11","PWR_FLAG",(1230,770,0),{"1":"+5V_BUCK"},"PWR_FLAG")
 add("#FLG12","PWR_FLAG",(1100,610,0),{"1":"VSAFE_SRC"},"PWR_FLAG")
+add("#FLG13","PWR_FLAG",(1200,700,0),{"1":"BUCK_PH"},"PWR_FLAG")
 
 SS_PAIRS={f"{p}_{s}" for p in
   ("HUB_UTX","HUB_URX","HUB_DTX","HUB_DRX","M2_A0",

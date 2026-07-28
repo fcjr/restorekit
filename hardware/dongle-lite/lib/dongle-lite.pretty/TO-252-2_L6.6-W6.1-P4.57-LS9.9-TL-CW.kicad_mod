@@ -1,24 +1,5 @@
 (module easyeda2kicad:TO-252-2_L6.6-W6.1-P4.57-LS9.9-TL-CW (layer F.Cu) (tedit 5DC5F6A4)
-	(descr "AOS N-channel MOSFET: AOD4148A: 
-
-Device page: 
-http://www.aosmd.com/products/mosfets/n-channel/AOD4184A
-
-Device datasheet: 
-http://www.aosmd.com/res/data_sheets/AOD4184A.pdf
-
-Device package drawing:
-http://www.aosmd.com/res/packaging_information/TO252.pdf")
-	(attr smd)
-	(fp_text reference REF** (at 0.000 -6.273) (layer F.SilkS)
-		(effects (font (size 1 1) (thickness 0.15)))
-	)
-	(fp_text value TO-252-2_L6.6-W6.1-P4.57-LS9.9-TL-CW (at 0.000 6.273) (layer F.Fab)
-		(effects (font (size 1 1) (thickness 0.15)))
-	)
-	(fp_text user %R (at 0 0) (layer F.Fab)
-		(effects (font (size 1 1) (thickness 0.15)))
-	)
+	(descr "AOS N-channel MOSFET AOD4184A 40V 50A 7mOhm")
 	(property "LCSC Part" "C99124")
 	(fp_line (start -1.46 -3.34) (end -1.46 3.35) (layer F.SilkS) (width 0.15))
 	(fp_line (start 4.51 3.35) (end -1.46 3.35) (layer F.SilkS) (width 0.15))

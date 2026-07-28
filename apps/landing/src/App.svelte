@@ -18,11 +18,19 @@
   let appVersion = $state("");
   let appDownloads = $state(
     [
-      { label: "macOS · .dmg", pattern: /_aarch64\.dmg$/ },
-      { label: "windows · setup.exe", pattern: /_x64-setup\.exe$/ },
-      { label: "linux · .deb", pattern: /_amd64\.deb$/ },
-      { label: "linux · .AppImage", pattern: /_amd64\.AppImage$/ },
+      { os: "mac", title: "macOS", sub: "apple silicon · .dmg", pattern: /_aarch64\.dmg$/ },
+      { os: "windows", title: "Windows", sub: "x64 · setup.exe", pattern: /_x64-setup\.exe$/ },
+      { os: "linux", title: "Linux", sub: "amd64 · .deb", pattern: /_amd64\.deb$/ },
+      { os: "linux", title: "Linux", sub: "amd64 · .AppImage", pattern: /_amd64\.AppImage$/ },
     ].map((d) => ({ ...d, url: RELEASES })),
+  );
+
+  // Detected platform floats to the front of the download row as the filled
+  // button; everything else stays outlined.
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const userOs = ua.includes("Mac") ? "mac" : ua.includes("Win") ? "windows" : "linux";
+  const sortedDownloads = $derived(
+    [...appDownloads].sort((a, b) => Number(b.os === userOs) - Number(a.os === userOs)),
   );
 
   onMount(async () => {
@@ -265,6 +273,23 @@
 
 {#snippet eyebrow(text: string, color = "text-fnt")}
   <div class="text-[11px] tracking-[0.18em] uppercase {color} mb-4">{text}</div>
+{/snippet}
+
+{#snippet osIcon(os: string)}
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+    {#if os === "mac"}
+      <path
+        d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"
+      />
+    {:else if os === "windows"}
+      <path d="M0 3.449L9.75 2.1v9.451H0zm10.949-1.529L24 0v11.4H10.949zM0 12.6h9.75v9.451L0 20.699zm10.949 0H24V24l-13.051-1.801z" />
+    {:else}
+      <!-- linux: terminal glyph, in keeping with the rest of the page -->
+      <path
+        d="M3 4.5h18a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1zm1 2v11h16v-11H4zm2.2 2.3 3.2 3.2-3.2 3.2 1.3 1.3 4.5-4.5-4.5-4.5-1.3 1.3zM12.5 14.5h5v1.8h-5v-1.8z"
+      />
+    {/if}
+  </svg>
 {/snippet}
 
 {#snippet cmd(id: string, lines: string, display: string)}
@@ -598,20 +623,40 @@
         log and progress per machine. It keeps itself updated too.
       </p>
 
-      <div class="mt-7 flex flex-wrap items-center gap-3">
-        {#each appDownloads as dl (dl.label)}
+      <div class="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {#each sortedDownloads as dl (dl.sub)}
+          {@const primary = dl.os === userOs}
           <a
             href={dl.url}
-            class="border border-line2 px-4 py-2.5 text-[12px] text-ink2 transition-colors hover:border-amber hover:text-amber"
+            class="group flex items-center gap-3.5 px-4 py-3.5 transition-colors {primary
+              ? 'bg-amber text-amber-ink hover:bg-amber-hov'
+              : 'border border-line2 text-ink2 hover:border-amber'}"
           >
-            ↓ {dl.label}
+            <span class={primary ? "" : "text-mut transition-colors group-hover:text-amber"}>
+              {@render osIcon(dl.os)}
+            </span>
+            <span class="flex min-w-0 flex-col">
+              <span class="text-[13px] font-semibold leading-5">
+                {dl.title}{primary && appVersion ? ` ${appVersion}` : ""}
+              </span>
+              <span class="truncate text-[10.5px] tracking-[0.04em] {primary ? 'text-amber-ink/70' : 'text-fnt'}">
+                {dl.sub}
+              </span>
+            </span>
+            <span
+              class="ml-auto text-[15px] {primary
+                ? ''
+                : 'opacity-0 transition-opacity group-hover:opacity-100 text-amber'}"
+            >
+              ↓
+            </span>
           </a>
         {/each}
-        <span class="text-[11px] text-fnt">
-          {appVersion ? `latest · ${appVersion}` : ""}
-          <a href={RELEASES} class="text-mut underline underline-offset-4 hover:text-ink2">all releases</a>
-        </span>
       </div>
+      <p class="mt-3 text-[11px] text-fnt">
+        {appVersion ? `latest · ${appVersion} · ` : ""}auto-updates itself ·
+        <a href={RELEASES} class="text-mut underline underline-offset-4 hover:text-ink2">all releases</a>
+      </p>
 
       <div class="mt-10 grid gap-6 md:grid-cols-2">
         <figure class="md:col-span-2">

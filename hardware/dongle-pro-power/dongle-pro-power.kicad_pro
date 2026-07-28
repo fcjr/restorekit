@@ -412,6 +412,38 @@
       {
         "netclass": "PWR",
         "pattern": "TGT_VBUS"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "PWR_VBUS"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "SRC20"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "SRC20_MID"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "VSAFE_SRC"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "VSAFE_MID"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "+5V_BUCK"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "HOST_VBUS"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "BUCK_PH"
       }
     ]
   },
@@ -431,8 +463,8 @@
     "legacy_lib_list": [],
     "top_level_sheets": [
       {
-        "filename": "dongle-pro.kicad_sch",
-        "name": "dongle-pro",
+        "filename": "dongle-pro-power.kicad_sch",
+        "name": "dongle-pro-power",
         "uuid": "00000000-0000-0000-0000-000000000000"
       }
     ]
