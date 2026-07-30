@@ -1,0 +1,94 @@
+IOVDD = io(Net)
+DVDD = io(Net)
+ADC_AVDD = io(Net)
+QSPI_IOVDD = io(Net)
+USB_OTP_VDD = io(Net)
+VREG_VIN = io(Net)
+VREG_AVDD = io(Net)
+VREG_LX = io(Net)
+VREG_FB = io(Net)
+VREG_PGND = io(Net)
+GND = io(Net)
+XIN = io(Net)
+XOUT = io(Net)
+RUN = io(Net)
+SWCLK = io(Net)
+SWDIO = io(Net)
+QSPI_SS = io(Net)
+USB_DP = io(Net)
+USB_DM = io(Net)
+GPIO2 = io(Net)
+GPIO3 = io(Net)
+GPIO6 = io(Net)
+GPIO7 = io(Net)
+GPIO25 = io(Net)
+
+Component(
+    name="RP2354A",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="RP2354A_C41378174"),
+    footprint=File("../lib/dongle-probe.pretty/QFN-60_L7.0-W7.0-P0.40-TL-EP3.4.kicad_mod"),
+    part=Part(mpn="RP2354A", manufacturer="Raspberry Pi"),
+    properties={"LCSC": "C41378174"},
+    prefix="U",
+    pins={
+        "IOVDD": IOVDD,
+        "DVDD": DVDD,
+        "ADC_AVDD": ADC_AVDD,
+        "QSPI_IOVDD": QSPI_IOVDD,
+        "USB_OTP_VDD": USB_OTP_VDD,
+        "VREG_VIN": VREG_VIN,
+        "VREG_AVDD": VREG_AVDD,
+        "VREG_LX": VREG_LX,
+        "VREG_FB": VREG_FB,
+        "VREG_PGND": VREG_PGND,
+        "GND": GND,
+        "XIN": XIN,
+        "XOUT": XOUT,
+        "RUN": RUN,
+        "SWCLK": SWCLK,
+        "SWDIO": SWDIO,
+        "QSPI_SS": QSPI_SS,
+        "USB_DP": USB_DP,
+        "USB_DM": USB_DM,
+        "GPIO2": GPIO2,
+        "GPIO3": GPIO3,
+        "GPIO6": GPIO6,
+        "GPIO7": GPIO7,
+        "GPIO25": GPIO25,
+    }
+    | {
+        pin: NotConnected()
+        for pin in [
+            "GPIO0",
+            "GPIO1",
+            "GPIO4",
+            "GPIO5",
+            "GPIO8",
+            "GPIO9",
+            "GPIO10",
+            "GPIO11",
+            "GPIO12",
+            "GPIO13",
+            "GPIO14",
+            "GPIO15",
+            "GPIO16",
+            "GPIO17",
+            "GPIO18",
+            "GPIO19",
+            "GPIO20",
+            "GPIO21",
+            "GPIO22",
+            "GPIO23",
+            "GPIO24",
+            "GPIO26_ADC0",
+            "GPIO27_ADC1",
+            "GPIO28_ADC2",
+            "GPIO29_ADC3",
+            "QSPI_SCLK",
+            "QSPI_SD0",
+            "QSPI_SD1",
+            "QSPI_SD2",
+            "QSPI_SD3",
+        ]
+    },
+)

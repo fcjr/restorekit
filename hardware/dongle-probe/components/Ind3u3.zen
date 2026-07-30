@@ -1,0 +1,15 @@
+P1 = io(Net)
+P2 = io(Net)
+
+Component(
+    name="Ind3u3",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="AOTA-B201610S3R3-101-T"),
+    footprint=File("../lib/dongle-probe.pretty/IND-SMD_L2.0-W1.6_AOTA-B201610S3R3-101-T.kicad_mod"),
+    part=Part(mpn="AOTA-B201610S3R3-101-T", manufacturer="Abracon"),
+    properties={"LCSC": "C42411119"},
+    prefix="L",
+    pins={
+        "1": P1,
+        "2": P2,
+    },
+)

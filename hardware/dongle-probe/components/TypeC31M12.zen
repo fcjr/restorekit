@@ -1,0 +1,28 @@
+VBUS = io(Net)
+GND = io(Net)
+CC1 = io(Net)
+CC2 = io(Net)
+DP = io(Net)
+DM = io(Net)
+
+Component(
+    name="TypeC31M12",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="TYPE-C-31-M-12"),
+    footprint=File("../lib/dongle-probe.pretty/USB-C_SMD-TYPE-C-31-M-12_1.kicad_mod"),
+    part=Part(mpn="TYPE-C-31-M-12", manufacturer="Korean Hroparts Elec"),
+    properties={"LCSC": "C165948"},
+    prefix="J",
+    pins={
+        "VBUS": VBUS,
+        "GND": GND,
+        "EH": GND,
+        "CC1": CC1,
+        "CC2": CC2,
+        "DP1": DP,
+        "DP2": DP,
+        "DN1": DM,
+        "DN2": DM,
+        "SBU1": NotConnected(),
+        "SBU2": NotConnected(),
+    },
+)

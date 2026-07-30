@@ -1,0 +1,15 @@
+A = io(Net)
+K = io(Net)
+
+Component(
+    name="LedRed0603",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="KT-0603R"),
+    footprint=File("../lib/dongle-probe.pretty/LED-SMD_L1.6-W0.8-R-RD.kicad_mod"),
+    part=Part(mpn="KT-0603R", manufacturer="KENTO"),
+    properties={"LCSC": "C2286"},
+    prefix="D",
+    pins={
+        "A": A,
+        "K": K,
+    },
+)

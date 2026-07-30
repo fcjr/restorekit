@@ -1,0 +1,8 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "fcjr_restorekit_lib_dongle-probe") (type "KiCad") (uri "${KIPRJMOD}/../lib/dongle-probe.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Connector_PinHeader_1.27mm") (type "KiCad") (uri "${KIPRJMOD}/../.pcb/stdlib/kicad-footprints/Connector_PinHeader_1.27mm.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Jumper") (type "KiCad") (uri "${KIPRJMOD}/../.pcb/stdlib/kicad-footprints/Jumper.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+)

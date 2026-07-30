@@ -1,0 +1,21 @@
+IO1 = io(Net)
+IO2 = io(Net)
+GND = io(Net)
+VBUS = io(Net)
+
+Component(
+    name="Usblc6",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="USBLC6-2SC6"),
+    footprint=File("../lib/dongle-probe.pretty/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-BL.kicad_mod"),
+    part=Part(mpn="USBLC6-2SC6", manufacturer="STMicroelectronics"),
+    properties={"LCSC": "C7519"},
+    prefix="D",
+    pins={
+        "1": IO1,
+        "6": IO1,
+        "3": IO2,
+        "4": IO2,
+        "2": GND,
+        "5": VBUS,
+    },
+)

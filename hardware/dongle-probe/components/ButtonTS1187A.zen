@@ -1,0 +1,17 @@
+P1 = io(Net)
+P2 = io(Net)
+
+Component(
+    name="ButtonTS1187A",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="TS-1187A-B-A-B"),
+    footprint=File("../lib/dongle-probe.pretty/SW-SMD_4P-L5.1-W5.1-P3.70-LS6.5-TL_H1.5.kicad_mod"),
+    part=Part(mpn="TS-1187A-B-A-B", manufacturer="XKB Connection"),
+    properties={"LCSC": "C318884"},
+    prefix="SW",
+    pins={
+        "A": P1,
+        "B": P1,
+        "C": P2,
+        "D": P2,
+    },
+)

@@ -1,0 +1,20 @@
+VIN = io(Net)
+VOUT = io(Net)
+EN = io(Net)
+GND = io(Net)
+
+Component(
+    name="RT9013_33",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="RT9013-33GB"),
+    footprint=File("../lib/dongle-probe.pretty/SOT-23-5_L3.0-W1.7-P0.95-LS2.8-BL.kicad_mod"),
+    part=Part(mpn="RT9013-33GB", manufacturer="Richtek"),
+    properties={"LCSC": "C47773"},
+    prefix="U",
+    pins={
+        "VIN": VIN,
+        "VOUT": VOUT,
+        "EN": EN,
+        "GND": GND,
+        "NC": NotConnected(),
+    },
+)
