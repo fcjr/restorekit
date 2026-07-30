@@ -1,0 +1,17 @@
+OSC1 = io(Net)
+OSC2 = io(Net)
+GND = io(Net)
+
+Component(
+    name="Xtal12M",
+    symbol=Symbol(library="../lib/dongle-probe.kicad_sym", name="X322512MSB4SI"),
+    footprint=File("../lib/dongle-probe.pretty/CRYSTAL-SMD_4P-L3.2-W2.5-BL.kicad_mod"),
+    part=Part(mpn="X322512MSB4SI", manufacturer="YXC"),
+    properties={"LCSC": "C9002"},
+    prefix="Y",
+    pins={
+        "OSC1": OSC1,
+        "OSC2": OSC2,
+        "GND": GND,
+    },
+)

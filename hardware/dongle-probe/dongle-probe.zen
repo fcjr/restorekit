@@ -1,0 +1,250 @@
+"""dongle-probe: RP2354A CMSIS-DAP debug probe with a TC2030-IDC header.
+
+Runs the stock Raspberry Pi debugprobe firmware built for Pico 2
+(DEBUG_ON_PICO=ON): GP2=SWCLK, GP3=SWDIO, GP25=activity LED. GP6 is wired
+to the target RESET line and GP7 to pin 6 (BOOTSEL strap on dongle boards
+that route J3 pin 6 to BOOT_SW) for custom firmware use. The 2x3 1.27mm
+header J2 mates directly with the TC2030-IDC-NL cable, 1:1 with the target
+pads: 1=VTREF 2=SWDIO 3=nRESET 4=SWCLK 5=GND 6=BOOT.
+
+JP1 (default open) bridges +3V3 to VTREF to power an otherwise unpowered
+target board during flashing.
+"""
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+PinHeader = Module("@stdlib/generics/PinHeader.zen")
+SolderJumper = Module("@stdlib/generics/SolderJumper.zen")
+
+Rp2354a = Module("./components/RP2354A.zen")
+Rt9013 = Module("./components/RT9013_33.zen")
+TypeC = Module("./components/TypeC31M12.zen")
+Button = Module("./components/ButtonTS1187A.zen")
+Usblc6 = Module("./components/Usblc6.zen")
+Xtal12M = Module("./components/Xtal12M.zen")
+Ind3u3 = Module("./components/Ind3u3.zen")
+LedRed = Module("./components/LedRed0603.zen")
+
+VBUS = Net("VBUS")
+P3V3 = Net("+3V3")
+P1V1 = Net("+1V1")
+GND = Net("GND")
+
+USB_DP = Net("USB_DP")
+USB_DM = Net("USB_DM")
+CC1 = Net("CC1")
+CC2 = Net("CC2")
+
+XIN = Net("XIN")
+XOUT = Net("XOUT")
+RUN = Net("RUN")
+QSPI_SS = Net("QSPI_SS")
+BOOT_SW = Net("BOOT_SW")
+VREG_LX = Net("VREG_LX")
+VREG_AVDD = Net("VREG_AVDD")
+
+PROBE_SWCLK = Net("PROBE_SWCLK")
+PROBE_SWDIO = Net("PROBE_SWDIO")
+PROBE_RESET = Net("PROBE_RESET")
+PROBE_BOOT = Net("PROBE_BOOT")
+TGT_SWCLK = Net("TGT_SWCLK")
+TGT_SWDIO = Net("TGT_SWDIO")
+TGT_RESET = Net("TGT_RESET")
+TGT_BOOT = Net("TGT_BOOT")
+TGT_VTREF = Net("TGT_VTREF")
+LED_ACT = Net("LED_ACT")
+LEDP_A = Net("LEDP_A")
+LEDA_A = Net("LEDA_A")
+
+# USB-C device port: VBUS in, 5.1k CC pulldowns, ESD on D+/D-
+TypeC(name="J1", VBUS=VBUS, GND=GND, CC1=CC1, CC2=CC2, DP=USB_DP, DM=USB_DM)
+Resistor(
+    name="R1", value="5.1kohm", package="0402", mpn="0402WGF5101TCE", P1=CC1, P2=GND, properties={"LCSC": "C25905"}
+)
+Resistor(
+    name="R2", value="5.1kohm", package="0402", mpn="0402WGF5101TCE", P1=CC2, P2=GND, properties={"LCSC": "C25905"}
+)
+Usblc6(name="D3", IO1=USB_DP, IO2=USB_DM, GND=GND, VBUS=VBUS)
+
+# 3.3V rail
+Rt9013(name="U2", VIN=VBUS, EN=VBUS, VOUT=P3V3, GND=GND)
+Capacitor(
+    name="C1", value="10uF", package="0805", mpn="CL21A106KAYNNNE", P1=VBUS, P2=GND, properties={"LCSC": "C15850"}
+)
+Capacitor(name="C2", value="1uF", package="0402", mpn="CL05A105KA5NQNC", P1=P3V3, P2=GND, properties={"LCSC": "C52923"})
+
+# RP2354A core (RP2350 die + 2MB internal flash; QSPI bus stays internal)
+Rp2354a(
+    name="U1",
+    IOVDD=P3V3,
+    DVDD=P1V1,
+    ADC_AVDD=P3V3,
+    QSPI_IOVDD=P3V3,
+    USB_OTP_VDD=P3V3,
+    VREG_VIN=P3V3,
+    VREG_AVDD=VREG_AVDD,
+    VREG_LX=VREG_LX,
+    VREG_FB=P1V1,
+    VREG_PGND=GND,
+    GND=GND,
+    XIN=XIN,
+    XOUT=XOUT,
+    RUN=RUN,
+    SWCLK=Net("MCU_SWCLK"),
+    SWDIO=Net("MCU_SWDIO"),
+    QSPI_SS=QSPI_SS,
+    USB_DP=USB_DP,
+    USB_DM=USB_DM,
+    GPIO2=PROBE_SWCLK,
+    GPIO3=PROBE_SWDIO,
+    GPIO6=PROBE_RESET,
+    GPIO7=PROBE_BOOT,
+    GPIO25=LED_ACT,
+)
+
+# On-chip SMPS (RP2350 hardware design guide)
+Ind3u3(name="L1", P1=VREG_LX, P2=P1V1)
+Resistor(
+    name="R3", value="33ohm", package="0402", mpn="0402WGF330JTCE", P1=P3V3, P2=VREG_AVDD, properties={"LCSC": "C25105"}
+)
+Capacitor(
+    name="C3", value="4.7uF", package="0402", mpn="CL05A475KP5NRNC", P1=P3V3, P2=GND, properties={"LCSC": "C368809"}
+)
+Capacitor(
+    name="C4", value="4.7uF", package="0402", mpn="CL05A475KP5NRNC", P1=P1V1, P2=GND, properties={"LCSC": "C368809"}
+)
+Capacitor(
+    name="C5",
+    value="4.7uF",
+    package="0402",
+    mpn="CL05A475KP5NRNC",
+    P1=VREG_AVDD,
+    P2=GND,
+    properties={"LCSC": "C368809"},
+)
+
+# 12MHz crystal
+Xtal12M(name="Y1", OSC1=XIN, OSC2=XOUT, GND=GND)
+Capacitor(name="C6", value="22pF", package="0402", mpn="CL05C220JB5NNNC", P1=XIN, P2=GND, properties={"LCSC": "C70464"})
+Capacitor(name="C7", value="22pF", package="0402", mpn="CL05C220JB5NNNC", P1=XOUT, P2=GND, properties={"LCSC": "C70464"})
+
+# Reset pullup + BOOTSEL (pull QSPI_SS low at reset for USB boot)
+Resistor(
+    name="R4", value="5.1kohm", package="0402", mpn="0402WGF5101TCE", P1=RUN, P2=P3V3, properties={"LCSC": "C25905"}
+)
+Button(name="SW1", P1=BOOT_SW, P2=GND)
+Resistor(
+    name="R5",
+    value="1kohm",
+    package="0402",
+    mpn="0402WGF1001TCE",
+    P1=QSPI_SS,
+    P2=BOOT_SW,
+    properties={"LCSC": "C11702"},
+)
+
+# Decoupling bank
+Capacitor(name="C8", value="1uF", package="0402", mpn="CL05A105KA5NQNC", P1=P1V1, P2=GND, properties={"LCSC": "C52923"})
+Capacitor(
+    name="C9", value="100nF", package="0402", mpn="CL05B104KO5NNNC", P1=P1V1, P2=GND, properties={"LCSC": "C1525"}
+)
+Capacitor(
+    name="C10", value="100nF", package="0402", mpn="CL05B104KO5NNNC", P1=P3V3, P2=GND, properties={"LCSC": "C1525"}
+)
+Capacitor(
+    name="C11", value="100nF", package="0402", mpn="CL05B104KO5NNNC", P1=P3V3, P2=GND, properties={"LCSC": "C1525"}
+)
+Capacitor(
+    name="C12", value="100nF", package="0402", mpn="CL05B104KO5NNNC", P1=P3V3, P2=GND, properties={"LCSC": "C1525"}
+)
+Capacitor(
+    name="C13", value="100nF", package="0402", mpn="CL05B104KO5NNNC", P1=P3V3, P2=GND, properties={"LCSC": "C1525"}
+)
+Capacitor(
+    name="C14", value="100nF", package="0402", mpn="CL05B104KO5NNNC", P1=P3V3, P2=GND, properties={"LCSC": "C1525"}
+)
+
+# SWD out: series resistors near the MCU
+Resistor(
+    name="R6",
+    value="33ohm",
+    package="0402",
+    mpn="0402WGF330JTCE",
+    P1=PROBE_SWCLK,
+    P2=TGT_SWCLK,
+    properties={"LCSC": "C25105"},
+)
+Resistor(
+    name="R7",
+    value="33ohm",
+    package="0402",
+    mpn="0402WGF330JTCE",
+    P1=PROBE_SWDIO,
+    P2=TGT_SWDIO,
+    properties={"LCSC": "C25105"},
+)
+Resistor(
+    name="R8",
+    value="33ohm",
+    package="0402",
+    mpn="0402WGF330JTCE",
+    P1=PROBE_RESET,
+    P2=TGT_RESET,
+    properties={"LCSC": "C25105"},
+)
+Resistor(
+    name="R11",
+    value="33ohm",
+    package="0402",
+    mpn="0402WGF330JTCE",
+    P1=PROBE_BOOT,
+    P2=TGT_BOOT,
+    properties={"LCSC": "C25105"},
+)
+
+# TC2030-IDC mating header, 1:1 with target pads. The cable ends in a
+# 6-pin 0.1" IDC socket, so this is a standard 2.54mm shrouded box header;
+# its key notch sits on the pin-1/3/5 side, matching the socket's bump,
+# so the IDC socket only seats one way.
+PinHeader(
+    name="J2",
+    pins=3,
+    rows=2,
+    pitch="2.54mm",
+    mount="THT",
+    orientation="Vertical",
+    mpn="2.54-2*3P",
+    manufacturer="BOOMELE",
+    properties={"LCSC": "C11214"},
+    P1=TGT_VTREF,
+    P2=TGT_SWDIO,
+    P3=TGT_RESET,
+    P4=TGT_SWCLK,
+    P5=GND,
+    P6=TGT_BOOT,
+)
+
+# Bridge to power the target from the probe's 3.3V rail
+SolderJumper(name="JP1", style="Open", variant="Pad", P1=P3V3, P2=TGT_VTREF)
+
+# LEDs: power + activity (GP25, debugprobe drives high)
+LedRed(name="D1", A=LEDP_A, K=GND)
+Resistor(
+    name="R9", value="1kohm", package="0402", mpn="0402WGF1001TCE", P1=P3V3, P2=LEDP_A, properties={"LCSC": "C11702"}
+)
+LedRed(name="D2", A=LEDA_A, K=GND)
+Resistor(
+    name="R10",
+    value="1kohm",
+    package="0402",
+    mpn="0402WGF1001TCE",
+    P1=LED_ACT,
+    P2=LEDA_A,
+    properties={"LCSC": "C11702"},
+)
+
+Board(
+    name="dongle-probe",
+    layout_path="layout",
+    layers=2,
+)

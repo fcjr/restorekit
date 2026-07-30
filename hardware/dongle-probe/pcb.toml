@@ -1,0 +1,12 @@
+[workspace]
+repository = "github.com/fcjr/restorekit"
+pcb-version = "0.4"
+vendor = ["github.com/diodeinc/registry/**"]
+
+[board]
+name = "dongle-probe"
+path = "dongle-probe.zen"
+description = "RP2354A CMSIS-DAP debug probe with a TC2030-IDC 2x3 1.27mm header for flashing dongle-lite/pro boards."
+
+[access]
+allow = ["*"]
