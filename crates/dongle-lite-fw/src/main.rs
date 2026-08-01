@@ -437,7 +437,13 @@ async fn main(_spawner: Spawner) {
         proto::PRODUCT_LITE
     });
     config.serial_number = Some(serial);
-    config.max_power = 250;
+    // The MCU sits behind our own CH334F, which is strapped bus-powered
+    // (PSELF to GND), so the host only budgets 100 mA per downstream port.
+    // Ask for more and macOS refuses to set the configuration at all: the
+    // device enumerates with no interfaces and `restorekit list` can't see it.
+    // 100 mA covers this function — the hub and the target-VBUS switch draw
+    // from +5V upstream of this port, not through it.
+    config.max_power = 100;
     config.max_packet_size_0 = 64;
     // Composite device with IADs.
     config.device_class = 0xEF;
