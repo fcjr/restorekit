@@ -207,7 +207,7 @@ for i,rail in enumerate(["+5V","+3V3","+1V2","+1V1","GND"]):
 
 # ===== Debug / bring-up cluster (x~760-900, y~400-520) =====
 comps.append({"ref":"J3","sym":"TC2030","at":(790,430,0),"in_bom":False,"value":"TC2030-IDC-NL",
-              "nets":{"1":"+3V3","2":"SWDIO","3":"RUN","4":"SWCLK","5":"GND","6":None}})
+              "nets":{"1":"+3V3","2":"SWDIO","3":"RUN","4":"SWCLK","5":"GND","6":"BOOT_SW"}})
 for i,net in enumerate(["+5V","+3V3","+1V2","+1V1","TGT_VBUS","GND","RUN","FUSB_INT",
                         "HUB_3V3","HUB_1V2","HUB_RSTn"]):
     comps.append({"ref":f"TP{i+1}","sym":"TP","at":(760+(i%4)*20,470+(i//4)*25,0),
