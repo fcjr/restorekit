@@ -39,11 +39,6 @@ jobs:
           rustup target add thumbv8m.main-none-eabihf
           cargo install flip-link cargo-binutils --locked
 
-      # picotool stamps the rp2350-arm-s UF2 family id (elf2uf2-rs only knows
-      # RP2040). Packaged in Ubuntu 24.04 universe.
-      - name: Install picotool
-        run: sudo apt-get update && sudo apt-get install -y picotool
-
       - name: Build bootloader
         run: cd crates/dongle-lite-boot && cargo build --release --locked
 
@@ -54,14 +49,14 @@ jobs:
           # image; on RP2350 there's no .boot2.
           ( cd crates/dongle-lite-boot && cargo objcopy --release -- -O binary target/dongle-lite-boot.bin )
           boot=crates/dongle-lite-boot/target/dongle-lite-boot
-          picotool uf2 convert "$boot.bin" -t bin -o 0x10000000 --family rp2350-arm-s "$boot.uf2"
+          node scripts/bin2uf2.mjs --base 0x10000000 --family rp2350-arm-s "$boot.bin" "$boot.uf2"
           for model in lite pro; do
             features=""
             [ "$model" = pro ] && features="--features pro"
             ( cd crates/dongle-lite-fw && \
               cargo objcopy --release --locked $features -- -O binary "target/dongle-$model-fw.bin" )
             fw=crates/dongle-lite-fw/target/dongle-$model-fw
-            picotool uf2 convert "$fw.bin" -t bin -o 0x10007000 --family rp2350-arm-s "$fw.uf2"
+            node scripts/bin2uf2.mjs --base 0x10007000 --family rp2350-arm-s "$fw.bin" "$fw.uf2"
             node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
                 "$boot.uf2" "$fw.uf2" \
                 "crates/dongle-lite-fw/target/dongle-$model-full.uf2"
