@@ -6,7 +6,7 @@
 [package]
 name = "dongle-lite-fw"
 edition = "2021"
-version = "0.1.0"
+version = "0.1.1"
 license = "Apache-2.0"
 description = "RecoverKit Dongle Lite firmware (RP2354A / RP2350 + FUSB302B)"
 publish = false
