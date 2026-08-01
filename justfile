@@ -8,8 +8,9 @@ install:
     rustup target add thumbv8m.main-none-eabihf
     rustup component add llvm-tools
     cargo install flip-link cargo-binutils
-    # RP2350 UF2s are built with picotool (elf2uf2-rs only knows the RP2040
-    # family id): `brew install picotool` (macOS) / `apt install picotool`.
+    # picotool is optional: `just fw-flash-full` prefers it for verified
+    # flashing over PICOBOOT, but falls back to copying the UF2 to the bootrom
+    # drive. `brew install picotool` (macOS); not packaged before Ubuntu 25.04.
 
 # Release the software (bump + tag via CI; kind: patch|minor|major)
 release kind="patch": (_dispatch "bump-release.yml" kind)
@@ -87,20 +88,17 @@ fw-update: fw-build
 fw-flash-full: fw-build
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! command -v picotool > /dev/null; then
-        echo "error: picotool is required to build RP2350 UF2s — brew install picotool" >&2
-        exit 1
-    fi
     {{bootsel_kick}}
     # RP2350 UF2s: objcopy each image to a raw .bin at its flash offset, then
-    # let picotool stamp the rp2350-arm-s family id (elf2uf2-rs only knows
-    # RP2040, and picotool's ELF path trips over the app's zero-fill BSS).
+    # stamp the rp2350-arm-s family id (elf2uf2-rs only knows RP2040, and
+    # picotool's ELF path trips over the app's zero-fill BSS). Same converter
+    # release-fw.yml uses, so the bench flashes what CI publishes.
     boot=crates/dongle-lite-boot/target/dongle-lite-boot
     fw=crates/dongle-lite-fw/target/dongle-lite-fw
     ( cd crates/dongle-lite-boot && cargo objcopy --release -- -O binary target/dongle-lite-boot.bin )
     ( cd crates/dongle-lite-fw   && cargo objcopy --release -- -O binary target/dongle-lite-fw.bin )
-    picotool uf2 convert "$boot.bin" -t bin -o 0x10000000 --family rp2350-arm-s "$boot.uf2"
-    picotool uf2 convert "$fw.bin"   -t bin -o 0x10007000 --family rp2350-arm-s "$fw.uf2"
+    node scripts/bin2uf2.mjs --base 0x10000000 --family rp2350-arm-s "$boot.bin" "$boot.uf2"
+    node scripts/bin2uf2.mjs --base 0x10007000 --family rp2350-arm-s "$fw.bin" "$fw.uf2"
     # --fill wipes the bootloader state sector (see dongle-lite-boot/memory.x):
     # leftover bytes there from older firmware can read as a bogus swap state.
     node scripts/merge-uf2.mjs --fill 0x10006000:4096 \
