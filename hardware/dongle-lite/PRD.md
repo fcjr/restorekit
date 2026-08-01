@@ -30,7 +30,11 @@ target's CC line. This mechanism is public and proven by the AsahiLinux
   on macOS, Windows, and Linux.
 - Present the target to the host as a normal DFU USB device so restorekit /
   Apple Configurator can restore it over USB 2.0.
-- Be bus-powered from the host port. No wall power required.
+- Be bus-powered from the host port. No wall power required. Note this is
+  about where the board draws power, not what the hub *declares*: U3's PSELF
+  pin is left open so the hub advertises self-powered, because that is what
+  lets its downstream ports promise the 500 mA an Apple restore asks for.
+  Strapping PSELF to GND to "match" being bus-powered breaks restores.
 - Expose the target's low-level serial console (AP/SEP UART over SBU) to the
   host as a second serial device, for debugging failed restores.
 - Be the smallest, cheapest board that does the above, and serve as the shared
@@ -206,7 +210,7 @@ assembly footprint at M1. Prefer JLCPCB Basic parts to cut loading fees.
 | Crystal + load caps | 12 MHz 3225 4-pin + 2x 22 pF | verify | RP2040 XOSC |
 | RP2040 USB series R | 22R x2 (0402) | Basic | on D+/D- up to the hub |
 | Boot button | SMD tactile 4P | Basic | RP2040 BOOTSEL |
-| USB 2.0 hub | CH334F (or FE1.1s) | C425949 (verify) | 1 upstream, 2 down |
+| USB 2.0 hub | CH334F | C5187527 | 1 upstream, 2 down (C425949 in an earlier draft was wrong — see BOM-sourcing.md) |
 | USB-C receptacle (Host + Target) | HRO TYPE-C-31-M-12 | C165948 | 16-pin, breaks out SBU + CC + D+/D- |
 | SBU level translators | 74AVC1T45GW | C282330 | 2x (1 per SBU line), per CS v3 |
 | 1.2 V rail | TLV70212 (1.2 V LDO) | C81462 | per CS v3.1 (divider is the older alt) |
@@ -252,6 +256,10 @@ assemble at JLCPCB. This is the highest-confidence source for the SBU block.
 | C7, C8 | 1uF 0402 | C14445 | |
 | R1,R2,R5,R6 | 4.7k 0402 | C25900 | pullups |
 | R3, R4 | 10k 0402 | C25744 | |
+
+> **Superseded.** The table above is the early estimate, and its reference
+> designators do not match the built design. The authoritative BOM and
+> placement list are `mfg-jlcpcb-1s4l/bom.csv` and `cpl.csv`.
 
 Open BOM decisions:
 

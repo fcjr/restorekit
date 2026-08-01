@@ -30,7 +30,10 @@ below.
 - Power the target from an external USB-C PD charger, up to 100 W (20 V / 5 A).
 - Source to the target whatever PD profile it asks for (5 V, 9 V, 15 V, 20 V,
   and ideally PPS ranges), subject to what the attached charger can supply.
-- Keep the dongle's own logic bus-powered from the host by default. The external
+- Keep the dongle's own logic bus-powered from the host by default. This is
+  about where power comes from, not what the USB hub declares — the hub's
+  PSELF pin is left open so it advertises self-powered, which is what allows
+  500 mA per downstream port (an Apple restore needs it). The external
   charger powers the target, not the dongle logic.
 - Keep the power subsystem optional to populate: an unpopulated board is
   electrically a Dongle Lite and must pass all Lite requirements.
