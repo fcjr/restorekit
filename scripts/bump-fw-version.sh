@@ -47,4 +47,4 @@ echo "  committed: chore(release): bump dongle firmware to $new"
 
 echo
 echo "done. next:"
-echo "  git tag dongle-lite-fw-v$new && git push origin main dongle-lite-fw-v$new"
+echo "  git tag dongle-lite-v$new && git push origin main dongle-lite-v$new"
