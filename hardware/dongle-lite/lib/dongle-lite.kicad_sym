@@ -2095,7 +2095,7 @@
     )
     (property
       "LCSC Part"
-      "C25905"
+      "C25105"
       (id 6)
       (at 0 -17.78 0)
       (effects (font (size 1.27 1.27) ) hide)
@@ -2843,7 +2843,7 @@
     )
     (property
       "LCSC Part"
-      "C52923"
+      "C368809"
       (id 6)
       (at 0 -17.78 0)
       (effects (font (size 1.27 1.27) ) hide)
