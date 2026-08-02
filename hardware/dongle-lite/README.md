@@ -67,7 +67,7 @@ kicad-cli sch erc dongle-lite.kicad_sch
 |-----|------|------|----------|
 | U1 | RP2354A | C41378174 | MCU (USB-native composite; 2 MB internal flash) |
 | U2 | FUSB302BMPX | C132291 | USB-PD PHY, drives target CC (Apple DFU VDM) |
-| U3 | CH334F | C5187527 | USB 2.0 hub — host sees MCU + target |
+| U3 | CH334F | C5187527 | USB 2.0 hub — host sees MCU + target. `PSELF` (18) and `RESET#/CDP` (16) are left **open** — see below |
 | U5 | RT9013-33GB | C47773 | 3.3 V LDO from host 5 V |
 | U6 | TLV70212 | C81462 | 1.2 V LDO for the SBU translator low side |
 | U8, U9 | 74AVC1T45GW | C282330 | SBU1/SBU2 level translators (3.3 ↔ 1.2 V) |
@@ -77,6 +77,24 @@ kicad-cli sch erc dongle-lite.kicad_sch
 | Y1, Y2 | 12 MHz 3225 | C9002 | MCU + hub crystals |
 
 Full BOM/CPL for ordering are in the `mfg-jlcpcb*/` packages.
+
+### Hub strap pins
+
+`PSELF` (18) and `RESET#/CDP` (16) on U3 are both left open, matching Adafruit's
+CH334F breakout (product 5997).
+
+`PSELF` has a built-in pull-up and defaults high = **self-powered**, which is
+what makes the hub advertise 500 mA per downstream port. Tied to GND it
+advertises bus-powered and caps every port at one unit load, 100 mA. A target
+Mac in DFU fits under that, but every later restore stage asks for 500 mA, so
+the host refuses to configure the target and the restore dies partway through
+with a power error. The board still draws from the host's VBUS — this is a
+declaration, not a supply.
+
+`RESET#/CDP` is sampled at power-up too: held high it enables CDP (downstream
+charging-port advertisement) and turns off the hub's low-power sleep. The
+datasheet wants it "completely suspended when not reset", so there is no
+pull-up on it.
 
 ## ERC configuration
 

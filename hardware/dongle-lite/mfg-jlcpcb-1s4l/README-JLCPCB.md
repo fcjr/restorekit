@@ -7,17 +7,33 @@ assembly** (all components on top) — for JLCPCB **Economic PCBA**.
 | File | Use |
 |------|-----|
 | `dongle-lite-1s4l-gerbers-jlcpcb.zip` | Upload to **JLCPCB → PCB order** (gerbers + Excellon drill) |
-| `cpl.csv` | Assembly: component placement (57 placements, all top) |
+| `cpl.csv` | Assembly: component placement (56 placements, all top) |
 | `bom.csv` | Assembly: bill of materials (LCSC part #s) |
 | `dongle-lite-1s4l.step` | 3D model (enclosure fit check) |
+
+## Revision note — PSELF
+
+U3's `PSELF` (pin 18) is **left open**. It has a built-in pull-up and defaults
+high = self-powered, which is what lets the hub advertise 500 mA per downstream
+port. An earlier revision tied it to GND, making the hub advertise bus-powered
+and cap every port at one unit load (100 mA). A Mac in DFU fits under that, but
+every later restore stage asks for 500 mA, so the host refused to configure the
+target and restores died partway through with a power error. Adafruit's CH334F
+breakout (product 5997) leaves the pin open for the same reason.
+
+`RESET#/CDP` (pin 16) is left open for the same reason. The datasheet wants it
+"completely suspended when not reset", and it is sampled at power-up: held high
+it enables CDP -- downstream charging-port advertisement -- and disables the
+hub's low-power sleep. R5, the 10k pull-up that held it high, is **removed**, so
+this package has 56 placements (was 57) and one less 10k resistor.
 
 ## Board specs
 - **Size:** 22.1 × 77.1 mm
 - **Layers:** 4, through-hole vias only (standard — NOT HDI)
-- **Assembly:** **single-sided** — every one of the 57 assembled parts is on the
+- **Assembly:** **single-sided** — every one of the 56 assembled parts is on the
   top (F.Cu). Enables JLCPCB Economic PCBA (no second-side reflow).
 - **Min trace/space:** 0.12 mm trace / 0.09 mm space — within JLCPCB standard tier
-- **Vias:** uniform 0.45 mm pad / 0.20 mm drill (93 vias) — JLCPCB's standard
+- **Vias:** uniform 0.45 mm pad / 0.20 mm drill (91 vias) — JLCPCB's standard
   4-layer via (0.125 mm annular ring), so **no small-hole / 4-wire Kelvin test
   upcharge**. **No via-in-pad** — all vias are dog-boned outside pads, so **no
   POFV upcharge** needed either.

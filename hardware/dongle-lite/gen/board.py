@@ -13,6 +13,11 @@ def c(ref,val,at,a,b): add(ref,C[val],at,{"1":a,"2":b},val)
 # ===== MCU core cluster — RP2354A (RP2350 die + 2MB internal flash) =====
 # GPIO map for firmware:  GP16=I2C_SDA GP17=I2C_SCL GP18=FUSB_INT GP19=TGT_VBUS_EN
 #   GP20=SBU1_DIR GP21=SBU2_DIR GP22=SBU1_UART GP23=SBU2_UART GP24=SHIFT_EN GP25=LED_STAT
+# The CH334F can take its configuration from an I2C EEPROM on LED3/SCL +
+# LED4/SDA, which the MCU could emulate to own the hub's settings in firmware.
+# Not wired: U3's LED4/SDA pad has no escape corridor left on this layout, so it
+# would need components moved -- and the PSELF pin below already gets us the
+# behaviour we needed, with no routing at all.
 add("U1","RP2354A_C41378174",(150,150,0),{
  # IOVDD (3V3 IO) x6
  "1":"+3V3","11":"+3V3","20":"+3V3","30":"+3V3","38":"+3V3","45":"+3V3",
@@ -65,7 +70,20 @@ c("C13","100nF",(200,470,0),"+3V3","GND"); c("C14","1uF",(230,470,0),"+3V3","GND
 add("U3","CH334F_C5187527",(460,150,0),{
  "19":"+5V","20":"HUB_3V3","25":"GND",
  "15":"HOST_D_P","14":"HOST_D_N","12":"MCU_D_P","11":"MCU_D_N","10":"TGT_D_P","9":"TGT_D_N",
- "8":None,"7":None,"6":None,"5":None,"4":"HUB_XI","3":"HUB_XO","18":"GND","16":"HUB_RSTB","1":"HUB_3V3",
+ # PSELF (18) left open on purpose. It has a built-in pull-up and defaults
+ # high = self-powered, so an open pin is what makes the hub advertise 500 mA
+ # per downstream port. Tied to GND it advertises bus-powered and every port
+ # caps at one unit load, 100 mA -- enough for a target Mac in DFU, but the
+ # host then refuses the target's restore-mode configuration and the restore
+ # dies with a power error. Adafruit's CH334F breakout (product 5997) leaves it
+ # open too, which is why the breadboard rig restored fine with the same chip.
+ # We still draw from the host's VBUS; this is a declaration, not a supply.
+ # RESET#/CDP (16) is open for the same reason -- the datasheet wants it
+ # "completely suspended when not reset", and it is sampled at power-up: held
+ # high it enables CDP (downstream charging-port advertisement) and disables
+ # the hub's low-power sleep. Adafruit leaves it open; the earlier R5 pull-up
+ # to 3V3 enabled both without us asking. It has a ~25k internal pull-up.
+ "8":None,"7":None,"6":None,"5":None,"4":"HUB_XI","3":"HUB_XO","18":None,"16":None,"1":"HUB_3V3",
  "24":None,"23":None,"22":None,"21":None,"13":None,"17":None,"2":None})
 add("J1","TYPE-C-31-M-12",(370,150,0),{
  "A1B12":"GND","B1A12":"GND","1":"GND","2":"GND","3":"GND","4":"GND","A4B9":"+5V","B4A9":"+5V",
@@ -77,7 +95,6 @@ add("D10","USBLC6-2SC6",(410,95,0),{"1":"HOST_D_P","6":"HOST_D_P","3":"HOST_D_N"
 add("D11","USBLC6-2SC6",(510,95,0),{"1":"TGT_D_P","6":"TGT_D_P","3":"TGT_D_N","4":"TGT_D_N","2":"GND","5":"TGT_VBUS"})
 add("Y2",XTAL,(455,235,0),{"1":"HUB_XI","3":"HUB_XO","2":"GND","4":"GND"})
 c("C15","22pF",(430,240,0),"HUB_XO","GND"); c("C16","22pF",(480,240,0),"HUB_XI","GND")
-r("R5","10k",(500,230,0),"HUB_RSTB","HUB_3V3")
 r("R6","5.1k",(360,235,0),"HOST_CC1","GND"); r("R7","5.1k",(390,235,0),"HOST_CC2","GND")
 c("C17","100nF",(520,235,0),"+5V","GND"); c("C18","1uF",(550,235,0),"HUB_3V3","GND"); c("C19","100nF",(580,235,0),"HUB_3V3","GND")
 

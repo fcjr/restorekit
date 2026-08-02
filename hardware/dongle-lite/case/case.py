@@ -45,12 +45,19 @@ TOP_FILLET = 0.5
 # outer face, so a plug can only seat if the end wall is fully open in front
 # of it -- a plain shell-sized notch would leave the cable's overmold hitting
 # the case ~2 mm short. The bay is sized for the overmold instead of the
-# shell and runs from the cavity floor up, so there is no thin ledge to print.
-PORT_W = 12.6
-PORT_Z0 = 0.0  # flush with the cavity floor
-PORT_Z1 = 6.2  # leaves 1.0 mm of lid above the bay
-PORT_FLARE = 0.7  # sideways lead-in over the outer 0.8 mm
-PORT_FLARE_D = 0.8
+# shell, and a shallow recess around it in the outer face gives a chunky
+# overmold somewhere to nose into.
+#
+# The top is the binding constraint, not the sides: the board sits on the
+# floor, so the connector centre is 4.83 mm off the bottom of an 8.8 mm case
+# and there is only ~1 mm of lid left above the bay. Raising PORT_Z1 further
+# is what buys taller overmolds, at the cost of that roof.
+PORT_W = 15.0
+PORT_Z0 = -0.4  # 0.4 below the cavity floor, leaving 1.2 mm of tray floor
+PORT_Z1 = 6.4  # leaves 0.8 mm of lid above the bay
+PORT_RECESS_W = 18.6  # relief pocket in the outer face, around the bay
+PORT_RECESS_D = 1.0  # of the 1.8 mm wall
+PORT_RECESS_R = 1.2
 
 LIP_T = 1.2
 LIP_H = 1.6
@@ -78,30 +85,25 @@ def outer_profile(height, z0):
 
 
 def port_cutter(sign):
-    """Plug bay through one end wall, flared for a lead-in on the outer face.
+    """Plug bay through one end wall, plus its relief pocket.
 
     Built with the plug axis along +Z (z = 0 at the outer face, +Z inward)
-    then rotated onto +/-Y, so the loft never has to be built on a tilted
-    workplane.
+    then rotated onto +/-Y, so the rounded pocket never has to be filleted on
+    a tilted workplane -- that is what crashes OCC's cleanup.
     """
     h = PORT_Z1 - PORT_Z0
-    bay = (
-        cq.Workplane("XY")
-        .box(PORT_W, h, 3.0, centered=(True, True, False))
-        .union(
-            cq.Workplane("XY")
-            .rect(PORT_W + 2 * PORT_FLARE, h)
-            .workplane(offset=PORT_FLARE_D)
-            .rect(PORT_W, h)
-            .loft()
-        )
-        .union(
-            cq.Workplane("XY", origin=(0, 0, -1.0))
-            .box(PORT_W + 2 * PORT_FLARE, h, 1.0, centered=(True, True, False))
-        )
+    bay = cq.Workplane("XY", origin=(0, 0, -1.5)).box(
+        PORT_W, h, 4.5, centered=(True, True, False)
+    )
+    recess = (
+        cq.Workplane("XY", origin=(0, 0, -1.5))
+        .box(PORT_RECESS_W, h, 1.5 + PORT_RECESS_D, centered=(True, True, False))
+        .edges("|Z")
+        .fillet(PORT_RECESS_R)
     )
     return (
-        bay.val()
+        bay.union(recess, clean=False)
+        .val()
         .rotate((0, 0, 0), (1, 0, 0), sign * 90)
         .translate((0, sign * OUT_L / 2, (PORT_Z0 + PORT_Z1) / 2))
     )
@@ -208,7 +210,10 @@ def thru_hole(x, y, d):
     )
 
 
-marks = engrave("restorekit", 0, WORDMARK_Y, WORDMARK_SIZE)
+# The graphics are kept separate from the holes: they are both the pockets
+# cut into the lid and, exported on their own, the white inlay that drops
+# back into them.
+inlay = engrave("restorekit", 0, WORDMARK_Y, WORDMARK_SIZE)
 for m in (
     engrave("HOST", 0, PORT_LABEL_Y, PORT_LABEL_SIZE),
     engrave("TARGET", 0, -PORT_LABEL_Y, PORT_LABEL_SIZE),
@@ -217,11 +222,16 @@ for m in (
     engrave("STAT", PIN_LABEL_RIGHT, LED2[1], PIN_LABEL_SIZE, halign="right"),
     engrave("PWR", PIN_LABEL_RIGHT, LED1[1], PIN_LABEL_SIZE, halign="right"),
     engrave("BOOT", PIN_LABEL_RIGHT, SW1[1], PIN_LABEL_SIZE, halign="right"),
+):
+    inlay = inlay.union(m)
+
+marks = inlay
+for h in (
     thru_hole(*LED1, 1.8),   # PWR window
     thru_hole(*LED2, 1.8),   # STAT window
     thru_hole(*SW1, 2.4),    # BOOT, paperclip
 ):
-    marks = marks.union(m)
+    marks = marks.union(h)
 lid = lid.cut(marks, clean=False)
 
 # --- export ---
@@ -232,13 +242,17 @@ assembly = (
     cq.Assembly()
     .add(bottom, name="bottom", color=cq.Color(0.25, 0.25, 0.28))
     .add(lid, name="lid", color=cq.Color(0.85, 0.85, 0.87))
+    .add(inlay, name="inlay", color=cq.Color(1.0, 1.0, 1.0))
 )
 assembly.export(os.path.join(out, "dongle-lite-case.step"))
 
 cq.exporters.export(bottom, os.path.join(out, "bottom.stl"))
-# flip the lid so its flat top sits on the print bed
-lid_print = lid.rotate((0, 0, 0), (0, 1, 0), 180)
-cq.exporters.export(lid_print, os.path.join(out, "lid.stl"))
+# flip the lid so its flat top sits on the print bed. The inlay gets the same
+# transform, so loading it as a second part lands it in its pockets with no
+# repositioning.
+flip = lambda w: w.rotate((0, 0, 0), (0, 1, 0), 180)
+cq.exporters.export(flip(lid), os.path.join(out, "lid.stl"))
+cq.exporters.export(flip(inlay), os.path.join(out, "lid-inlay.stl"))
 
 print("wrote", out)
 print(f"outer: {OUT_W} x {OUT_L} x {OUT_H} mm")

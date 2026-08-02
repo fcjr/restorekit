@@ -7,9 +7,25 @@ through-via (no HDI).
 | File | Use |
 |------|-----|
 | `dongle-lite-gerbers-jlcpcb.zip` | Upload to **JLCPCB → PCB order** (gerbers + Excellon drill) |
-| `cpl.csv` | Assembly: component placement (63 placements) |
+| `cpl.csv` | Assembly: component placement (56 placements) |
 | `bom.csv` | Assembly: bill of materials (LCSC part #s — see the two CHECK items below) |
 | `dongle-lite.step` | 3D model (enclosure fit check) |
+
+## Revision note — PSELF and RESET#/CDP
+
+U3's `PSELF` (pin 18) and `RESET#/CDP` (pin 16) are both **left open**, matching
+Adafruit's CH334F breakout (product 5997).
+
+`PSELF` has a built-in pull-up and defaults high = self-powered, which is what
+lets the hub advertise 500 mA per downstream port. Tied to GND it advertised
+bus-powered, capping every port at one unit load (100 mA) — enough for a Mac in
+DFU, but every later restore stage asks for 500 mA, so the host refused to
+configure the target and restores died partway through with a power error.
+
+`RESET#/CDP` is also sampled at power-up: held high it enables CDP (downstream
+charging-port advertisement) and disables the hub's low-power sleep. The
+datasheet wants it "completely suspended when not reset". R5, the 10k pull-up
+that held it high, is **removed** — hence 56 placements and one less 10k.
 
 ## Board specs
 - **Size:** 16.1 × 55.1 mm
