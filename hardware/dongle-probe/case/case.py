@@ -34,8 +34,9 @@ SWD_OPEN_Y = (-21.8, -12.3)
 # --- case parameters ---
 CLR = 0.3  # PCB clearance per side
 WALL = 1.8
-FLOOR = 1.6
+FLOOR = 2.6  # THT_RELIEF pocket depth + 0.8 mm skin
 LID_T = 1.6
+THT_RELIEF = 1.8  # pocket depth under the through-hole solder tails
 HEADROOM = 4.0  # cavity above PCB top (USB shell is 3.26)
 
 CAV_W = PCB_W + 2 * CLR
@@ -60,6 +61,15 @@ SNAP_Z = CAV_D - LIP_H + 0.5
 # 0.6 mm gives two-color inlaid text
 TEXT_DEPTH = 0.6
 
+# Arial Black, not Arial Bold, for stroke width: a 0.4 mm nozzle wants two
+# perimeters per stem, and the inlay letters are free-standing 0.6 mm sticks
+# that the slicer drops outright if they come in under a nozzle width. Arial
+# Bold stems are 0.145 * size, Arial Black 0.222 * size -- 53% more stroke
+# for 9% more width. See the dongle-lite case for the full argument.
+FONT = "Arial Black"
+STEM_RATIO = 0.222  # ink width of "I" per unit size, measured for FONT
+MIN_STROKE = 0.65
+
 
 def outer_profile(height, z0):
     return (
@@ -72,6 +82,16 @@ def outer_profile(height, z0):
 
 # --- bottom tray ---
 cutters = cq.Workplane("XY").box(CAV_W, CAV_L, CAV_D, centered=(True, True, False))
+# relief pockets in the floor for the through-hole solder tails, which
+# otherwise hold the board off the floor: the USB shell legs + locating pegs
+# (x = +/-4.33 / +/-2.9, y 13.7..19.8) and J2's six pins (x = 0 / +/-2.54,
+# y -18.3 / -15.8). The board still seats on the floor everywhere else.
+for x0, x1, y0, y1 in ((-6.0, 6.0, 12.8, 20.8),     # J1 legs + pegs
+                       (-4.5, 4.5, -20.0, -14.0)):  # J2 pins
+    cutters = cutters.union(
+        cq.Workplane("XY", origin=((x0 + x1) / 2, (y0 + y1) / 2, -THT_RELIEF))
+        .box(x1 - x0, y1 - y0, THT_RELIEF + 0.1, centered=(True, True, False))
+    )
 # USB notch through the +Y wall, open to the top (the lid closes it)
 cutters = cutters.union(
     cq.Workplane("XY", origin=(0, CAV_L / 2 + WALL / 2, USB_CUT_Z0))
@@ -135,53 +155,140 @@ lid = lid.cut(
          LIP_H + LID_T + 0.2, centered=(True, True, False)),
     clean=False,
 )
-# LED windows and BOOT hole
-lid = (
-    lid.faces(">Z")
-    .workplane(centerOption="CenterOfBoundBox")
-    .pushPoints([LED_PWR, LED_ACT])
-    .hole(1.8)
-    .pushPoints([SW1])
-    .hole(2.6)
-)
+
+# --- lid graphics ---
+# Built in absolute coordinates and cut in a single pass. Re-selecting
+# faces(">Z") between engravings does not work: the islands inside letter
+# counters are coplanar with the lid top, so the selector starts matching
+# them and every later mark lands relative to whichever letter it picked.
+# That is exactly how the previous revision ended up stamping BOOT through
+# the middle of the wordmark.
+#
+# The three hole labels read along the length, the wordmark across it.
+#
+# This lid is only 20.2 mm wide and the LEDs sit at x = -6.1 / +6.5, so an
+# across-width label centred on an LED runs off the case, and the 3 mm
+# gutter between an LED and the wall is too narrow to put one beside it.
+# Lengthwise they get free run and stay fat. That leaves the wordmark, which
+# would want the centre column -- exactly where the BOOT button is -- so it
+# goes across the width instead, up in the clear band. Cramming it in
+# lengthwise costs more than it buys: BOOT then has to squeeze in sideways
+# between PWR and ACT with half-millimetre gaps, and the whole lower third
+# turns into a jumble of two reading directions.
+#
+# PWR / BOOT / ACT are one row with flush bottoms. BOOT cannot start as low
+# as the LED labels -- its button is 1.8 mm further up the board and the
+# label would land in the hole -- so the row bottom is set by BOOT and the
+# LED labels ride up to meet it.
+WORDMARK_SIZE = 3.1  # stems 0.69 mm
+LABEL_SIZE = 3.5  # stems 0.78 mm
+
+WORDMARK_Y = 12.1  # centred in the band between the label row and the arrow
+LABEL_BOTTOM = -6.0
+
+ARROW_BASE = 19.6
+ARROW_TIP = 21.8
+ARROW_W = 5.0
+
+TOP_Z = CAV_D + LID_T
 
 
-def engrave(body, label, x, y, size):
-    return (
-        body.faces(">Z")
-        .workplane(centerOption="CenterOfBoundBox")
-        .transformed(offset=(x, y, 0), rotate=(0, 0, 90))
-        .text(label, size, -TEXT_DEPTH, kind="bold")
+def place(shape, cx=None, cy=None, ymin=None):
+    """Anchor a mark by its ink bounding box.
+
+    cadquery centres text on font metrics, not on the ink it actually draws,
+    so ascenders and side bearings leave the glyphs a fraction of a mm off
+    from wherever you asked for. That is invisible on a big label and very
+    visible when two labels are meant to line up with each other or sit on
+    the lid centreline, so every mark gets snapped to its real bounds.
+    """
+    b = shape.val().BoundingBox()
+    dx = 0.0 if cx is None else cx - (b.xmin + b.xmax) / 2
+    if ymin is not None:
+        dy = ymin - b.ymin
+    elif cy is not None:
+        dy = cy - (b.ymin + b.ymax) / 2
+    else:
+        dy = 0.0
+    return shape.translate((dx, dy, 0))
+
+
+def engrave(label, size, rot=0):
+    """Label as a solid, to be positioned with place()."""
+    t = cq.Workplane("XY", origin=(0, 0, TOP_Z - TEXT_DEPTH)).text(
+        label, size, TEXT_DEPTH, font=FONT, kind="regular"
     )
+    return t.rotate((0, 0, 0), (0, 0, 1), rot) if rot else t
 
 
-def text_len(label, size):
-    """Measured length of the label along its reading direction."""
-    t = cq.Workplane("XY").text(label, size, 1, kind="bold")
-    return t.val().BoundingBox().xlen
-
-
-ARROW_BASE = 18.5
-
-
-def arrow(body):
-    """Solid triangle pointing at the USB port."""
-    pts = [(-2.5, ARROW_BASE), (2.5, ARROW_BASE), (0.0, ARROW_BASE + 2.5)]
+def arrow():
+    """Solid triangle pointing at the USB port on the +Y end."""
+    pts = [(-ARROW_W / 2, ARROW_BASE), (ARROW_W / 2, ARROW_BASE),
+           (0.0, ARROW_TIP)]
     return (
-        body.faces(">Z")
-        .workplane(centerOption="CenterOfBoundBox")
+        cq.Workplane("XY", origin=(0, 0, TOP_Z - TEXT_DEPTH))
         .polyline(pts)
         .close()
-        .cutBlind(-TEXT_DEPTH)
+        .extrude(TEXT_DEPTH)
     )
 
 
-# wordmark centered, USB arrow at the +Y end, small labels beside their holes
-lid = engrave(lid, "restorekit", 0, 4.0, 4.2)
-lid = arrow(lid)
-lid = engrave(lid, "PWR", LED_PWR[0], LED_PWR[1] + 5.1, 2.2)
-lid = engrave(lid, "ACT", LED_ACT[0], LED_ACT[1] + 5.1, 2.2)
-lid = engrave(lid, "BOOT", 2.9, SW1[1], 2.2)
+def thru_hole(x, y, d):
+    """Window through the lid slab only, stopping at its underside.
+
+    Overshooting downward would be the obvious way to guarantee a clean
+    through-cut, but the friction lip hangs off that underside and its inner
+    face is at x = +/-6.95 -- closer in than the outer edge of the ACT window
+    (x = 7.4) and of the PWR window (x = -7.0). A cutter that runs past
+    z = CAV_D chews a notch out of the lip at both LEDs. Starting exactly at
+    the underside keeps the cut clear of the lip's z range entirely; the
+    overshoot goes upward instead, into open air above the lid.
+    """
+    return (
+        cq.Workplane("XY", origin=(x, y, CAV_D))
+        .circle(d / 2)
+        .extrude(LID_T + 1)
+    )
+
+
+# The graphics are kept separate from the holes: they are both the pockets
+# cut into the lid and, exported on their own, the white inlay that drops
+# back into them.
+inlay = place(engrave("restorekit", WORDMARK_SIZE), cx=0, cy=WORDMARK_Y)
+for m in (
+    arrow(),
+    # each centred on its own hole, bottoms flush so the row reads as a set
+    place(engrave("PWR", LABEL_SIZE, rot=90), cx=LED_PWR[0], ymin=LABEL_BOTTOM),
+    place(engrave("BOOT", LABEL_SIZE, rot=90), cx=SW1[0], ymin=LABEL_BOTTOM),
+    place(engrave("ACT", LABEL_SIZE, rot=90), cx=LED_ACT[0], ymin=LABEL_BOTTOM),
+):
+    inlay = inlay.union(m)
+
+marks = inlay
+for h in (
+    thru_hole(*LED_PWR, 1.8),
+    thru_hole(*LED_ACT, 1.8),
+    thru_hole(*SW1, 2.6),
+):
+    marks = marks.union(h)
+lid = lid.cut(marks, clean=False)
+
+# --- stroke check ---
+# If FONT is missing the text still renders, just in whatever the fallback
+# is, and a lighter fallback silently puts us back to unprintable strokes.
+# Measure a stem instead of trusting the font lookup.
+stem = cq.Workplane("XY").text("I", 1.0, 0.1, font=FONT, kind="regular")
+stem = stem.val().BoundingBox().xlen
+for name, size in (("wordmark", WORDMARK_SIZE),
+                   ("hole labels", LABEL_SIZE)):
+    w = stem * size
+    flag = "" if w >= MIN_STROKE else f"  <-- under {MIN_STROKE} mm"
+    print(f"{name:12} size {size}  stems {w:.2f} mm{flag}")
+if stem * min(WORDMARK_SIZE, LABEL_SIZE) < MIN_STROKE:
+    raise SystemExit(
+        f"stroke too thin: {FONT!r} measured {stem:.3f} per unit size, "
+        f"expected ~{STEM_RATIO}. Is the font installed?"
+    )
 
 # --- export ---
 out = os.path.join(os.path.dirname(__file__), "output")
@@ -191,13 +298,17 @@ assembly = (
     cq.Assembly()
     .add(bottom, name="bottom", color=cq.Color(0.25, 0.25, 0.28))
     .add(lid, name="lid", color=cq.Color(0.85, 0.85, 0.87))
+    .add(inlay, name="inlay", color=cq.Color(1.0, 1.0, 1.0))
 )
 assembly.export(os.path.join(out, "dongle-probe-case.step"))
 
 cq.exporters.export(bottom, os.path.join(out, "bottom.stl"))
-# flip the lid so its flat top sits on the print bed
-lid_print = lid.rotate((0, 0, 0), (0, 1, 0), 180)
-cq.exporters.export(lid_print, os.path.join(out, "lid.stl"))
+# flip the lid so its flat top sits on the print bed. The inlay gets the same
+# transform, so loading it as a second part lands it in its pockets with no
+# repositioning.
+flip = lambda w: w.rotate((0, 0, 0), (0, 1, 0), 180)
+cq.exporters.export(flip(lid), os.path.join(out, "lid.stl"))
+cq.exporters.export(flip(inlay), os.path.join(out, "lid-inlay.stl"))
 
 print("wrote", out)
 print(f"outer: {OUT_W} x {OUT_L} x {FLOOR + CAV_D + LID_T} mm")
