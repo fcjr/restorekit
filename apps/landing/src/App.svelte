@@ -62,131 +62,33 @@
       .catch(() => {});
   }
 
-  const compareRows: {
-    label: string;
-    cells: { text: string; tone?: "ok" | "warn" | "dim"; href?: string }[];
-  }[] = [
-    {
-      label: "Price",
-      cells: [
-        { text: "Free", tone: "ok" },
-        { text: "Quote only", tone: "warn" },
-        { text: "Quote only + hardware", tone: "warn" },
-        { text: "$99/yr per admin · orgs from $600/yr + $3/Mac" },
-        { text: "Free" },
-        { text: "Free" },
-      ],
-    },
-    {
-      label: "Open source",
-      cells: [
-        { text: "Apache-2.0⁴", tone: "ok" },
-        { text: "Proprietary", tone: "dim" },
-        { text: "Proprietary", tone: "dim" },
-        { text: "Proprietary", tone: "dim" },
-        { text: "Proprietary", tone: "dim" },
-        { text: "Apache-2.0" },
-      ],
-    },
-    {
-      label: "Host platforms",
-      cells: [
-        { text: "macOS · Linux · Windows", tone: "ok" },
-        { text: "macOS · Mac Pro recommended" },
-        { text: "Dedicated appliance" },
-        { text: "macOS 15+ on Apple Silicon" },
-        { text: "macOS" },
-        { text: "macOS on Apple Silicon" },
-      ],
-    },
-    {
-      label: "Full restore & revive",
-      cells: [
-        { text: "✓", tone: "ok" },
-        { text: "Erase + reinstall" },
-        { text: "Erase + reinstall" },
-        { text: "Restore paid-only · no revive", tone: "warn" },
-        { text: "✓" },
-        { text: "—", tone: "dim" },
-      ],
-    },
-    {
-      label: "Certified erasure",
-      cells: [
-        { text: "None yet · sponsor it²", tone: "warn", href: "#sponsor-certification" },
-        { text: "ADISA · NIST 800-88 methods", tone: "ok" },
-        { text: "ADISA · NIST 800-88", tone: "ok" },
-        { text: "—", tone: "dim" },
-        { text: "—", tone: "dim" },
-        { text: "—", tone: "dim" },
-      ],
-    },
-    {
-      label: "Automatic DFU trigger",
-      cells: [
-        { text: "✓ on Mac hosts · any host with dongle-lite¹", tone: "ok", href: "#dongle" },
-        { text: "✓ (Auto DFU)" },
-        { text: "No DFU · manual boot to Recovery", tone: "dim" },
-        { text: "✓ (post-trial: DFU + reboot only)" },
-        { text: "Manual key sequence", tone: "dim" },
-        { text: "✓ (trigger only)" },
-      ],
-    },
-    {
-      label: "CLI + JSON automation",
-      cells: [
-        { text: "✓", tone: "ok" },
-        { text: "—", tone: "dim" },
-        { text: "REST API for reports only", tone: "dim" },
-        { text: "—", tone: "dim" },
-        { text: "—", tone: "dim" },
-        { text: "CLI, no JSON" },
-      ],
-    },
-    {
-      label: "Desktop app",
-      cells: [
-        { text: "✓", tone: "ok" },
-        { text: "✓" },
-        { text: "Appliance UI" },
-        { text: "✓" },
-        { text: "✓" },
-        { text: "—", tone: "dim" },
-      ],
-    },
-    {
-      label: "Multiple targets",
-      cells: [
-        { text: "Parallel · one process each", tone: "ok" },
-        { text: "Via Cambrionix hubs" },
-        { text: "One per station", tone: "dim" },
-        { text: "Up to 15 via Acroname hubs" },
-        { text: "One at a time", tone: "dim" },
-        { text: "One target", tone: "dim" },
-      ],
-    },
-    {
-      label: "Acroname hub support",
-      cells: [
-        { text: "—", tone: "dim" },
-        { text: "Cambrionix instead³", tone: "dim" },
-        { text: "—", tone: "dim" },
-        { text: "✓ org tier" },
-        { text: "Hubs unsupported", tone: "dim" },
-        { text: "—", tone: "dim" },
-      ],
-    },
-    {
-      label: "Target Macs",
-      cells: [
-        { text: "T2 & Apple Silicon", tone: "ok" },
-        { text: "T2 & Apple Silicon" },
-        { text: "Intel & Apple Silicon" },
-        { text: "Apple Silicon only", tone: "dim" },
-        { text: "T2 & Apple Silicon" },
-        { text: "Apple Silicon only", tone: "dim" },
-      ],
-    },
+  // dongle-lite vs the DFU-capable USB hubs people usually end up pricing out.
+  const hubCols = ["dongle-lite", "Acroname USBHub 3c", "Cambrionix ThunderSync5 C16 PD"];
+  const hubRows: [string, string, string, string][] = [
+    ["Targets at once", "One", "6 ports · kit rated for 5", "16 ports"],
+    ["Host machine", "Any linux, windows or mac", "Windows, mac or linux", "Windows, mac or linux"],
+    [
+      "Software to trigger DFU",
+      "Nothing extra",
+      "PD-logging license, included in the restore kit",
+      "Connect Premium, 3 years included with the hub",
+    ],
+    [
+      "Hardware cost",
+      "Batch 2 not priced yet",
+      "$1,200 hub · $1,999 restore kit",
+      "£1,999, or £79/mo with a deposit",
+    ],
+    ["Open hardware", "Yes, files in the repo", "No", "No"],
+    ["Serial console", "Target UART over SBU", "—", "—"],
+    ["Built for", "One mac, at a bench or in a bag", "A bench of macs", "A rack of macs"],
+  ];
+
+  const openStack = [
+    ["Library & CLI", "Apache-2.0 rust, on crates.io and docs.rs"],
+    ["Desktop app", "Same crate underneath, same license"],
+    ["Dongle firmware", "Rust + Embassy, in the repo"],
+    ["Dongle hardware", "Schematics, board files and fab outputs"],
   ];
 
   // The 3D scenes are decoration, so three.js only loads when a section is
@@ -295,7 +197,7 @@
       <a href="#how" class="hover:text-ink">How it works</a>
       <a href="#desktop" class="hover:text-ink">App</a>
       <a href="#cli" class="hover:text-ink">CLI</a>
-      <a href="#compare" class="hover:text-ink">Compare</a>
+      <a href="#open-source" class="hover:text-ink">Open source</a>
       <a href="#install" class="hover:text-ink">Install</a>
     </div>
     <a
@@ -481,6 +383,67 @@
     </div>
   </section>
 
+  <!-- dongle vs hubs -->
+  <section id="hubs" class="border-b border-line bg-panel">
+    <div class="mx-auto max-w-6xl px-5 py-14 md:py-16">
+      {@render eyebrow("dongle-lite vs DFU hubs")}
+      <h2 class="max-w-xl text-[24px] font-semibold tracking-tight text-ink">
+        If you've been pricing out a DFU-capable hub.
+      </h2>
+      <p class="mt-4 max-w-2xl text-[13.5px] leading-7 text-mut">
+        <a href="https://acroname.com/store/s106-usbhub-3c-kit" class="text-amber hover:text-amber-hov">Acroname</a>
+        and
+        <a href="https://www.cambrionix.com/products/thundersync5-c16-pd" class="text-amber hover:text-amber-hov">Cambrionix</a>
+        both make genuinely nice hardware, and if you're restoring a bench or a rack of macs at a
+        time they're built for exactly that. dongle-lite is aimed at a much smaller job: one mac,
+        from whatever machine you already have, nothing to license.
+      </p>
+
+      <div class="mt-8 overflow-x-auto">
+        <table class="w-full min-w-[720px] border-collapse border border-line text-[12px]">
+          <thead>
+            <tr class="bg-bar text-left">
+              <th class="border-b border-line px-4 py-3"></th>
+              {#each hubCols as col, i (col)}
+                <th
+                  class="border-b border-l border-line px-4 py-3 text-[12px] font-semibold {i === 0
+                    ? 'text-amber'
+                    : 'text-ink2'}"
+                >
+                  {col}
+                </th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each hubRows as [label, ...cells] (label)}
+              <tr class="border-t border-line">
+                <td class="px-4 py-3 text-[10px] tracking-[0.08em] uppercase text-fnt">{label}</td>
+                {#each cells as cell, i (i)}
+                  <td class="border-l border-line px-4 py-3 {i === 0 ? 'bg-amber-soft text-ink2' : 'text-mut'}">
+                    {cell}
+                  </td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="mt-5 max-w-3xl text-[11.5px] leading-6 text-fnt">
+        Vendor details as published August 2026, check their sites for current terms. Acroname's
+        <a href="https://acroname.com/store/t99-pd-log" class="text-amber hover:text-amber-hov">PD-logging license</a>
+        is what enables DFU and costs $400 on its own, though their
+        <a href="https://acroname.com/store/s106-usbhub-3c-kit" class="text-amber hover:text-amber-hov">Apple restore kit</a>
+        bundles it. Cambrionix includes three years of Connect Premium with the hub; they don't
+        publish what renewal costs after that. Triggering DFU over USB-PD normally needs a T2 or
+        Apple Silicon host, which is why all three of these put PD hardware in the cable path.
+        Without a dongle on linux or windows you can still put the target into DFU by hand,
+        restorekit shows you the steps, and detection, firmware download and restore all run
+        natively.
+      </p>
+    </div>
+  </section>
 
   <!-- why -->
   <section class="border-b border-line">
@@ -705,101 +668,52 @@ $ restorekit -h`,
     </div>
   </section>
 
-  <!-- compare -->
-  <section id="compare" class="border-b border-line">
+  <!-- open source -->
+  <section id="open-source" class="border-b border-line">
     <div class="mx-auto max-w-6xl px-5 py-16 md:py-20">
-      {@render eyebrow("Alternatives")}
+      {@render eyebrow("Open source")}
       <h2 class="max-w-xl text-[24px] font-semibold tracking-tight text-ink">
-        How it stacks up against the other tools.
+        Open source, all the way down.
       </h2>
+      <p class="mt-4 max-w-2xl text-[13.5px] leading-7 text-mut">
+        There are good commercial tools in this space, and plenty of people are happy with them.
+        What there isn't is a full stack you can read, build, and fix yourself, from the library
+        that talks to the mac right down to the board that triggers DFU. That's what restorekit is
+        trying to be. Every piece is in
+        <a href={GITHUB} class="text-amber hover:text-amber-hov">one repo</a>, and every piece is
+        yours to fork.
+      </p>
 
-      <div class="mt-10 overflow-x-auto">
-        <table class="w-full min-w-[1080px] border-collapse border border-line text-[12px]">
-          <thead>
-            <tr class="bg-bar text-left">
-              <th class="border-b border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt"></th>
-              <th class="border-b border-l border-line px-4 py-3 text-[12px] font-semibold text-amber">restorekit</th>
-              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Blancco Eraser for Apple Devices</th>
-              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Device Link for Macs by Ziperase</th>
-              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">DFU Blaster Pro</th>
-              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">Apple Configurator / Finder</th>
-              <th class="border-b border-l border-line px-4 py-3 text-[10px] font-semibold tracking-[0.1em] uppercase text-fnt">macvdmtool</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each compareRows as row (row.label)}
-              <tr class="border-t border-line">
-                <td class="px-4 py-3 text-[10px] tracking-[0.08em] uppercase text-fnt">{row.label}</td>
-                {#each row.cells as cell, i (i)}
-                  <td
-                    class="border-l border-line px-4 py-3 {i === 0 ? 'bg-amber-soft' : ''} {cell.tone === 'ok'
-                      ? 'text-ok'
-                      : cell.tone === 'warn'
-                        ? 'text-amber'
-                        : cell.tone === 'dim'
-                          ? 'text-dim'
-                          : 'text-ink2'}"
-                  >
-                    {#if cell.href}
-                      <a
-                        href={cell.href}
-                        class="underline underline-offset-4 hover:text-amber-hov"
-                      >
-                        {cell.text}
-                      </a>
-                    {:else}
-                      {cell.text}
-                    {/if}
-                  </td>
-                {/each}
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+      <div class="mt-8 grid gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
+        {#each openStack as [k, v] (k)}
+          <div class="bg-page px-5 py-5">
+            <div class="text-[11px] tracking-[0.12em] uppercase text-amber">{k}</div>
+            <div class="mt-2 text-[12.5px] leading-6 text-mut">{v}</div>
+          </div>
+        {/each}
       </div>
 
-      <p class="mt-5 max-w-3xl text-[11.5px] leading-6 text-fnt">
-        ¹ Triggering DFU over USB-PD needs a T2 or Apple Silicon host. That's a hardware limit and
-        it applies to every tool here. On linux and windows you put the target into DFU by hand
-        (restorekit shows you the steps), and detection, firmware download, and restore all run
-        natively. The upcoming <a href="#dongle" class="text-amber hover:text-amber-hov">dongle-lite</a>
-        removes the limit entirely by putting the PD hardware in the cable path. Vendor pricing and
-        features as published July 2026, check their sites for current terms.
-      </p>
-      <p class="mt-3 max-w-3xl text-[11.5px] leading-6 text-fnt">
-        ³ It's already a bit ridiculous that Acroname hubs
-        <a
-          href="https://acroname.com/store/s106-usbhub-3c-kit"
-          class="text-amber hover:text-amber-hov">need a $400 PD-logging license</a
-        > before they'll put a Mac into DFU. Cambrionix goes a step further and makes the license
-        renewing:
-        <a
-          href="https://www.cambrionix.com/products/thundersync5-c16-pd"
-          class="text-amber hover:text-amber-hov">their DFU-capable hub</a
-        > only enters DFU once it's registered in their Connect Premium software, the hub is sold as
-        a subscription bundle (£79 a month over three years), and when the term runs out you pay
-        again.
-      </p>
-      <p class="mt-3 max-w-3xl text-[11.5px] leading-6 text-fnt">
-        ⁴ The restorekit source is Apache-2.0. A built binary's license depends on what it links:
+      <p class="mt-6 max-w-3xl text-[11.5px] leading-6 text-fnt">
+        The restorekit source is Apache-2.0. A built binary's license depends on what it links:
         macOS builds are Apache-2.0 with LGPL and BSD libraries, while linux and windows builds also
         bundle <a href="https://github.com/libimobiledevice/usbmuxd" class="text-amber hover:text-amber-hov">usbmuxd</a>
-        (GPL-3.0), so those release binaries are conveyed as a whole under GPL-3.0. Either way it's
-        open source, all the way down.
+        (GPL-3.0), so those release binaries are conveyed as a whole under GPL-3.0. Either way, it's
+        open source and it stays that way.
       </p>
+
       <div
         id="sponsor-certification"
         class="mt-8 flex max-w-3xl flex-col gap-5 border border-line bg-panel px-6 py-6 md:flex-row md:items-center"
       >
         <div class="grow">
           <h3 class="text-[15px] font-semibold tracking-tight text-ink">
-            ² Help make restorekit the first open source tool with certified erasure.
+            Help make restorekit the first open source tool with certified erasure.
           </h3>
           <p class="mt-2 text-[12.5px] leading-6 text-mut">
-            No open source tool has a certified erasure process. Not one. The DFU restore already
-            wipes the volume the same way the paid tools do, what's missing is a lab report saying
-            so, and certifications like ADISA cost real money. Sponsor the lab time and the whole
-            industry gets a free, certified option with your name on it.
+            A DFU restore already wipes the volume; what's missing is a lab report that says so, and
+            certifications like ADISA cost real money. If your org needs certified erasure, sponsor
+            the lab time and everyone gets a free, certified option, with your name on it. Happy to
+            talk through what that would take.
           </p>
         </div>
         <a
@@ -931,9 +845,9 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
     </div>
     <div class="border-t border-line">
       <p class="mx-auto max-w-6xl px-5 py-4 text-[10.5px] leading-5 text-dim">
-        The DFU code is a rust port of Asahi Linux's macvdmtool (also Apache-2.0). DFU Blaster is a
-        trademark of Twocanoes Software, Apple Configurator of Apple Inc., and Blancco and Ziperase
-        of their respective owners, mentioned here for comparison only.
+        The DFU code is a rust port of Asahi Linux's macvdmtool (also Apache-2.0), thank you to
+        that team. Mac and Apple Silicon are trademarks of Apple Inc., Acroname and Cambrionix of
+        their respective owners, mentioned here for comparison only.
       </p>
     </div>
   </footer>
