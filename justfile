@@ -12,6 +12,10 @@ install:
     # flashing over PICOBOOT, but falls back to copying the UF2 to the bootrom
     # drive. `brew install picotool` (macOS); not packaged before Ubuntu 25.04.
 
+# Print a bag label on the DYMO LabelWriter (kind: bag|start; see -h for flags)
+label *args:
+    uv run scripts/labels.py {{args}}
+
 # Release the software (bump + tag via CI; kind: patch|minor|major)
 release kind="patch": (_dispatch "bump-release.yml" kind)
 
