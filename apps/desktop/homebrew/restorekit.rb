@@ -9,7 +9,7 @@ cask "restorekit" do
   desc "Reformat and restore Apple Silicon Macs over USB"
   homepage "https://github.com/fcjr/restorekit"
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
   depends_on arch: :arm64
 
   auto_updates true
