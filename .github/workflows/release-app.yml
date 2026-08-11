@@ -57,7 +57,16 @@ jobs:
         id: msys2
         with:
           msystem: MINGW64
-          update: true
+          # `update: true` runs a full `pacman -Syuu`, and on Windows pacman
+          # can fail to replace a binary it can't unlink while writing the
+          # rest of the package. That split perl in v0.5.9: /usr/bin/perl
+          # stayed 5.42.2 while /usr/lib/perl5/core_perl went to 5.42.3, and
+          # openssl-src (we build OpenSSL from source — restorekit-sys pins
+          # openssl-sys with `vendored`) died in `make depend` with
+          # "Perl lib version doesn't match executable 'perl' version".
+          # The action's bundled base is self-consistent and refreshed
+          # regularly, so skip the upgrade — same as ci.yml.
+          update: false
           install: >-
             base-devel git make autoconf automake libtool autoconf-archive
             gettext-devel pkgconf perl mingw-w64-x86_64-gcc

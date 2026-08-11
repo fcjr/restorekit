@@ -102,7 +102,12 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          update: true
+          # Skip the full `pacman -Syuu` — it can leave a package half-upgraded
+          # when Windows won't let pacman replace an in-use binary. See the
+          # matching note in release-app.yml: that split MSYS2's perl and broke
+          # the vendored-OpenSSL build. This job got lucky on v0.5.9, but it
+          # runs the same toolchain, so pin it the same way.
+          update: false
           install: >-
             base-devel
             git
