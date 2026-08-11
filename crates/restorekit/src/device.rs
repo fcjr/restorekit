@@ -921,9 +921,7 @@ fn driver_ready(_info: &nusb::DeviceInfo, _mode: UsbMode) -> bool {
 /// call [`identify`] to fill in the richer fields (model, ECID, marketing name,
 /// DFU-port).
 pub fn list() -> Result<Vec<Device>> {
-    let infos = nusb::list_devices()
-        .wait()
-        .map_err(|e| Error::Usb(e.to_string()))?;
+    let infos = nusb::list_devices().wait().map_err(Error::from)?;
     Ok(infos
         .filter(|i| i.vendor_id() == APPLE_VID)
         .map(|i| from_usb(&i))

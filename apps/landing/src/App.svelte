@@ -770,7 +770,7 @@ $ sudo restorekit restore`,
           <p class="mt-3 text-[11.5px] leading-5 text-fnt">
             Skip <code class="text-mut">sudo</code> by installing the bundled
             <a href="{GITHUB}/tree/main/udev" class="text-amber hover:text-amber-hov">udev rule</a>.
-            The .deb does it for you.
+            The .deb and the brew cask do it for you.
           </p>
         </div>
       </div>

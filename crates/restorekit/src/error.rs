@@ -34,6 +34,9 @@ pub enum Error {
     #[error("USB error: {0}")]
     Usb(String),
 
+    #[error("USB permission denied: {0}\n\n{hint}", hint = usb_permission_hint())]
+    UsbPermission(String),
+
     #[error("VDM error: {0}")]
     Vdm(String),
 
@@ -94,6 +97,51 @@ pub enum Error {
 
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
+}
+
+/// nusb reports EACCES on the device node as its own error kind; that failure
+/// is always a setup problem (missing udev rule / not root), never a bug, so it
+/// gets its own variant with instructions instead of a bare errno.
+impl From<nusb::Error> for Error {
+    fn from(e: nusb::Error) -> Self {
+        match e.kind() {
+            nusb::ErrorKind::PermissionDenied => Error::UsbPermission(e.to_string()),
+            _ => Error::Usb(e.to_string()),
+        }
+    }
+}
+
+/// How to get write access to the USB device nodes, appended to
+/// [`Error::UsbPermission`].
+///
+/// The full path to this binary matters on Linux: sudo resets PATH to
+/// `secure_path`, which has neither Homebrew's prefix nor a user-local bin, so
+/// `sudo restorekit` after a `brew install` fails with "command not found".
+fn usb_permission_hint() -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "restorekit".into());
+
+    if cfg!(target_os = "linux") {
+        format!(
+            "restorekit needs write access to the Apple and RecoverKit USB devices. Install
+the udev rule, then unplug and replug the device:
+
+  curl -fsSL https://raw.githubusercontent.com/fcjr/restorekit/main/udev/51-restorekit.rules \\
+    | sudo tee /etc/udev/rules.d/51-restorekit.rules >/dev/null
+  sudo udevadm control --reload-rules && sudo udevadm trigger
+
+The brew cask and the .deb install that rule for you; the snap and the plain
+tarball can't. Or run this as root instead — sudo's PATH won't find restorekit
+on its own, so pass the full path:
+
+  sudo {exe} ..."
+        )
+    } else if cfg!(target_os = "windows") {
+        "Run `restorekit setup-driver` to bind the WinUSB driver to the cabled Mac.".into()
+    } else {
+        format!("Re-run as root: sudo {exe} ...")
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

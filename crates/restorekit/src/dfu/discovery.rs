@@ -27,7 +27,7 @@ pub fn watch() -> Result<Watch> {
     // Subscribe first, snapshot second: a device arriving in between is then
     // both queued as an event and in the snapshot, so it is (correctly, since
     // it predates the caller's DFU trigger) treated as already present.
-    let events = nusb::watch_devices().map_err(|e| Error::Usb(e.to_string()))?;
+    let events = nusb::watch_devices().map_err(Error::from)?;
     let already_present = restorable()?.iter().filter_map(|d| d.ecid).collect();
     Ok(Watch {
         events: Box::pin(events),

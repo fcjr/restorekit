@@ -123,15 +123,19 @@ All features except for automatic DFU mode are available on all platform. Enteri
 
 On Linux, `restorekit` needs write access to apple usb devices, this can be forced by running it as sudo, but if you'd like to avoid sudo you can install a udev rule.
 
-Copy [./udev/51-restorekit.rules] to `/etc/udev/rules.d/`, then run:
+The `.deb` package and the homebrew cask install this rule for you (homebrew asks for sudo during `brew install`, since it can't write to `/etc` itself). The snap and the plain tarball can't, so install it by hand:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/fcjr/restorekit/main/udev/51-restorekit.rules \
+  | sudo tee /etc/udev/rules.d/51-restorekit.rules >/dev/null
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
+(The tarball and the homebrew cask both ship the rule as `udev/51-restorekit.rules`, so you can copy that one instead of downloading it.)
+
 After installing the udev rule, you may have to unplug and replug your device to get the permmissions to apply.
 
-The `.deb` package _should_ this rule automatically.
+Without the rule, every USB operation fails with `USB permission denied ... (errno 13)`. Running under `sudo` works too, but note that sudo's `secure_path` doesn't include homebrew's prefix — pass the full path (`sudo "$(brew --prefix)/bin/restorekit" ...`).
 
 ## As a library
 

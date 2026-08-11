@@ -283,9 +283,7 @@ pub enum DongleTarget {
 
 /// List every connected RecoverKit dongle. Cheap enumeration only.
 pub fn list() -> Result<Vec<Dongle>> {
-    let infos = nusb::list_devices()
-        .wait()
-        .map_err(|e| Error::Usb(e.to_string()))?;
+    let infos = nusb::list_devices().wait().map_err(Error::from)?;
     let mut out = Vec::new();
     for info in infos {
         if info.vendor_id() != DONGLE_VID || info.product_id() != DONGLE_PID {
@@ -384,10 +382,7 @@ pub fn wait(target: DongleTarget, timeout: std::time::Duration) -> Result<Dongle
 /// the two share a USB bus and a parent port path. Requires the Mac to already
 /// be USB-visible (in DFU) and cabled through the dongle's hub.
 pub fn find_for_ecid(ecid: u64) -> Result<Dongle> {
-    let infos: Vec<_> = nusb::list_devices()
-        .wait()
-        .map_err(|e| Error::Usb(e.to_string()))?
-        .collect();
+    let infos: Vec<_> = nusb::list_devices().wait().map_err(Error::from)?.collect();
 
     let mac = infos
         .iter()
@@ -502,18 +497,18 @@ impl Dongle {
         // Re-find the live device by serial; the list() snapshot may be stale.
         let info = nusb::list_devices()
             .wait()
-            .map_err(|e| Error::Usb(e.to_string()))?
+            .map_err(Error::from)?
             .find(|i| {
                 i.vendor_id() == DONGLE_VID
                     && i.product_id() == DONGLE_PID
                     && i.serial_number() == Some(self.serial.as_str())
             })
             .ok_or(Error::NoDongle)?;
-        let dev = info.open().wait().map_err(|e| Error::Usb(e.to_string()))?;
+        let dev = info.open().wait().map_err(Error::from)?;
         let iface = dev
             .claim_interface(self.vendor_iface)
             .wait()
-            .map_err(|e| Error::Usb(e.to_string()))?;
+            .map_err(Error::from)?;
         Ok(DongleHandle {
             iface,
             iface_num: self.vendor_iface,
@@ -556,9 +551,7 @@ impl Dongle {
     /// [`find_for_ecid`]. `None` if the target's USB data isn't routed to this
     /// host, or nothing Apple is attached.
     pub fn attached_device(&self) -> Result<Option<Device>> {
-        let infos = nusb::list_devices()
-            .wait()
-            .map_err(|e| Error::Usb(e.to_string()))?;
+        let infos = nusb::list_devices().wait().map_err(Error::from)?;
         Ok(infos
             .filter(|i| i.vendor_id() == APPLE_VID)
             .find(|i| shares_parent_hub(self, i))

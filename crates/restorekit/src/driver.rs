@@ -62,9 +62,7 @@ pub struct Target {
 /// Enumerate connected Apple devices in DFU, recovery, or restore mode.
 pub fn connected_targets() -> Result<Vec<Target>> {
     use nusb::MaybeFuture;
-    let devices = nusb::list_devices()
-        .wait()
-        .map_err(|e| Error::Usb(e.to_string()))?;
+    let devices = nusb::list_devices().wait().map_err(Error::from)?;
     Ok(devices
         .filter(|d| d.vendor_id() == APPLE_VID && is_target_pid(d.product_id()))
         .map(|d| {
