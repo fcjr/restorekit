@@ -3,11 +3,21 @@
 # homebrew/restorekit.rb). The plain `restorekit` snap name is the desktop
 # app; the CLI ships separately as `restorekit-cli` (see .goreleaser.yaml).
 #
-# base core22 must match the runner the .deb is built on (ubuntu-22.04) —
+# base core24 must match the runner the .deb is built on (ubuntu-24.04) —
 # bump both together.
+#
+# core24 is load-bearing, not housekeeping: on core24 the gnome extension
+# resolves to gnome-46-2404 and plugs `gpu-2404`, which hands the snap a
+# self-consistent Mesa userspace from the mesa-2404 content snap. A core22
+# build has no gpu-2404 and instead borrows the *host's* DRI drivers through
+# the plain `opengl` interface. Once the host's Mesa outruns the runtime's
+# (Ubuntu 26.04 ships Mesa 26; gnome-42-2204 carries 25.2), the two disagree
+# about the driver-loading interface and the app dies at startup with
+# "libEGL fatal: did not find extension DRI_Mesa version 1". No environment
+# variable works around it — the failure is under the app, in EGL.
 name: restorekit
 title: RestoreKit
-base: core22
+base: core24
 version: "VERSION_PLACEHOLDER"
 summary: Restore Apple Silicon Macs with one click
 description: |
@@ -20,10 +30,11 @@ license: Apache-2.0
 grade: stable
 confinement: strict
 
-# WebKit looks up its subprocess binaries at the host path.
+# WebKit looks up its subprocess binaries at the host path. core24 dropped
+# $CRAFT_ARCH_TRIPLET in favour of the explicit build-for spelling.
 layout:
-  /usr/lib/$CRAFT_ARCH_TRIPLET/webkit2gtk-4.1:
-    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET/webkit2gtk-4.1
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1
 
 apps:
   restorekit:
@@ -39,7 +50,7 @@ parts:
     source-type: deb
     # GTK3 comes from the gnome extension; webkit2gtk does not. Neither does
     # libusb — restorekit-desktop links it dynamically, and it's in neither
-    # core22 nor gnome-42-2204, so the app dies at exec with
+    # core24 nor gnome-46-2404, so the app dies at exec with
     # "libusb-1.0.so.0: cannot open shared object file".
     stage-packages:
       - libwebkit2gtk-4.1-0

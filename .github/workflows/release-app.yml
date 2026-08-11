@@ -18,9 +18,14 @@ jobs:
         include:
           - os: macos-14
             toolchain: stable
-          - os: ubuntu-22.04
+          # ubuntu-24.04 to match the snap's core24 base: the snap is packed
+          # in destructive mode further down, so stage-packages resolve
+          # against this runner's archive. Bumping the base means bumping
+          # these together. Side effect: the .deb and AppImage now link
+          # noble's glibc/webkit, so they need Ubuntu 24.04 or newer.
+          - os: ubuntu-24.04
             toolchain: stable
-          - os: ubuntu-22.04-arm
+          - os: ubuntu-24.04-arm
             toolchain: stable
           # Windows uses the GNU host toolchain — the vendored C stack is built
           # with autotools (no MSVC), and it's what the helper + app link against.
@@ -146,7 +151,7 @@ jobs:
       # Pack the .deb into a snap and publish it to the Snap Store under the
       # plain `restorekit` name (the CLI ships separately as `restorekit-cli`).
       # Destructive mode builds on the host directly, which works because the
-      # runner (ubuntu-22.04) matches the snap's core22 base. Pack runs under
+      # runner (ubuntu-24.04) matches the snap's core24 base. Pack runs under
       # sudo: snapcraft shells out to `snap install` for the gnome extension's
       # build snaps, and snapd only allows that as root. It also swallows snap's
       # stderr, so dump its log on failure to see the real error.
