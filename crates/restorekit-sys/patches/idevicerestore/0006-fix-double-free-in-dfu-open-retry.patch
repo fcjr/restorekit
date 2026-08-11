@@ -1,0 +1,58 @@
+diff --git a/src/dfu.c b/src/dfu.c
+index 6ba23e7..bd3d693 100644
+--- a/src/dfu.c
++++ b/src/dfu.c
+@@ -41,6 +41,35 @@ static int dfu_progress_callback(irecv_client_t client, const irecv_event_t* eve
+ 	return 0;
+ }
+ 
++/* irecv_open_with_ecid_and_attempts() closes the caller's client at the top of
++ * every retry, but irecv_open_with_ecid() frees the client on each of its own
++ * error paths without clearing *pclient. A failed attempt therefore hands back
++ * a dangling pointer that the next iteration frees again, aborting the process
++ * with "double free detected in tcache 2".
++ *
++ * It fires right after iBSS: the target re-enumerates from DFU into recovery
++ * mode, the first open wins the race to libusb_open() but loses it at
++ * set_configuration/set_interface, and the second attempt trips over the
++ * corpse. Drive the retries here instead, clearing the pointer after each
++ * failure so nothing is ever freed twice. */
++static irecv_error_t dfu_open_with_ecid_retry(irecv_client_t* pclient, uint64_t ecid, int attempts)
++{
++	int i;
++
++	*pclient = NULL;
++	for (i = 0; i < attempts; i++) {
++		if (irecv_open_with_ecid(pclient, ecid) == IRECV_E_SUCCESS) {
++			return IRECV_E_SUCCESS;
++		}
++		/* irecv_open_with_ecid() already freed the client it allocated. */
++		*pclient = NULL;
++		logger(LL_DEBUG, "Connection failed. Waiting 1 sec before retry.\n");
++		sleep(1);
++	}
++
++	return IRECV_E_UNABLE_TO_CONNECT;
++}
++
+ int dfu_client_new(struct idevicerestore_client_t* client)
+ {
+ 	irecv_client_t dfu = NULL;
+@@ -54,7 +83,7 @@ int dfu_client_new(struct idevicerestore_client_t* client)
+ 		}
+ 	}
+ 
+-	if (irecv_open_with_ecid_and_attempts(&dfu, client->ecid, 10) != IRECV_E_SUCCESS) {
++	if (dfu_open_with_ecid_retry(&dfu, client->ecid, 10) != IRECV_E_SUCCESS) {
+ 		logger(LL_ERROR, "Unable to connect to device in DFU mode\n");
+ 		return -1;
+ 	}
+@@ -85,7 +114,7 @@ irecv_device_t dfu_get_irecv_device(struct idevicerestore_client_t* client)
+ 	irecv_error_t dfu_error = IRECV_E_SUCCESS;
+ 	irecv_device_t device = NULL;
+ 
+-	if (irecv_open_with_ecid_and_attempts(&dfu, client->ecid, 10) != IRECV_E_SUCCESS) {
++	if (dfu_open_with_ecid_retry(&dfu, client->ecid, 10) != IRECV_E_SUCCESS) {
+ 		return NULL;
+ 	}
+ 

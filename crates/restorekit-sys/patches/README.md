@@ -15,6 +15,12 @@ compiles the patched copy.
   plist chunks with no recovery; one dropped USB write aborted the whole
   restore. Reconnect to the data port and re-send the component from the
   start, up to 3 attempts.
+- `0006-fix-double-free-in-dfu-open-retry.patch` — libirecovery's
+  `irecv_open_with_ecid()` frees the client on its error paths without clearing
+  `*pclient`, so `irecv_open_with_ecid_and_attempts()` frees the same pointer
+  again on its next iteration. Apple Silicon Macs hit it reliably when they
+  re-enumerate from DFU into recovery mode after iBSS. Drive the retry loop
+  from `dfu.c`, clearing the pointer after each failed attempt.
 
 ## Updating a patch
 
