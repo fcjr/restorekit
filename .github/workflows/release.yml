@@ -175,9 +175,6 @@ jobs:
               > "completions/restorekit.$shell"
           done
 
-      - name: Install snapcraft
-        run: sudo snap install snapcraft --classic
-
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -187,4 +184,55 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # One token for both the Homebrew tap and the Scoop bucket.
           TAP_GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+
+  # Pack the CLI binary into a snap and publish it to the Snap Store as
+  # `restorekit-cli` (the plain `restorekit` name is the desktop app, published
+  # from release-app.yml). GoReleaser can't do this: the binary links libusb
+  # dynamically, core24 doesn't ship libusb-1.0.so.0, and its `snapcrafts`
+  # block has no `stage-packages` escape hatch.
+  #
+  # One runner per arch — destructive mode builds on the host directly, so
+  # stage-packages can only pull the host's debs, and ubuntu-24.04 matches the
+  # snap's core24 base. Pack runs under sudo (snapcraft shells out to `snap`,
+  # which snapd only allows as root) and swallows snap's stderr, so dump its
+  # log on failure to see the real error.
+  snap:
+    # After `release`, not just `build`, so a failed GitHub release can't leave
+    # a published snap behind (the ordering GoReleaser gave us before).
+    needs: [release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the prebuilt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: restorekit_linux_${{ matrix.goarch }}
+          path: snapbuild/bin
+
+      - name: Build & publish the snap
+        env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sudo snap install snapcraft --classic
+          # The executable bit doesn't survive the artifact round-trip.
+          chmod +x snapbuild/bin/restorekit
+          sed "s/VERSION_PLACEHOLDER/${version}/" crates/restorekit-cli/snap/snapcraft.yaml \
+            > snapbuild/snapcraft.yaml
+          cd snapbuild
+          sudo snapcraft pack --destructive-mode || {
+            sudo cat /root/.local/state/snapcraft/log/*.log
+            exit 1
+          }
+          snapcraft upload --release=stable \
+            "restorekit-cli_${version}_${{ matrix.goarch }}.snap"

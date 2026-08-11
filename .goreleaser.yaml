@@ -78,30 +78,10 @@ homebrew_casks:
       needs root for that step (sudo restorekit dfu). Restores run on macOS
       and Linux.
 
-snapcrafts:
-  # Same naming rationale as the cask: the plain `restorekit` snap name is
-  # reserved for the desktop app. The app key below is what users type, so
-  # the command is `restorekit-cli` (the inner binary is still `restorekit`).
-  - name: restorekit-cli
-    ids: [restorekit]
-    title: restorekit
-    summary: DFU-restore Apple Silicon Macs from the command line
-    description: |
-      restorekit lets you fully wipe or restore a T2 or M series mac without
-      using any apple tools. Plug the target mac into your host's DFU port,
-      put it in DFU mode (automatic DFU only works from a macOS host), then:
-
-          sudo restorekit-cli erase
-    license: Apache-2.0
-    grade: stable
-    confinement: strict
-    base: core24
-    publish: true
-    channel_templates: [stable]
-    apps:
-      restorekit-cli:
-        command: restorekit
-        plugs: [home, network, raw-usb, removable-media]
+# No `snapcrafts:` block — the snap is packed by hand from
+# crates/restorekit-cli/snap/snapcraft.yaml in release.yml. The binary links
+# libusb dynamically and core24 doesn't ship it, so the snap needs
+# `stage-packages`, which GoReleaser's snapcrafts block can't express.
 
 scoops:
   # Same naming rationale as the cask: the plain `restorekit` name is reserved

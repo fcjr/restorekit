@@ -37,9 +37,13 @@ parts:
     plugin: dump
     source: restorekit.deb
     source-type: deb
-    # GTK3 comes from the gnome extension; webkit2gtk does not.
+    # GTK3 comes from the gnome extension; webkit2gtk does not. Neither does
+    # libusb — restorekit-desktop links it dynamically, and it's in neither
+    # core22 nor gnome-42-2204, so the app dies at exec with
+    # "libusb-1.0.so.0: cannot open shared object file".
     stage-packages:
       - libwebkit2gtk-4.1-0
+      - libusb-1.0-0
     override-build: |
       craftctl default
       sed -i 's|^Icon=.*|Icon=/usr/share/icons/hicolor/128x128/apps/restorekit-desktop.png|' \
