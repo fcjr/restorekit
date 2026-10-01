@@ -10,6 +10,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  appimage:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install AppImage build and smoke-test deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf xvfb xauth xdotool openbox dbus-x11 x11-utils \
+            build-essential autoconf automake libtool pkg-config cmake autoconf-archive \
+            libusb-1.0-0-dev libssl-dev libcurl4-openssl-dev zlib1g-dev
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Test AppImage launcher preparation
+        run: node --test apps/desktop/scripts/prepare-appimage.test.mjs
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build AppImage without release credentials
+        working-directory: apps/desktop
+        run: |
+          bash ./stage-helper.sh
+          pnpm tauri build --bundles appimage --no-sign
+
+      - name: Check AppImage permissions and GUI startup
+        run: bash apps/desktop/scripts/check-appimage.sh apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
   test:
     strategy:
       fail-fast: false
