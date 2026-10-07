@@ -165,7 +165,10 @@
     const seen = new Set<string>();
     for (const d of devices) {
       const e = ecidFor(d);
-      const key = e ?? d.serial;
+      // Serial is "" for USB devices without an iSerial, and keys must be
+      // unique or the keyed each throws and the tab never renders.
+      let key = e ?? d.serial;
+      if (!key || seen.has(key)) key = `${key}#${rows.length}`;
       rows.push({ key, ecid: e, name: d.name, device: d, job: latestJobForEcid(e) });
       seen.add(key);
       if (e) seen.add(e);
@@ -1354,7 +1357,7 @@
               <tr><th>Serial</th><th>Model</th><th>ECID</th><th>Mode</th><th>Port</th>{#if showQrInList}<th>QR</th>{/if}<th></th></tr>
             </thead>
             <tbody>
-              {#each devices as d (d.serial)}
+              {#each devices as d}
                 {@const s = serialFor(d)}
                 {@const e = ecidFor(d)}
                 {@const q = qrOf(d)}
