@@ -124,3 +124,20 @@ The first build compiles the entire C stack and takes a few minutes; subsequent
 builds are cached. The desktop app under [`apps/desktop`](../apps/desktop) has
 its own prerequisites (Node, the Tauri CLI, and WebKitGTK on Linux) — see the
 [Tauri prerequisites](https://tauri.app/start/prerequisites/).
+
+### AppImage packaging checks
+
+Linux desktop release builds target Ubuntu 24.04 or newer. The AppImage CI jobs
+build and smoke-test both x86_64 and aarch64 on that baseline. To run the focused
+launcher tests, use `node --test apps/desktop/scripts/prepare-appimage.test.mjs`.
+After building an AppImage, run
+`bash apps/desktop/scripts/check-appimage.sh path/to/RestoreKit.AppImage`
+(requires `xvfb`, `xauth`, `xdotool`, `openbox`, `dbus-x11`, and `x11-utils`). This
+checks launcher permissions before starting the GUI on a virtual desktop; it
+does not exercise device restoration.
+
+The pre-bundle hook works around the locked Tauri CLI downloading AppRun with
+mode `0770`. It verifies the upstream launcher and sets `0755` in Tauri's cache
+before packaging and signing, so the root-owned launcher inside the read-only
+AppImage is executable by ordinary users. Merely extracting and launching the
+image would miss this regression because extraction changes file ownership.
