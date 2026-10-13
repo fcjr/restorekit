@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build -c vite.prerender.config.ts && node scripts/prerender.js",
     "preview": "vite preview",
     "check": "wrangler types && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.worker.json",
     "cf-typegen": "wrangler types",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "pnpm build && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1",

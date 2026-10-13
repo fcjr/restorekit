@@ -514,8 +514,8 @@
         <div>
           <h3 class="t-h3">Which port is the DFU port?</h3>
           <p class="mt-2 max-w-[44ch]">
-            Apple moved it around from model to model. Here are the common ones, or check
-            <a href="https://support.apple.com/en-us/120694" class="lnk">apple's official list</a>.
+            Apple moved it around from model to model. Here are the common ones, or find
+            <a href="/dfu-port" class="lnk">the DFU port on every mac</a>.
           </p>
         </div>
         <dl class="t-data">
@@ -775,6 +775,7 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
       <div class="grow"></div>
       <div class="flex flex-wrap gap-x-6 gap-y-2 text-silk2">
         <a href="#dongle" class="hover:text-silk">Reserve dongle-lite</a>
+        <a href="/dfu-port" class="hover:text-silk">Find the DFU port</a>
         <a href={GITHUB} class="hover:text-silk">GitHub</a>
         <a href={SPONSOR} class="hover:text-silk">Sponsor</a>
         <a href="{GITHUB}/releases" class="hover:text-silk">Releases</a>
