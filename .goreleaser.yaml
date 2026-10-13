@@ -71,38 +71,37 @@ homebrew_casks:
     # macOS: unsigned binary, so strip the quarantine bit or Gatekeeper blocks it.
     # Linux: install the udev rule, otherwise every USB operation fails with
     # "permission denied (errno 13)" unless the whole CLI is run as root.
-    # Homebrew can't write to /etc on its own, so this asks for sudo; declining
-    # (or a non-interactive install) just leaves the rule out, hence
+    # Homebrew can't write to /etc on its own, so this asks for sudo, but only
+    # when the installed rule is missing or stale (the unprivileged cmp step
+    # drops a marker the sudo step is guarded on). Declining (or a
+    # non-interactive install) just leaves the rule out, hence
     # must_succeed: false and the caveat below.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr",
-                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/restorekit"]
-          elsif OS.linux?
-            src = "#{staged_path}/udev/51-restorekit.rules"
-            dst = "/etc/udev/rules.d/51-restorekit.rules"
-            # Skip the sudo prompt when the rule is already current (upgrades).
-            if File.exist?(src) && !(File.exist?(dst) && File.read(dst) == File.read(src))
-              ohai "Installing #{dst} so restorekit can reach USB devices without sudo"
-              result = begin
-                system_command "/bin/sh",
-                               args: ["-c", "install -m 0644 '#{src}' '#{dst}' && " \
-                                            "udevadm control --reload-rules && udevadm trigger"],
-                               sudo: true,
-                               must_succeed: false
-              rescue StandardError => e
-                opoo "sudo failed: #{e.message}"
-                nil
-              end
-              if result&.success?
-                ohai "Replug the device for the new permissions to take effect"
-              else
-                opoo "#{dst} was not installed; restorekit needs sudo until it is (see caveats)"
-              end
-            end
+    #
+    # Homebrew deprecated raw-Ruby `postflight` in favour of the declarative
+    # `postflight_steps`, which GoReleaser can't emit until v2.19
+    # (hooks.post.install_steps), so it goes in custom_block for now. The
+    # whole cask is run through GoReleaser's templating, so no `{{...}}`
+    # Homebrew tokens here; paths are relative to the staged path via chdir.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "restorekit"],
+                                chdir: ".", must_succeed: false, print_stderr: false
+        end
+        on_linux do
+          run "/bin/sh", args: ["-c", "cmp -s udev/51-restorekit.rules /etc/udev/rules.d/51-restorekit.rules || " \
+                                      "{ touch udev/.needs-install && echo '==> Installing " \
+                                      "/etc/udev/rules.d/51-restorekit.rules so restorekit can reach USB devices " \
+                                      "without sudo'; }"],
+                         chdir: ".", print_stdout: true
+          if_path_exists "udev/.needs-install" do
+            run "/bin/sh", args: ["-c", "install -m 0644 udev/51-restorekit.rules /etc/udev/rules.d/ && " \
+                                        "udevadm control --reload-rules && udevadm trigger && " \
+                                        "echo '==> Replug the device for the new permissions to take effect'"],
+                           chdir: ".", sudo: true, must_succeed: false, print_stdout: true
           end
+        end
+      end
     # Left in place by a plain uninstall (an upgrade would just reinstall it);
     # `brew uninstall --zap` takes it out.
     zap:
