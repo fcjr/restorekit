@@ -212,6 +212,29 @@ fn is_transient_failure(err: &Error) -> bool {
             .any(|m| sys::error_tail(500).contains(m))
 }
 
+/// Appended to a restore that failed loading iBoot's stage-1 firmware even
+/// after every retry. The target falling off USB as RestoreDCP/RestoreANS go
+/// over, the same way on every host and cable, is what a target too flat to
+/// power its display and storage controllers looks like.
+const LOW_POWER_HINT: &str = "The target dropped off USB while loading its startup firmware. \
+That's usually a flat battery: plug the target into a charger on one of its other USB-C ports, \
+give it a few minutes, then try again. If it still fails at the same spot, try a different cable.";
+
+/// Add [`LOW_POWER_HINT`] to a final failure that died in the stage-1 sends.
+fn with_failure_hint(err: Error) -> Error {
+    match err {
+        Error::RestoreFailed { status, log_tail }
+            if log_tail.contains("Unable to send iBoot stage 1 components") =>
+        {
+            Error::RestoreFailed {
+                status,
+                log_tail: format!("{log_tail}\n\n{LOW_POWER_HINT}"),
+            }
+        }
+        e => e,
+    }
+}
+
 /// Run a restore against the DFU device with the given ECID, streaming progress.
 ///
 /// This links libidevicerestore statically; there is no external binary.
@@ -262,7 +285,7 @@ pub fn restore(
                 std::thread::sleep(RESTORE_RETRY_DELAY);
                 attempt += 1;
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(with_failure_hint(e)),
         }
     }
 }
@@ -513,5 +536,28 @@ mod tests {
         assert!(!is_transient_failure(&real));
 
         assert!(!is_transient_failure(&Error::WaitTimeout));
+    }
+
+    #[test]
+    fn stage1_failure_gets_power_hint() {
+        // The tail from #28: the target drops off USB during RestoreDCP.
+        let stage1 = Error::RestoreFailed {
+            status: -1,
+            log_tail: "Unable to send RestoreDCP component: Unknown error\n\
+                       Unable to send iBoot stage 1 components to device\n\
+                       Unable to place device into recovery mode from DFU mode"
+                .into(),
+        };
+        assert!(with_failure_hint(stage1)
+            .to_string()
+            .contains("flat battery"));
+
+        let other = Error::RestoreFailed {
+            status: -1,
+            log_tail: "unable to get SHSH blobs for this device".into(),
+        };
+        assert!(!with_failure_hint(other)
+            .to_string()
+            .contains("flat battery"));
     }
 }
