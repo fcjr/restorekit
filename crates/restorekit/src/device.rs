@@ -213,6 +213,13 @@ pub const MAC_MODELS: &[MacModel] = &[
     },
     MacModel {
         cpid: 0x6050,
+        bdid: 0x02,
+        board: "J873sAP",
+        identifier: "Mac17,16",
+        name: "Mac mini (M5 Pro, 2026)",
+    },
+    MacModel {
+        cpid: 0x6050,
         bdid: 0x08,
         board: "J714sAP",
         identifier: "Mac17,9",
@@ -238,6 +245,20 @@ pub const MAC_MODELS: &[MacModel] = &[
         board: "J716cAP",
         identifier: "Mac17,6",
         name: "MacBook Pro (16-inch, M5 Max)",
+    },
+    MacModel {
+        cpid: 0x6050,
+        bdid: 0x10,
+        board: "J775cAP",
+        identifier: "Mac17,14",
+        name: "Mac Studio (M5 Max, 2026)",
+    },
+    MacModel {
+        cpid: 0x6050,
+        bdid: 0x12,
+        board: "J775dAP",
+        identifier: "Mac17,15",
+        name: "Mac Studio (M5 Ultra, 2026)",
     },
     // Intel Macs with the Apple T2 (CPID 0x8012). In DFU the T2 reports this
     // CPID/BDID; `identifier` is the T2 bridge product type (`iBridge2,x`) — the
@@ -523,6 +544,13 @@ pub const MAC_MODELS: &[MacModel] = &[
         board: "J815AP",
         identifier: "Mac17,4",
         name: "MacBook Air (15-inch, M5)",
+    },
+    MacModel {
+        cpid: 0x8152,
+        bdid: 0x24,
+        board: "J873gAP",
+        identifier: "Mac18,5",
+        name: "Mac mini (M6, 2026)",
     },
 ];
 

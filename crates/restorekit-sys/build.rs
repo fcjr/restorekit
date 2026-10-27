@@ -479,9 +479,15 @@ fn compile_idevicerestore(src: &Path, deps: &Deps) {
         build.include(inc);
     }
 
+    // deviceinterfaced.c is macOS-only (posix_spawn/launchctl); upstream's
+    // Makefile.am builds it only on Darwin, where main() references it.
+    let is_macos = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos");
     let mut count = 0;
     for entry in std::fs::read_dir(&src_dir).unwrap() {
         let path = entry.unwrap().path();
+        if !is_macos && path.file_name().and_then(|n| n.to_str()) == Some("deviceinterfaced.c") {
+            continue;
+        }
         if path.extension().and_then(|e| e.to_str()) == Some("c") {
             build.file(&path);
             count += 1;
