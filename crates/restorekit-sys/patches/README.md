@@ -21,6 +21,14 @@ compiles the patched copy.
   again on its next iteration. Apple Silicon Macs hit it reliably when they
   re-enumerate from DFU into recovery mode after iBSS. Drive the retry loop
   from `dfu.c`, clearing the pointer after each failed attempt.
+- `0007-keep-waiting-for-device-after-restore-mode-reboot.patch` — when a
+  restore starts with the target still in restore mode (a retry after the
+  link dropped mid-restore), idevicerestore reboots it and waits up to 60s
+  for it to come back. That wait was a single `cond_wait_timeout`, which any
+  add/remove event for the device ends early, including the device dropping
+  off USB as it reboots or re-enumerating once it's back. It then bailed with
+  "Unable to discover device mode" while the Mac was still on its way back.
+  Loop until the mode is known or the minute is up.
 
 ## Updating a patch
 
