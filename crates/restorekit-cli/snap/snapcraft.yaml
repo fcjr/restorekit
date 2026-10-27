@@ -30,7 +30,11 @@ confinement: strict
 apps:
   restorekit-cli:
     command: restorekit
-    plugs: [home, network, raw-usb, removable-media]
+    # network-bind: the embedded usbmuxd listens on a Unix socket, and the
+    # strict seccomp profile only allows listen()/accept() with this plug.
+    # Without it every restore fails with "listen() failed: Operation not
+    # permitted" before the target reaches restore mode.
+    plugs: [home, network, network-bind, raw-usb, removable-media]
 
 parts:
   restorekit:
