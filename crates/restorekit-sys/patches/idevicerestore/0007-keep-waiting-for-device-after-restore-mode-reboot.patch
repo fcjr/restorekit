@@ -1,0 +1,24 @@
+diff --git a/src/idevicerestore.c b/src/idevicerestore.c
+index 04070a1..c10e331 100644
+--- a/src/idevicerestore.c
++++ b/src/idevicerestore.c
+@@ -690,9 +690,17 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
+ 				return -2;
+ 			}
+ 
+-			// we need to refresh the current mode again
++			// we need to refresh the current mode again. The condition is
++			// signalled on every add/remove event for this device, including
++			// the disconnect as it goes down to reboot, which leaves the mode
++			// MODE_UNKNOWN. A single wait returns on that and gives up while
++			// the device is still rebooting, so keep waiting until it comes
++			// back in a known mode or the full minute is up.
+ 			mutex_lock(&client->device_event_mutex);
+-			cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 60000);
++			time_t deadline = time(NULL) + 60;
++			while (client->mode == MODE_UNKNOWN && !(client->flags & FLAG_QUIT) && time(NULL) < deadline) {
++				cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 1000);
++			}
+ 			if (client->mode == MODE_UNKNOWN || (client->flags & FLAG_QUIT)) {
+ 				mutex_unlock(&client->device_event_mutex);
+ 				logger(LL_ERROR, "Unable to discover device mode. Please make sure a device is attached.\n");
