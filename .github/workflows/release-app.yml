@@ -125,6 +125,11 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "RestoreKit ${{ github.ref_name }}"
           releaseDraft: false
+          # Without --target, CLI 2.11.4 tells the bundler the triple it was
+          # itself compiled for (-msvc on Windows), so the NSIS step that adds
+          # WebView2Loader.dll for -gnu builds is skipped and the installed
+          # app can't start (#21). Fixed upstream in CLI 2.12.0.
+          args: ${{ runner.os == 'Windows' && '--target x86_64-pc-windows-gnu' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Updater artifact signing (all platforms).
@@ -137,6 +142,22 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+
+      # The GNU build links WebView2Loader.dll dynamically, so an installer
+      # without it ships an app that won't launch. tauri-action has already
+      # uploaded by now, but fail loudly rather than let it go unnoticed again.
+      - name: Check the installer ships WebView2Loader.dll
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          setup="apps/desktop/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/RestoreKit_${version}_x64-setup.exe"
+          listing="$(7z l "$setup")"
+          grep -q 'WebView2Loader\.dll' <<<"$listing" || {
+            echo "::error::$setup is missing WebView2Loader.dll"
+            exit 1
+          }
 
       # tauri-action notarizes and staples the .app, but not the .dmg itself.
       # Notarize + staple the .dmg so a directly-downloaded copy verifies offline,
