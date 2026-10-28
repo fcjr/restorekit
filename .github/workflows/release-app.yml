@@ -183,7 +183,14 @@ jobs:
             sudo cat /root/.local/state/snapcraft/log/*.log
             exit 1
           }
-          snapcraft upload --release=stable "restorekit_${version}_${arch}.snap"
+          # The store sometimes drops the connection mid-upload (v0.5.14's arm64
+          # desktop snap died on "RemoteDisconnected"), so give it a few tries.
+          for attempt in 1 2 3; do
+            snapcraft upload --release=stable "restorekit_${version}_${arch}.snap" && break
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            echo "::warning::snap upload failed (attempt $attempt of 3), retrying in 30s"
+            sleep 30
+          done
 
       # Fill the cask template with this release's version + .dmg sha256 and push
       # it to the tap, so `brew install --cask restorekit` tracks the release.
