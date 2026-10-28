@@ -279,7 +279,9 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         configure.env("LIBS", "-lws2_32 -liphlpapi -lole32 -lsetupapi");
     }
     run(&mut configure, &format!("{name} configure"));
-    quote_libtool_globs(&build_dir.join("libtool"));
+    if deps.windows {
+        drop_libtool_globs(&build_dir.join("libtool"));
+    }
 
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "4".into());
     let mut make = Command::new("make");
@@ -304,34 +306,40 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
     std::fs::write(&marker, "").unwrap();
 }
 
-/// Quote the file globs in the generated `libtool` script's convenience-library
-/// extraction.
+/// Take the file globs out of the generated `libtool` script's
+/// convenience-library extraction (Windows only).
 ///
 /// To fold a convenience library into a static one, libtool unpacks its members
-/// and collects them back with an unquoted, backslash-escaped pattern:
+/// and collects them back with a backslash-escaped pattern:
 ///
 /// ```sh
 /// my_oldobjs="$my_oldobjs "`find $my_xdir -name \*.$objext -print -o -name \*.lo -print | ...`
 /// ```
 ///
-/// The escape doesn't survive the backtick substitution in the shell MSYS2 hands
-/// us when cargo (a native Windows process) drives the build rather than the
-/// MINGW64 login shell, so `*.o` is expanded against the build directory before
-/// find ever sees it. find then bails with "paths must precede expression", and
+/// When cargo (a native Windows process) drives the build rather than the
+/// MINGW64 login shell, `*.o` reaches find expanded against the build directory
+/// anyway. Quoting the pattern in the script didn't help (v0.5.11 and v0.5.12
+/// failed the same way), so the expansion happens on find's side, past any
+/// shell quoting. find then bails with "paths must precede expression", and
 /// because libtool never checks, the member list comes back empty: the archive
 /// is created without them and the build limps on. libplist ships libcnary that
 /// way, so `libplist-2.0.a` loses node.o, and the first thing to link plist_*
 /// (its own plistutil, then everything downstream) dies on `undefined reference
-/// to 'node_attach'`.
-fn quote_libtool_globs(libtool: &Path) {
+/// to 'node_first_child'`.
+///
+/// The extraction directory only ever holds the members `ar x` just unpacked,
+/// so list every file instead and leave find nothing to glob. Not done
+/// elsewhere: BSD ar on macOS also extracts its `__.SYMDEF` symbol table.
+fn drop_libtool_globs(libtool: &Path) {
     let Ok(script) = std::fs::read_to_string(libtool) else {
         return;
     };
-    let quoted = script
-        .replace(r"\*.$objext", r#""*.$objext""#)
-        .replace(r"\*.lo", r#""*.lo""#);
-    if quoted != script {
-        std::fs::write(libtool, quoted).unwrap();
+    let patched = script.replace(
+        r"-name \*.$objext -print -o -name \*.lo -print",
+        "-type f -print",
+    );
+    if patched != script {
+        std::fs::write(libtool, patched).unwrap();
     }
 }
 
