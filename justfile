@@ -70,8 +70,15 @@ app-dev:
     cd apps/desktop && pnpm tauri dev
 
 # Build the desktop app (unsigned; see app-build-signed)
+[unix]
 app-build:
     cd apps/desktop && pnpm tauri build
+
+# Build the desktop app (unsigned). --target makes the bundler include
+# WebView2Loader.dll, which it skips when it guesses -msvc.
+[windows]
+app-build:
+    cd apps/desktop && pnpm tauri build --target x86_64-pc-windows-gnu
 
 # Build a signed + notarized RestoreKit.app (config from apps/desktop/.env)
 app-build-signed:
