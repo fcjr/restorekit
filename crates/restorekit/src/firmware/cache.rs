@@ -8,11 +8,40 @@ use crate::error::{Error, Result};
 
 /// The firmware cache directory. On Unix, `${XDG_CONFIG_HOME:-~/.config}/
 /// restorekit/firmwares`; on Windows, `%APPDATA%\restorekit\firmwares`.
+/// Inside a snap, `$SNAP_USER_COMMON/firmwares`.
 ///
 /// Overridable by the caller (CLI `--cache-dir` / `RESTOREKIT_CACHE_DIR`).
 pub fn default_cache_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("RESTOREKIT_CACHE_DIR").filter(|d| !d.is_empty()) {
         return Ok(PathBuf::from(dir));
+    }
+    // A strict snap's HOME is the per-revision $SNAP_USER_DATA, which snapd
+    // copies in full on every refresh: a cached 20 GB IPSW would be duplicated
+    // each release and kept again for the retained revision. $SNAP_USER_COMMON
+    // is shared by all revisions and never copied. Checking SNAP_NAME too,
+    // since other snaps (VS Code's terminal, say) leak their SNAP_* variables
+    // into the processes they spawn.
+    #[cfg(not(windows))]
+    if let Some(common) = std::env::var_os("SNAP_USER_COMMON")
+        .filter(|c| !c.is_empty())
+        .filter(|_| {
+            matches!(
+                std::env::var("SNAP_NAME").as_deref(),
+                Ok("restorekit" | "restorekit-cli")
+            )
+        })
+    {
+        let common = PathBuf::from(common);
+        if let Ok(legacy) = resolve_cache_dir(
+            None,
+            std::env::var_os("XDG_CONFIG_HOME"),
+            std::env::var_os("HOME"),
+        ) {
+            if let Some(legacy) = legacy.parent() {
+                move_entries(legacy, &common);
+            }
+        }
+        return Ok(common.join("firmwares"));
     }
     #[cfg(windows)]
     {
@@ -47,6 +76,29 @@ fn resolve_cache_dir(
         _ => PathBuf::from(home.filter(|h| !h.is_empty()).ok_or(Error::NoHomeDir)?).join(".config"),
     };
     Ok(base.join("restorekit").join("firmwares"))
+}
+
+/// Move everything under `from` into `to`, merging into directories that
+/// already exist there and leaving alone files that do, then drop whatever of
+/// `from` ends up empty. Best effort: anything that fails to move stays put.
+#[cfg(not(windows))]
+fn move_entries(from: &Path, to: &Path) {
+    let Ok(entries) = std::fs::read_dir(from) else {
+        return;
+    };
+    if std::fs::create_dir_all(to).is_err() {
+        return;
+    }
+    for entry in entries.flatten() {
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        if !dst.exists() {
+            let _ = std::fs::rename(&src, &dst);
+        } else if src.is_dir() && dst.is_dir() {
+            move_entries(&src, &dst);
+        }
+    }
+    let _ = std::fs::remove_dir(from);
 }
 
 /// Path a firmware would occupy in the cache.
@@ -191,6 +243,31 @@ mod tests {
     fn cache_dir_falls_back_to_home() {
         let got = resolve_cache_dir(None, None, Some("/home/x".into())).unwrap();
         assert_eq!(got, PathBuf::from("/home/x/.config/restorekit/firmwares"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn move_entries_merges_and_keeps_existing() {
+        let root = std::env::temp_dir().join(format!("ar-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let from = root.join("old/restorekit");
+        let to = root.join("common");
+        std::fs::create_dir_all(from.join("firmwares")).unwrap();
+        std::fs::create_dir_all(to.join("firmwares")).unwrap();
+        std::fs::write(from.join("history.db"), "old").unwrap();
+        std::fs::write(from.join("firmwares/a.ipsw"), "a").unwrap();
+        std::fs::write(from.join("firmwares/b.ipsw"), "old b").unwrap();
+        std::fs::write(to.join("firmwares/b.ipsw"), "new b").unwrap();
+
+        move_entries(&from, &to);
+
+        let read = |p: &str| std::fs::read_to_string(to.join(p)).unwrap();
+        assert_eq!(read("history.db"), "old");
+        assert_eq!(read("firmwares/a.ipsw"), "a");
+        assert_eq!(read("firmwares/b.ipsw"), "new b");
+        assert!(from.join("firmwares/b.ipsw").exists());
+        assert!(!from.join("firmwares/a.ipsw").exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

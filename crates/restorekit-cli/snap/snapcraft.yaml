@@ -45,3 +45,16 @@ parts:
     # The one library the "self-contained" binary still links dynamically.
     stage-packages:
       - libusb-1.0-0
+
+  # snapd snapshots a snap's data on `snap remove` and keeps it for 31 days;
+  # keep the cached IPSWs (tens of GB) out of it. The legacy per-revision path
+  # is only there in case an old cache couldn't be moved to SNAP_USER_COMMON.
+  snapshots:
+    plugin: nil
+    override-prime: |
+      mkdir -p "$CRAFT_PRIME/meta"
+      cat > "$CRAFT_PRIME/meta/snapshots.yaml" <<'YAML'
+      exclude:
+        - $SNAP_USER_COMMON/firmwares
+        - $SNAP_USER_DATA/.config/restorekit/firmwares
+      YAML

@@ -63,3 +63,16 @@ parts:
       craftctl default
       sed -i 's|^Icon=.*|Icon=/usr/share/icons/hicolor/128x128/apps/restorekit-desktop.png|' \
         $CRAFT_PART_INSTALL/usr/share/applications/RestoreKit.desktop
+
+  # snapd snapshots a snap's data on `snap remove` and keeps it for 31 days;
+  # keep the cached IPSWs (tens of GB) out of it. The legacy per-revision path
+  # is only there in case an old cache couldn't be moved to SNAP_USER_COMMON.
+  snapshots:
+    plugin: nil
+    override-prime: |
+      mkdir -p "$CRAFT_PRIME/meta"
+      cat > "$CRAFT_PRIME/meta/snapshots.yaml" <<'YAML'
+      exclude:
+        - $SNAP_USER_COMMON/firmwares
+        - $SNAP_USER_DATA/.config/restorekit/firmwares
+      YAML
