@@ -38,6 +38,7 @@ core-foundation = "0.10"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.60", features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Registry",
