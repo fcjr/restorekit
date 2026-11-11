@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             toolchain: stable
           # ubuntu-24.04 to match the snap's core24 base: the snap is packed
           # in destructive mode further down, so stage-packages resolve

@@ -52,8 +52,8 @@ and linked in. No subprocess, no `brew install idevicerestore`.
 > binary is self-contained (ldd: only libc + libusb). apt needs
 > build-essential, autoconf-archive, libssl-dev, libcurl4-openssl-dev,
 > zlib1g-dev beyond the obvious autotools/cmake/libusb.
-- [x] `.github/workflows/ci.yml` — fmt, clippy, test; matrix macos-14 (arm64) + ubuntu (needs `libusb-1.0`, autotools, cmake to build the stack)
-- [x] Native release build matrix: macos-14 (arm64), macos-13 (x86_64), ubuntu-24 arm64 + x86_64 — each runs `cargo build --release` (build.rs builds the self-contained stack), uploads the artifact
+- [x] `.github/workflows/ci.yml` — fmt, clippy, test; matrix macos-15 (arm64) + ubuntu (needs `libusb-1.0`, autotools, cmake to build the stack)
+- [x] Native release build matrix: macos-15 (arm64) + ubuntu-24 arm64 + x86_64 — each runs `cargo build --release` (build.rs builds the self-contained stack), uploads the artifact
 - [x] `.goreleaser.yaml` — `builder: prebuilt` assembling the per-platform artifacts into archives + checksums; `homebrew_casks` → fcjr/homebrew-fcjr with quarantine-removal hook
 - [x] `.github/workflows/release.yml` — tag-triggered: build matrix → goreleaser packages prebuilt binaries; `GITHUB_TOKEN` + `TAP_GITHUB_TOKEN`
 

@@ -10,7 +10,15 @@ if [[ $# != 1 ]]; then
 fi
 appimage="$(realpath "$1")"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+cleanup() {
+  cd /
+  for _ in 1 2 3 4 5; do
+    rm -rf "$work" 2>/dev/null && return
+    sleep 0.2
+  done
+  rm -rf "$work" 2>/dev/null || true
+}
+trap cleanup EXIT
 cd "$work"
 "$appimage" --appimage-extract > /dev/null
 appdir="$work/squashfs-root"
