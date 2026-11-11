@@ -14,8 +14,11 @@ Files in `../panel/mfg-jlcpcb/`: `gerbers.zip`, `bom.csv`, `pos.csv`.
 - 81.1 x 48.1 mm, three boards side by side, 2 mm apart.
 - 5 mm rails left and right with three tooling holes and three fiducials.
 - Two 3 mm mouse-bite tabs on each long edge. Top and bottom are open.
-- On the order form: Delivery Format "Panel by Customer", 1 design, 3 boards
-  per panel. Quantity is panels, so 5 panels is 15 dongles.
+- Every part has its own designator (`C1_1`, `C1_2`, `C1_3`), so the placement
+  file has no repeats and uploads under Delivery Format "Single PCB" as one
+  81 x 48 mm board. JLCPCB's review can still see three boards in the gerbers
+  and may reclassify it as "Panel by Customer"; if it does, pick that with
+  1 design and 3 boards per panel. Quantity is panels: 5 is 15 dongles.
 - Regenerate with `gen/panel.sh` after any board change.
 
 ## Option 2: let JLCPCB panel it

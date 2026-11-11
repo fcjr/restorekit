@@ -111,7 +111,12 @@ text('flip-safe', 117.3, 111.5, B, 0.8, w_ratio=0.85)
 def pin1(ref, num, dx, dy):
     x, y = pad[(ref, num)]; dot(x + dx, y + dy, 0.18, F)
 pin1('U1', '1', -0.55, 0.75); pin1('U2', '1', 0.55, 0.0); pin1('U3', '1', 0.0, -0.75); pin1('U4', '1', 0.0, 0.75)
-pin1('U5', '1', -0.65, 0.0); pin1('U6', '1', 0.0, 0.85); pin1('U7', '1', 0.0, 0.85)
+pin1('U5', '1', -0.65, 0.0); pin1('U6', '1', 0.75, 0.4); pin1('U7', '1', -0.6, 0.9)
+# ESD arrays: dot just past pin 1, in line with the pin row
+for ref in ('D10', 'D11', 'D12', 'D13', 'D14', 'D15'):
+    (x1, y1), (x2, y2) = pad[(ref, '1')], pad[(ref, '2')]
+    l = math.hypot(x1 - x2, y1 - y2)
+    dot(x1 + (x1 - x2) / l * 0.45, y1 + (y1 - y2) / l * 0.45, 0.15, F)
 # LED cathode bars
 for ref in ('D1', 'D2'):
     x, y = pad[(ref, '2')]; ax, ay = pad[(ref, '1')]
