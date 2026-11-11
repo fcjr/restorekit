@@ -185,7 +185,7 @@ pub(super) fn verify(path: &Path, fw: &Firmware) -> Result<()> {
 fn hash_file<D: Digest>(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = D::new();
-    let mut buf = [0u8; 1 << 20];
+    let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = file.read(&mut buf)?;
         if n == 0 {
@@ -294,5 +294,25 @@ mod tests {
         assert_eq!(cached(&dir, &g), None);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn hash_file_works_on_a_small_stack() {
+        let path = std::env::temp_dir().join(format!("ar-hash-{}", std::process::id()));
+        std::fs::write(&path, b"hello").unwrap();
+
+        let worker_path = path.clone();
+        let hash = std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(move || hash_file::<Sha256>(&worker_path).unwrap())
+            .unwrap()
+            .join()
+            .unwrap();
+
+        assert_eq!(
+            hash,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+        std::fs::remove_file(path).ok();
     }
 }
