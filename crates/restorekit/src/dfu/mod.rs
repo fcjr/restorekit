@@ -123,10 +123,13 @@ Mac running macOS). Put the target Mac into DFU mode manually:
        - 14"/16" MacBook Pro: the port next to MagSafe.
        - Mac mini/Studio: the port nearest the power button/HDMI.
        - iMac: the port nearest the edge.
-  2. Disconnect the target from power.
-  3. Apple silicon laptop: hold the power button, then while holding it,
-     connect power and keep holding ~10s.
-     Desktop: unplug power 10s, then press and hold the power button while
-     reconnecting power.
-  4. Release. The screen stays black in DFU mode. Re-run this command to
+  2. Apple silicon laptop:
+       a. Hold power for up to 10s until the Mac turns off.
+       b. Press and release power, then immediately hold left Control, left
+          Option, right Shift, and power together for about 10s.
+       c. Release the three keyboard keys but keep holding power for up to 10s.
+     Desktop:
+       a. Unplug power.
+       b. Hold the power button while reconnecting power, for up to 10s.
+  3. Release. The screen stays black in DFU mode. Re-run this command to
      detect it."#;

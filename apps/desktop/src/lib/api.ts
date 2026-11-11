@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
-export type Mode = "dfu" | "recovery" | "wtf" | "restore" | "booted" | "other";
+export type Mode = "dfu" | "port-dfu" | "recovery" | "wtf" | "restore" | "booted" | "billboard" | "other";
 
 /** The host USB-C port a device is cabled to (macOS only). */
 export interface Port {
@@ -335,9 +335,11 @@ export function gib(bytes: number): string {
 
 export const MODES: Record<Mode, { label: string; hint: string }> = {
   dfu: { label: "DFU", hint: "ready to restore" },
+  "port-dfu": { label: "Port DFU", hint: "ready to update the port and restore" },
   recovery: { label: "Recovery", hint: "put in DFU to restore" },
   restore: { label: "Restore", hint: "restore in progress" },
   wtf: { label: "WTF", hint: "low-level mode" },
   booted: { label: "Booted", hint: "running macOS — put in DFU to restore" },
+  billboard: { label: "Billboard", hint: "USB-C alternate mode failed" },
   other: { label: "Connected", hint: "not in a restore mode" },
 };

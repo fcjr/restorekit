@@ -232,18 +232,22 @@
 
   const MODE_TAG: Record<Mode, string> = {
     dfu: "DFU",
+    "port-dfu": "Port DFU",
     recovery: "Recovery",
     restore: "Restore",
     wtf: "WTF",
     booted: "Booted",
+    billboard: "Billboard",
     other: "Connected",
   };
   const MODE_COLOR: Record<Mode, string> = {
     dfu: "var(--acc)",
+    "port-dfu": "var(--acc)",
     recovery: "var(--alt)",
     restore: "var(--ok)",
     wtf: "var(--danger)",
     booted: "var(--acc)",
+    billboard: "var(--danger)",
     other: "var(--fnt)",
   };
 

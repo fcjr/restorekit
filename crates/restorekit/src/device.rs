@@ -586,6 +586,8 @@ pub fn model_from_device_version(bcd: u16) -> Option<&'static MacModel> {
 pub const APPLE_VID: u16 = 0x05ac;
 /// Product ID presented by an Apple SoC in DFU mode.
 pub const DFU_PID: u16 = 0x1227;
+/// Product ID presented by a Mac's USB-C controller in Port DFU mode.
+pub const PORT_DFU_PID: u16 = 0xf014;
 /// Product ID a Mac's USB-C port controller presents as a USB Billboard device
 /// when an alternate mode (e.g. Thunderbolt) fails to enter over the link.
 pub const BILLBOARD_PID: u16 = 0x7304;
@@ -597,8 +599,12 @@ pub const T2_CPID: u16 = 0x8012;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UsbMode {
-    /// DFU mode — the only mode restorekit can restore from.
+    /// Normal SoC DFU mode.
     Dfu,
+    /// Port DFU mode. The USB-C controller must be updated before the Mac
+    /// reconnects in normal SoC DFU mode and the restore continues.
+    #[serde(rename = "port-dfu")]
+    PortDfu,
     /// Recovery mode (iBoot).
     Recovery,
     /// WTF ("what's the firmware") mode.
@@ -623,7 +629,8 @@ pub enum UsbMode {
 impl UsbMode {
     fn from_pid(pid: u16) -> UsbMode {
         match pid {
-            0x1227 => UsbMode::Dfu,
+            DFU_PID => UsbMode::Dfu,
+            PORT_DFU_PID => UsbMode::PortDfu,
             0x1280 | 0x1281 => UsbMode::Recovery,
             0x1222 => UsbMode::Wtf,
             0x1338 | 0x1339 => UsbMode::Restore,
@@ -641,6 +648,7 @@ impl fmt::Display for UsbMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             UsbMode::Dfu => "dfu",
+            UsbMode::PortDfu => "port-dfu",
             UsbMode::Recovery => "recovery",
             UsbMode::Wtf => "wtf",
             UsbMode::Restore => "restore",
@@ -779,11 +787,11 @@ pub struct Port {
 
 impl Device {
     pub fn in_dfu(&self) -> bool {
-        self.mode == UsbMode::Dfu
+        matches!(self.mode, UsbMode::Dfu | UsbMode::PortDfu)
     }
 
-    /// Whether restorekit can restore this device right now (DFU mode with a
-    /// readable identity).
+    /// Whether restorekit can restore this device right now (normal or Port
+    /// DFU mode with a readable identity).
     pub fn restorable(&self) -> bool {
         self.in_dfu() && self.identity.is_some()
     }
@@ -876,6 +884,31 @@ pub fn parse_serial(serial: &str) -> Option<(u16, u8, u64, Option<String>, Optio
     Some((cpid?, bdid?, ecid?, srtg, srnm))
 }
 
+/// Port DFU reports the target Mac's chip and board IDs packed into its wide
+/// `BDID` field. Decode it the same way libirecovery does when selecting the
+/// device model; the separate `CPID` belongs to the USB-C controller.
+#[allow(clippy::type_complexity)]
+fn parse_port_dfu_serial(serial: &str) -> Option<(u16, u8, u64, Option<String>, Option<String>)> {
+    let mut packed_bdid = None;
+    let mut ecid = None;
+
+    for field in serial.split_whitespace() {
+        let Some((key, value)) = field.split_once(':') else {
+            continue;
+        };
+        match key {
+            "BDID" => packed_bdid = u64::from_str_radix(value, 16).ok(),
+            "ECID" => ecid = u64::from_str_radix(value, 16).ok(),
+            _ => {}
+        }
+    }
+
+    let packed_bdid = packed_bdid?;
+    let cpid = ((packed_bdid >> 8) & 0xffff) as u16;
+    let bdid = ((packed_bdid >> 24) & 0xff) as u8;
+    Some((cpid, bdid, ecid?, None, None))
+}
+
 /// Some Macs (booted / "other" mode) expose a `CPID-ECID` USB serial like
 /// `00008103-000445E11462001E` — 8 hex CPID, a dash, then the 16-hex ECID.
 /// Pull the ECID out of it when the richer `parse_serial` finds nothing.
@@ -892,7 +925,11 @@ fn ecid_from_usb_serial(serial: &str) -> Option<u64> {
 pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
     let serial = info.serial_number().unwrap_or("").to_string();
     let mode = UsbMode::from_pid(info.product_id());
-    let parsed = parse_serial(&serial);
+    let parsed = if mode == UsbMode::PortDfu {
+        parse_port_dfu_serial(&serial)
+    } else {
+        parse_serial(&serial)
+    };
     let ecid = parsed
         .as_ref()
         .map(|(_, _, ecid, _, _)| *ecid)
@@ -1421,6 +1458,29 @@ mod tests {
     }
 
     #[test]
+    fn parses_port_dfu_identity() {
+        let s = "SDOM:01 CPID:0022 BDID:0000000004604000 ECID:794E1EC5141BD7C0 PREV:29";
+        let (cpid, bdid, ecid, srtg, srnm) = parse_port_dfu_serial(s).unwrap();
+        assert_eq!(cpid, 0x6040);
+        assert_eq!(bdid, 0x04);
+        assert_eq!(ecid, 0x794E1EC5141BD7C0);
+        assert_eq!(lookup(cpid, bdid).unwrap().identifier, "Mac16,8");
+        assert!(srtg.is_none());
+        assert!(srnm.is_none());
+
+        let neo = "CPID:0022 BDID:0000000064814000 ECID:0123456789ABCDEF";
+        let (cpid, bdid, ..) = parse_port_dfu_serial(neo).unwrap();
+        assert_eq!((cpid, bdid), (0x8140, 0x64));
+        assert_eq!(lookup(cpid, bdid).unwrap().identifier, "Mac17,5");
+    }
+
+    #[test]
+    fn recognizes_port_dfu_pid() {
+        assert_eq!(UsbMode::from_pid(PORT_DFU_PID), UsbMode::PortDfu);
+        assert_eq!(UsbMode::PortDfu.to_string(), "port-dfu");
+    }
+
+    #[test]
     fn missing_required_field_fails() {
         assert!(parse_serial("CPID:8103 BDID:26").is_none());
     }
@@ -1470,6 +1530,7 @@ mod tests {
         assert!(d.restorable());
         assert_eq!(d.identifier(), Some("MacBookAir10,1"));
         assert_eq!(d.ecid_hex().as_deref(), Some("0x1234"));
+        assert!(dev(UsbMode::PortDfu, 2).restorable());
         assert!(!dev(UsbMode::Recovery, 1).restorable());
     }
 
@@ -1480,7 +1541,7 @@ mod tests {
             .unwrap()
             .is_none());
         let picked = select(
-            vec![dev(UsbMode::Recovery, 1), dev(UsbMode::Dfu, 2)],
+            vec![dev(UsbMode::Recovery, 1), dev(UsbMode::PortDfu, 2)],
             Target::One,
         )
         .unwrap()

@@ -14,7 +14,8 @@ const DONGLE_DFU_TIMEOUT: Duration = Duration::from_secs(60);
 /// string so the backend can re-derive the exact ECID without a float round-trip.
 #[derive(Serialize)]
 pub struct DeviceView {
-    /// "dfu" | "recovery" | "wtf" | "restore" | "other"
+    /// "dfu" | "port-dfu" | "recovery" | "wtf" | "restore" | "booted" |
+    /// "billboard" | "other"
     pub mode: String,
     pub name: String,
     pub identifier: Option<String>,
@@ -26,7 +27,7 @@ pub struct DeviceView {
     /// The captured hardware serial number (recovery/booted), if any. Distinct
     /// from the raw `serial` DFU string above.
     pub serial_number: Option<String>,
-    /// Whether restorekit can restore a device in this mode (DFU only).
+    /// Whether restorekit can restore a device in this mode (DFU or Port DFU).
     pub restorable: bool,
     /// The host port this device is on (macOS): its firmware location name and
     /// whether it's the DFU-capable port. `None` when undeterminable.
