@@ -19,5 +19,6 @@ $K panelize \
 rm -rf panel/mfg-jlcpcb
 $K fab jlcpcb --assembly --schematic dongle-pro-v2.kicad_sch --field LCSC --no-drc \
  panel/dongle-pro-v2-panel.kicad_pcb panel/mfg-jlcpcb 2>&1 | grep -iE "error|warn" || true
-rm -f panel/*.lck panel/*.kicad_prl
+python3 gen/panel_ids.py panel/mfg-jlcpcb
+rm -f panel/*.lck panel/*.kicad_prl panel/~*.lck 2>/dev/null || true
 kicad-cli pcb drc panel/dongle-pro-v2-panel.kicad_pcb -o /tmp/v2-panel-drc.rpt --severity-error | head -2
