@@ -61,19 +61,72 @@ pub struct Target {
 
 /// Enumerate connected Apple devices in DFU, recovery, or restore mode.
 pub fn connected_targets() -> Result<Vec<Target>> {
-    use nusb::MaybeFuture;
-    let devices = nusb::list_devices().wait().map_err(Error::from)?;
-    Ok(devices
-        .filter(|d| d.vendor_id() == APPLE_VID && is_target_pid(d.product_id()))
-        .map(|d| {
-            let pid = d.product_id();
-            let name = d
-                .product_string()
-                .map(str::to_owned)
-                .unwrap_or_else(|| format!("Apple device (mode {pid:#06x})"));
-            Target { pid, name }
-        })
-        .collect())
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
+        SetupDiGetDeviceInstanceIdW, DIGCF_ALLCLASSES, DIGCF_PRESENT, SP_DEVINFO_DATA,
+    };
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+
+    unsafe {
+        let devices = SetupDiGetClassDevsW(
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            DIGCF_ALLCLASSES | DIGCF_PRESENT,
+        );
+        if devices == INVALID_HANDLE_VALUE as isize {
+            return Err(Error::DriverInstall(
+                "could not enumerate Windows devices".into(),
+            ));
+        }
+
+        let mut targets = Vec::new();
+        let mut index = 0;
+        loop {
+            let mut info = SP_DEVINFO_DATA {
+                cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
+                ..Default::default()
+            };
+            if SetupDiEnumDeviceInfo(devices, index, &mut info) == 0 {
+                break;
+            }
+            index += 1;
+
+            let mut instance_id = [0u16; 512];
+            let mut required = 0;
+            if SetupDiGetDeviceInstanceIdW(
+                devices,
+                &info,
+                instance_id.as_mut_ptr(),
+                instance_id.len() as u32,
+                &mut required,
+            ) == 0
+            {
+                continue;
+            }
+            let len = instance_id
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(required as usize);
+            let instance_id = String::from_utf16_lossy(&instance_id[..len]);
+            if let Some(pid) = target_pid_from_instance_id(&instance_id) {
+                targets.push(Target {
+                    pid,
+                    name: format!("Apple device (mode {pid:#06x})"),
+                });
+            }
+        }
+        SetupDiDestroyDeviceInfoList(devices);
+        Ok(targets)
+    }
+}
+
+fn target_pid_from_instance_id(instance_id: &str) -> Option<u16> {
+    let upper = instance_id.to_ascii_uppercase();
+    let marker = format!("VID_{APPLE_VID:04X}&PID_");
+    let start = upper.find(&marker)? + marker.len();
+    let pid = u16::from_str_radix(upper.get(start..start + 4)?, 16).ok()?;
+    is_target_pid(pid).then_some(pid)
 }
 
 /// Bind the WinUSB driver to every connected Apple DFU/recovery/restore device,
@@ -151,8 +204,15 @@ pub fn install_winusb(progress: ProgressFn) -> Result<usize> {
 fn winusb_inf(pids: &[u16]) -> String {
     let mut models = String::new();
     for pid in pids {
+        let install = match *pid {
+            0x1222 | 0x1227 => "WINUSB_DFU_Install",
+            0x1280..=0x1283 => "WINUSB_IBOOT_Install",
+            0xf014 => "WINUSB_PORTDFU_Install",
+            0x1881 => "WINUSB_KIS_Install",
+            _ => unreachable!("unsupported Apple mode PID"),
+        };
         models.push_str(&format!(
-            "%DeviceName% = WINUSB_Install, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}\n"
+            "%DeviceName% = {install}, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}\n"
         ));
     }
     // Restore mode (Apple Silicon): the device becomes a USB *composite* whose
@@ -164,7 +224,7 @@ fn winusb_inf(pids: &[u16]) -> String {
     // normal-mode iPhone/iPad sharing a 0x129x product id.
     for pid in RESTORE_MODE_PIDS {
         models.push_str(&format!(
-            "%DeviceName% = WINUSB_Install, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}&RESTORE_MODE&MI_00\n"
+            "%DeviceName% = WINUSB_RESTORE_Install, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}&RESTORE_MODE&MI_00\n"
         ));
     }
     format!(
@@ -175,20 +235,84 @@ Class       = USBDevice
 ClassGuid   = {{88BAE032-5A81-49f0-BC3D-A4FF138216D6}}
 Provider    = %ProviderName%
 CatalogFile = restorekit_winusb.cat
-DriverVer   = 01/01/2024,1.0.0.0
+DriverVer   = 01/01/2024,1.0.0.1
 
 [Manufacturer]
-%ProviderName% = Standard,NTamd64
+%ProviderName% = Standard,NTamd64,NTarm64
 
 [Standard.NTamd64]
 {models}
-[WINUSB_Install.NT]
+[Standard.NTarm64]
+{models}
+[WINUSB_DFU_Install.NT]
 Include = winusb.inf
 Needs   = WINUSB.NT
 
-[WINUSB_Install.NT.Services]
+[WINUSB_DFU_Install.NT.Services]
 Include = winusb.inf
 Needs   = WINUSB.NT.Services
+
+[WINUSB_DFU_Install.NT.HW]
+AddReg = WINUSB_DFU_AddReg
+
+[WINUSB_DFU_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{{B8085869-FEB9-404B-8CB1-1E5C14FA8C54}}"
+
+[WINUSB_IBOOT_Install.NT]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WINUSB_IBOOT_Install.NT.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WINUSB_IBOOT_Install.NT.HW]
+AddReg = WINUSB_IBOOT_AddReg
+
+[WINUSB_IBOOT_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{{ED82A167-D61A-4AF6-9AB6-11E52236C576}}"
+
+[WINUSB_PORTDFU_Install.NT]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WINUSB_PORTDFU_Install.NT.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WINUSB_PORTDFU_Install.NT.HW]
+AddReg = WINUSB_PORTDFU_AddReg
+
+[WINUSB_PORTDFU_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{{AF633FF1-1170-4CA6-AE9E-08D001421EAA}}"
+
+[WINUSB_KIS_Install.NT]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WINUSB_KIS_Install.NT.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WINUSB_KIS_Install.NT.HW]
+AddReg = WINUSB_KIS_AddReg
+
+[WINUSB_KIS_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{{B36F4137-F4EF-4BFC-A25A-C2410768EE37}}"
+
+[WINUSB_RESTORE_Install.NT]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WINUSB_RESTORE_Install.NT.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WINUSB_RESTORE_Install.NT.HW]
+AddReg = WINUSB_RESTORE_AddReg
+
+[WINUSB_RESTORE_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{{3F966BD9-FA04-4EC5-991C-D326973B5128}}"
 
 [Strings]
 ProviderName = "RestoreKit"
@@ -442,3 +566,37 @@ while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 350
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setupapi_instance_ids_find_unbound_targets() {
+        assert_eq!(
+            target_pid_from_instance_id("USB\\VID_05AC&PID_1227\\000445E11462001E"),
+            Some(0x1227)
+        );
+        assert_eq!(
+            target_pid_from_instance_id("USB\\VID_05AC&PID_1290\\NORMAL_MODE"),
+            None
+        );
+        assert_eq!(
+            target_pid_from_instance_id("USB\\VID_1234&PID_1227\\OTHER"),
+            None
+        );
+    }
+
+    #[test]
+    fn inf_supports_both_windows_architectures_and_apple_modes() {
+        let inf = winusb_inf(DRIVER_PIDS);
+        assert!(inf.contains("Standard,NTamd64,NTarm64"));
+        assert!(inf.contains("[Standard.NTarm64]"));
+        assert!(inf.contains("USB\\VID_05AC&PID_1227"));
+        assert!(inf.contains("USB\\VID_05AC&PID_12AC&RESTORE_MODE&MI_00"));
+        assert!(inf.contains("{B8085869-FEB9-404B-8CB1-1E5C14FA8C54}"));
+        assert!(inf.contains("{ED82A167-D61A-4AF6-9AB6-11E52236C576}"));
+        assert!(inf.contains("{AF633FF1-1170-4CA6-AE9E-08D001421EAA}"));
+        assert!(inf.contains("{B36F4137-F4EF-4BFC-A25A-C2410768EE37}"));
+    }
+}
