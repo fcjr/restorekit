@@ -8055,7 +8055,7 @@
     )
     (property
       "Value"
-      "HX TYPE-C 24P QCHT"
+      "TYPE-C-QCHT-24P"
       (id 1)
       (at 0 -24.13 0)
       (effects (font (size 1.27 1.27) ) )
@@ -8069,28 +8069,28 @@
     )
     (property
       "Datasheet"
-      "https://www.lcsc.com/datasheet/C5178545.pdf"
+      "https://www.lcsc.com/datasheet/C42418802.pdf"
       (id 3)
       (at 0 -29.21 0)
       (effects (font (size 1.27 1.27) ) hide)
     )
     (property
       "Manufacturer"
-      "hanxia(韩下)"
+      "JXTCONN(聚兴泰)"
       (id 4)
       (at 0 -31.75 0)
       (effects (font (size 1.27 1.27) ) hide)
     )
     (property
       "MPN"
-      "HX TYPE-C 24P QCHT"
+      "TYPE-C-QCHT-24P"
       (id 5)
       (at 0 -34.29 0)
       (effects (font (size 1.27 1.27) ) hide)
     )
     (property
       "LCSC Part"
-      "C5178545"
+      "C42418802"
       (id 6)
       (at 0 -36.83 0)
       (effects (font (size 1.27 1.27) ) hide)
