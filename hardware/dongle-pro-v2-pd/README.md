@@ -74,11 +74,19 @@ On top of the v2 notes:
 - Debug: `clk dio 3v3 gnd` holes at 2.54 mm on the left edge take a pin
   header (not fitted), and there is a TC2030 Tag-Connect footprint below them
   with the other dongles' pinout. Its pin 6 (BOOT) is not connected here.
+- Probe pads, labelled on the board: `vbus` (target), `vin` (charger), `5v`,
+  `cc1` `cc2` (target CC, for a PD sniffer), `scl` `sda` (CH224Q bus), `hv`,
+  `s1` `s2` (target SBU at the connector), `sg` (SBU clamp gate bias), plus
+  an unlabelled pad left of Q3 on the charger off-switch node. `HOST_EN_N`,
+  `CHG_EN` and the mux status pin have no pad: probe R21, R45 and R34.
 
 ## Regenerating
 
 Same as the v2: `gen/build.sh`, then `$KPY gen/fab.py`, `gen/panel.sh` for the
 3-up panel. 0 DRC violations, 0 unconnected, schematic parity clean.
+`$KPY gen/audit.py` prints lane skew, what sits near the lanes and how far
+each IC's support parts are from its pins. Every lane pair is within 0.03 mm;
+the through-hole pairs get there with two small bumps on the inside leg.
 
 ## Check before ordering
 

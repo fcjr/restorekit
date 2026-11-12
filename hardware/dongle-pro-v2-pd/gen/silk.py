@@ -129,7 +129,7 @@ text('boot', 117.4, 131.8, F, 0.8)
 text('act', 119.5, 129.6, F, 0.8, w_ratio=0.8)
 text('pwr', 124.3, 115.75, F, 0.8, w_ratio=0.8)
 text('clk', 110.7, 124.55, F, 0.8, w_ratio=0.8); text('dio', 110.7, 126.6, F, 0.8, w_ratio=0.8)
-text('3v3', 113.9, 121.8, F, 0.8, w_ratio=0.8); text('gnd', 125.0, 143.8, F, 0.8, w_ratio=0.8)
+text('3v3', 113.9, 121.8, F, 0.8, w_ratio=0.8); text('gnd', 126.3, 143.8, F, 0.8, w_ratio=0.8)
 # top-left corner: the mark, small
 mx, my, ms = 103.0, 103.9, 3.6
 rrect(mx, my, ms, ms, 0.7, F, 0.2)
@@ -140,9 +140,13 @@ text('<host', 118.0, 102.2, F, 1.0, th=0.17)
 text('pd in>', 118.0, 103.9, F, 0.9, th=0.15, w_ratio=0.85)
 text('target', 118.6, 153.6, F, 1.1, th=0.18)
 text('dfu port', 124.6, 153.7, F, 0.8)
+for s, x, y in (('vbus', 103.9, 136.95), ('vin', 128.9, 139.6), ('5v', 121.2, 116.0), ('cc1', 102.25, 133.55), ('cc2', 103.55, 133.1),
+                ('scl', 122.2, 122.0), ('sda', 124.9, 120.5), ('hv', 124.6, 124.3),
+                ('s1', 117.3, 145.3), ('s2', 120.5, 148.7), ('sg', 124.35, 141.5)):
+    text(s, x, y, F, 0.8, w_ratio=0.7)
 for i, s in enumerate(('clk', 'dio', '3v3', 'gnd')): text(s, 105.0, 138.6 + 2.54 * i, F, 0.8, w_ratio=0.8)
-text('charger', 127.4, 119.5, F, 1.1, th=0.18, angle=270)
-text('20 V 3 A max', 125.9, 119.5, F, 0.8, w_ratio=0.8, angle=270)
+text('charger', 127.9, 119.5, F, 1.1, th=0.18, angle=270)
+text('20 V 3 A max', 126.45, 119.5, F, 0.8, w_ratio=0.8, angle=270)
 
 pcbnew.SaveBoard(PCB, board)
 import runpy

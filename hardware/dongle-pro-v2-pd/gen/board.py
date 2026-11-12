@@ -170,6 +170,7 @@ r("R10","10k",(410,470,0),"SBU_PU","SBU2_P"); r("R11","5.6k",(435,470,0),"SBU2_P
 add("Q5",FET30,(340,620,0),{"1":"SBU_G","2":"SBU1_P","3":"TGT_SBU1"})
 add("Q6",FET30,(420,620,0),{"1":"SBU_G","2":"SBU2_P","3":"TGT_SBU2"})
 r("R46","5.1k",(480,600,0),"+5V","SBU_G"); r("R47","10k",(510,600,0),"SBU_G","GND")
+c("C21","100nF",(540,600,0),"SBU_G","GND")   # holds the gates still when a drain jumps to 20 V
 r("R12","10k",(330,500,0),"SBU_PU","SBU_VG"); r("R13","10k",(355,500,0),"SBU_VG","GND")
 c("C12","100nF",(380,500,0),"SBU_VG","GND")
 
@@ -244,6 +245,13 @@ r("R43","200k",(1010,600,0),"CHG_OV","CHG_LIM")
 # (1 VTREF, 2 SWDIO, 4 SWCLK, 5 GND; 3 and 6 are open, this MCU has no reset pin).
 comps.append({"ref":"J4","sym":"TC2030","at":(900,480,0),"in_bom":False,"value":"TC2030-IDC-NL",
               "nets":{"1":"+3V3","2":"SWDIO","3":None,"4":"SWCLK","5":"GND","6":None}})
+# probe pads for bring-up: both VBUS rails and host 5 V, the target CC lines (PD
+# sniffing), the charger I2C bus, the charger off-switch node and its two
+# enables' neighbours, and the SBU lines on the connector side plus their gate bias
+for i,(ref,net) in enumerate([("TP20","TGT_VBUS"),("TP21","VBUS_IN"),("TP22","+5V"),("TP23","TGT_CC1"),("TP24","TGT_CC2"),
+                              ("TP25","CHG_SCL"),("TP26","CHG_SDA"),("TP27","CHG_OV"),("TP28","CHG_HV"),
+                              ("TP30","TGT_SBU1"),("TP31","TGT_SBU2"),("TP32","SBU_G")]):
+    comps.append({"ref":ref,"sym":"TP","at":(760+(i%7)*20,740+(i//7)*25,0),"in_bom":False,"value":net,"nets":{"1":net}})
 for i,(ref,net) in enumerate([("TP11","SWCLK"),("TP12","SWDIO"),("TP13","+3V3"),("TP14","GND")]):
     comps.append({"ref":ref,"sym":"TPTH","at":(900+i*20,540,0),"in_bom":False,"value":net,"nets":{"1":net}})
 for i,(ref,net) in enumerate([("TP2","+3V3"),("TP5","GND"),

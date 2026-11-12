@@ -18,6 +18,15 @@ R = Router('dongle-pro-v2-pd.kicad_pcb')
 P, T, V = R.P, R.track, R.via
 W_SS = 0.211          # 90 ohm coupled on JLC04161H-7628 outer layers (with 0.127 gap)
 CX = 110.5
+# A through-hole-row pair turns 90 degrees into the mux's side pins, which leaves
+# the inside leg about 0.8 mm short. It gets that back in two small bumps toward
+# the empty ground-pin column of the TVS array (tuned with gen/audit.py).
+BUMP_H = 0.54
+def bumps(x, y, s, n=2):
+    d = 1 if x < CX else -1; pts = [(x, y)]
+    for _ in range(n):
+        pts += [(x + d * BUMP_H, y + s * BUMP_H), (x, y + 2 * s * BUMP_H)]; y += 2 * s * BUMP_H
+    return pts
 
 # ---------------------------------------------------------------- SuperSpeed
 def lane(J, yj, s, D, a, b, U):
@@ -50,7 +59,11 @@ def lane(J, yj, s, D, a, b, U):
         T(net, 'F', [(xe, yv), f'{D}.{en}'], W_SS)
         T(net, 'F', [f'{D}.{en}', f'{D}.{ef}'], W_SS)
         # into the mux side pin: the leg further from the mux takes the larger arc
-        T(net, 'F', [f'{D}.{ef}', (xe, ym), f'{U}.{pm}'], W_SS, r=0.85 if is_outer else 0.35)
+        yf = P(f'{D}.{ef}')[1]
+        if is_outer: T(net, 'F', [f'{D}.{ef}', (xe, ym), f'{U}.{pm}'], W_SS, r=0.85)
+        else:
+            bp = bumps(xe, yf + s * 0.55, s)
+            T(net, 'F', [f'{D}.{ef}'] + bp, W_SS, r=0.1); T(net, 'F', [bp[-1], (xe, ym), f'{U}.{pm}'], W_SS, r=0.35)
 
 # host, lane 1 (right) and lane 2 (left)
 lane('J1', 104.4, +1, 'D12', ('A2', 'A3', '9', '2', '10', '1', '1', '2'), ('B11', 'B10', '6', '5', '7', '4', '15', '16'), 'U3')
@@ -64,7 +77,11 @@ def tlane(jpin, D, en, ef, mux, cap, res, xl, brow=None):
     """brow = (via y, B.Cu x next to the pin, is the outer leg) for a through-hole pin."""
     nic = R.netof(f'{D}.{en}'); ncon = R.netof(f'J2.{jpin}')
     xe, _ = P(f'{D}.{en}'); xm, ym = P(f'U4.{mux}')
-    if brow: T(nic, 'F', [f'{D}.{ef}', (xe, ym), f'U4.{mux}'], W_SS, r=0.85 if brow[2] else 0.35)
+    yf = P(f'{D}.{ef}')[1]
+    if brow and brow[2]: T(nic, 'F', [f'{D}.{ef}', (xe, ym), f'U4.{mux}'], W_SS, r=0.85)
+    elif brow:
+        bp = bumps(xe, yf - 0.55, -1)
+        T(nic, 'F', [f'{D}.{ef}'] + bp, W_SS, r=0.1); T(nic, 'F', [bp[-1], (xe, ym), f'U4.{mux}'], W_SS, r=0.35)
     else:    T(nic, 'F', [f'{D}.{ef}', (xe, 135.2), (xm, 133.9), f'U4.{mux}'], W_SS, r=0.9)
     T(nic, 'F', [f'{D}.{en}', f'{D}.{ef}'], W_SS); T(nic, 'F', [f'{D}.{en}', f'{cap}.2'], W_SS, r=0)
     down = [f'{cap}.1', (xe, 140.45), (xl, 140.45 + abs(xl - xe))]
@@ -159,7 +176,7 @@ VC1P, VC1M = (102.25, 130.85), (107.45, 130.0)
 T('TGT_CC1', 'B', [VC1T, (109.45, YJ - 5.15), (109.45, 130.4), (109.15, 130.0), (102.7, 130.0), VC1P], W, r=0.6)
 V('TGT_CC1', VC1P); V('TGT_CC1', VC1M)
 T('TGT_CC1', 'F', ['U2.10', VC1P], W); T('TGT_CC1', 'F', [VC1M, 'R30.1'], W)
-T('TMUX_CC1', 'F', ['R30.2', (108.5, 131.15), 'U4.13'], W, r=0.1)
+T('TMUX_CC1', 'F', ['R30.2', (108.6, 130.75), (108.85, 131.0), 'U4.13'], W, r=0.1)
 VC2P, VC2M = (105.95, 131.05), (106.95, 131.75)
 T('TGT_CC2', 'B', ['J2.B5', (111.3, YJ - 0.2), (105.4, YJ - 0.2), (104.9, YJ - 0.7), (104.9, 133.75),
                    (105.45, 133.2), (105.95, 132.7), VC2P], W, r=0.4)
@@ -169,7 +186,7 @@ T('TGT_CC2', 'F', ['U2.1', VC2P], W); T('TGT_CC2', 'F', [VC2M, 'R31.1'], W)
 T('TMUX_CC2', 'F', ['R31.2', 'U4.14'], W)
 # VBUS: mux -> F.Cu trunk west (over the SBU2 run) -> three vias -> B.Cu trunk
 # -> neck between the D- via and the lane-2 fan -> bar joining B9 and B4
-YV = 136.75
+YV = 137.0
 T('TGT_VBUS', 'F', ['U7.8', 'U7.1'], 0.4, r=0)
 T('TGT_VBUS', 'F', [(121.95, 136.1), (121.35, 137.0)], 0.5, r=0)
 T('TGT_VBUS', 'F', [(121.35, 137.0), (115.2, 137.0)], 1.0, r=0)
@@ -180,7 +197,7 @@ YB = YJ - 3.25
 T('TGT_VBUS', 'B', [(116.8, YV), (112.6, YV), (112.6, YJ - 6.0)], 1.0, r=0.5)
 T('TGT_VBUS', 'B', [(112.6, YJ - 6.0), (111.55, YJ - 4.95), (111.55, YB)], 0.8, r=0.3)
 T('TGT_VBUS', 'B', [(109.45, YB), (111.55, YB)], 0.8, r=0)
-T('TGT_VBUS', 'B', ['J2.B9', (109.3, YB)], 0.45, r=0); T('TGT_VBUS', 'B', ['J2.B4', (111.7, YB)], 0.45, r=0)
+T('TGT_VBUS', 'B', ['J2.B9', (109.35, YB)], 0.35, r=0); T('TGT_VBUS', 'B', ['J2.B4', (111.65, YB)], 0.35, r=0)
 # VBUS sense for the PD controller
 VVS = (106.1, 136.95)
 T('TGT_VBUS', 'B', [(109.3, YB), (109.15, YB - 0.55), (109.15, 137.4), (108.7, 136.95), VVS], 0.2, r=0.4); V('TGT_VBUS', VVS)
@@ -206,7 +223,7 @@ T('SBU_G', 'F', ['R46.2', 'R47.1'], W); T('SBU_G', 'F', [(123.3, 130.6), VSGT], 
 
 # ---------------------------------------------------------------- power
 VA, VB2, V5A, VH5 = (114.9, 111.0), (118.55, 113.4), (109.0, 118.65), (104.9, 117.3)
-T('+5V', 'B', ['J1.B9', (111.85, 107.3), (111.85, 110.7), (112.15, 111.0), VA], WP, r=0.4); V('+5V', VA, d=0.6, drill=0.3)
+T('+5V', 'B', ['J1.B9', (111.8, 107.3), (111.8, 110.7), (112.1, 111.0), VA], WP, r=0.4); V('+5V', VA, d=0.6, drill=0.3)
 T('+5V', 'F', [VA, (115.4, 109.9), (115.9, 109.7), 'C13.1'], WP, r=0.5)
 T('+5V', 'F', ['U6.3', (118.55, 109.7)], WP)
 T('+5V', 'F', ['C13.1', (119.45, 110.25), (119.45, 111.95), (119.1, 112.35), 'U6.1'], 0.2, r=0.3)
@@ -368,6 +385,20 @@ T('GND', 'F', ['C10.2', (113.75, 130.72)], 0.2); V('GND', (113.75, 130.72))
 T('GND', 'F', ['R63.2', (109.875, 143.75)], W); V('GND', (109.875, 143.75))
 T('GND', 'F', ['R65.2', (111.4, 143.75)], W); V('GND', (111.4, 143.75))
 T('GND', 'F', ['R49.2', (114.75, 135.32)], W); V('GND', (114.75, 135.32))
+# return-path vias beside the lane pairs' layer changes
+for xy in ((114.75, 110.0), (106.25, 110.0), (105.4, 143.6), (115.6, 143.6)): V('GND', xy)
+# the skew bumps close off each TVS array's ground-pin column, so it gets its own via
+for xy in ((107.9, 111.8), (113.1, 111.8), (107.9, 136.1), (113.1, 136.1)): V('GND', xy)
+
+# ---------------------------------------------------------------- probe pads
+T('+5V', 'F', [V5T, 'TP22.1'], 0.25); T('TGT_VBUS', 'F', [VVS, 'TP20.1'], W)
+T('TGT_CC1', 'F', [VC1P, 'TP23.1'], W); T('TGT_CC2', 'F', ['U2.14', (104.85, 132.3), 'TP24.1'], W, r=0.2)
+V('CHG_SCL', (123.3, 121.0)); T('CHG_SCL', 'F', [(123.3, 121.0), 'TP25.1'], W)
+V('CHG_SDA', (123.85, 119.5)); T('CHG_SDA', 'F', [(123.85, 119.5), 'TP26.1'], W)
+T('CHG_OV', 'F', ['TP27.1', (125.75, 134.75)], W)
+T('CHG_HV', 'F', ['TP28.1', (124.6, 126.2)], W)
+T('TGT_SBU1', 'F', [VS1U, 'TP30.1'], W); T('TGT_SBU2', 'F', ['TP31.1', (120.5, 146.8)], W)
+T('SBU_G', 'F', ['TP32.1', (122.35, 142.2)], W); T('SBU_G', 'F', ['Q6.1', 'C21.1'], W)
 # the mux's strap pins sit in pockets the pour cannot reach
 T('GND', 'F', ['U7.12', (120.75, 136.2), (119.6, 136.2), 'C18.2'], W, r=0.1); V('GND', (119.6, 136.0))
 T('GND', 'F', ['C15.2', (122.0, 132.75)], W); V('GND', (122.0, 132.75))
