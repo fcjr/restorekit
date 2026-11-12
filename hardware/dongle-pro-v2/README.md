@@ -2,7 +2,7 @@
 
 Cost-reduced Dongle-Pro: USB 3 passthrough with cable flip on both ports, for
 less than the Lite's parts cost. 21 x 48 mm, 4 layers, single-sided assembly,
-17 BOM lines. Not built yet. Nothing here has been on a bench.
+18 BOM lines. Not built yet. Nothing here has been on a bench.
 
 ## What changed against the Pro
 

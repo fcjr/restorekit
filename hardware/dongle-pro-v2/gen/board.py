@@ -7,13 +7,14 @@ CH9441P picking the live lane pair from its port's CC pins. USB 2.0 goes
 through a CH334P hub (DS1 = MCU, DS2 = target). CH32X035G8U6 runs the dongle,
 HUSB311 (TCPCI) owns the target CC for the Apple DFU VDMs.
 
-BOM-row discipline: resistors are only 5.1k / 10k / 5.6k, caps only 100nF / 1uF.
+BOM-row discipline: resistors are only 5.1k / 10k / 5.6k, caps only 100nF / 1uF
+plus 220pF on the target CC lines.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dongle-lite", "gen"))
 import gen
 R={"5.1k":"0402WGF5101TCE","10k":"0402WGF1002TCE","5.6k":"0402WGF5601TCE"}
-C={"100nF":"CL05B104KO5NNNC","1uF":"CL05A105KA5NQNC"}
+C={"100nF":"CL05B104KO5NNNC","1uF":"CL05A105KA5NQNC","220pF":"0402B221K500NT"}
 XTAL="X322512MSB4SI"; LED="KT-0603R"; BTN="TS3315A"
 USBC="HXTYPE-C24PQCHT"; ESD="H5VU25U"; MUX="CH9441P"; FET="HL2302"
 comps=[]
@@ -64,6 +65,8 @@ add("U2","HUSB311BLA",(150,330,0),{
  "5":"PD_INT","6":"I2C_SCL","7":"I2C_SDA"})
 # no external pull-ups: SDA/SCL/INT_N use the MCU's internal ones (bit-banged, ~100 kHz)
 c("C3","1uF",(190,380,0),"+3V3","GND")
+# PD wants 200..600 pF on each CC line at a port; the HUSB311's edge rates are specified into 200 pF
+c("C22","220pF",(120,400,0),"TGT_CC1","GND"); c("C23","220pF",(100,430,0),"TGT_CC2","GND")
 
 # ===== Host port cluster =====
 add("J1",USBC,(360,150,0),{
