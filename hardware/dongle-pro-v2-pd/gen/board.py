@@ -48,17 +48,20 @@ def esd(ref,at,n1,n2,n4,n5):
 #        the CH224Q has its own 10k pull-ups, hold both low or Hi-Z while no
 #        charger is plugged in)
 #   PA6  HOST_EN_N (drive low to pass host 5 V to the target; Hi-Z = off)
-#   PA7  CHG_EN (drive high to pass charger VBUS to the target; 10k pulldown)
+#   PA7  CHG_EN (high = pass charger VBUS to the target while it is under ~6.4 V;
+#        10k pulldown)
+#   PB0  CHG_HV (high = pass it at any voltage; 10k pulldown. Raise only once
+#        the target has accepted a contract above 5 V)
 #   PC16/PC17 USB D-/D+   PC18/PC19 SDI debug (TP9/TP10)
 #   PC17 high at power-on = ROM USB bootloader
 add("U1","CH32X035G8U6",(150,150,0),{
  "2":"+3V3","29":"GND",
  "21":"I2C_SDA","20":"I2C_SCL","19":"PD_INT","17":"SBU_PU",
- "9":"CHG_SCL","10":"CHG_SDA","11":"HOST_EN_N","12":"CHG_EN",
+ "9":"CHG_SCL","10":"CHG_SDA","11":"HOST_EN_N","12":"CHG_EN","13":"CHG_HV",
  "6":"LED_STAT",
  "7":"SBU1_MCU","8":"SBU2_MCU","14":"SBU2_MCU","15":"SBU1_MCU",
  "24":"SWCLK","25":"SWDIO","26":"MCU_D_N","27":"MCU_D_P",
- "1":None,"3":None,"4":None,"5":None,"13":None,
+ "1":None,"3":None,"4":None,"5":None,
  "16":None,"18":None,"22":None,"23":None,"28":None},"CH32X035G8U6")
 c("C1","100nF",(95,230,0),"+3V3","GND"); c("C2","1uF",(120,230,0),"+3V3","GND")
 # BOOT: hold SW1 while plugging in -> PC17 (D+) high at power-on -> ROM USB ISP
@@ -167,9 +170,12 @@ c("C13","1uF",(530,470,0),"+5V","GND"); c("C14","1uF",(560,470,0),"+3V3","GND")
 # PR1 = CP2 = GND so the higher valid input wins (IN2 on a tie). Each input is
 # switched off by holding its OV pin above 1.06 V:
 #   OV1 (host)    10k/5.1k from +5V = 1.69 V; the MCU pulls HOST_EN_N low to enable
-#   OV2 (charger) 20k/6.8k from VBUS_IN = 1.2 V at 4.75 V, 5.3 V at 21 V; Q3 pulls
-#                 it low when CHG_EN is high. With the MCU unpowered the charger
-#                 input stays off whatever the charger does.
+#   OV2 (charger) 20k/6.8k from VBUS_IN = 1.2 V at 4.75 V, 5.3 V at 21 V, so the
+#                 charger input is off by default, MCU powered or not.
+#                 CHG_EN: Q4 loads OV2 with 200k, which turns the off switch
+#                 into a 6.4 V overvoltage trip: 5 V passes, the CH224Q's 9 V
+#                 power-up default and anything above it does not.
+#                 CHG_HV: Q3 shorts OV2 to ground, any voltage passes.
 # CP2 follows charger VBUS (same divider, 100k isolates it from Q3): with the
 # charger above ~4.5 V it has priority over the host whatever the host voltage
 # is, and switchover is the fast kind (5 us instead of 100 us).
@@ -214,8 +220,11 @@ r("R22","10k",(1010,420,0),"VBUS_IN","CHG_OV_A"); r("R23","10k",(1035,420,0),"CH
 r("R24","6.8k",(1060,420,0),"CHG_SNS","GND"); r("R39","100k",(1060,470,0),"CHG_SNS","CHG_OV")
 # BC1.2 pins: PD only, held low instead of left floating
 r("R40","10k",(1010,520,0),"CHG_DP","GND"); r("R41","10k",(1040,520,0),"CHG_DM","GND")
-add("Q3",FET,(1100,450,0),{"1":"CHG_EN","2":"GND","3":"CHG_OV"})
-r("R25","10k",(1130,420,0),"CHG_EN","GND")
+add("Q3",FET,(1100,450,0),{"1":"CHG_HV","2":"GND","3":"CHG_OV"})
+r("R25","10k",(1130,420,0),"CHG_HV","GND")
+add("Q4",FET,(1100,560,0),{"1":"CHG_EN","2":"GND","3":"CHG_LIM"})
+r("R45","10k",(1130,600,0),"CHG_EN","GND")
+r("R43","100k",(1010,600,0),"CHG_LIM_A","CHG_LIM"); r("R44","100k",(1040,600,0),"CHG_OV","CHG_LIM_A")
 
 # ===== Debug / bring-up cluster =====
 # SDI debug is two pads next to the MCU (WCH-LinkE: SWDIO, SWCLK + the 3V3/GND pads)
@@ -235,6 +244,6 @@ gen.build_wired(comps,"dongle-pro-v2-pd.kicad_sch",
                                       "HOST_CC1","HOST_CC2","TGT_CC1","TGT_CC2","TGT_SBU1","TGT_SBU2",
                                       "I2C_SCL","I2C_SDA","PD_INT","SBU1_MCU","SBU2_MCU","SBU_PU","SBU_VG","SWCLK","SWDIO","LED_STAT","BOOT_SW","LEDP_A","LEDS_A","HUB_XI","HUB_XO","HMUX_VDD","HUB_3V3",
                                       "TGT_VBUS","VBUS_IN","HOST_EN_N","CHG_EN","CHG_OV","CHG_OV_A","CHG_SCL","CHG_SDA","CHG_CC1","CHG_CC2","CHG_CFG",
-                                      "MUX_ILM","MUX_ILM_A","MUX_ILM_B","MUX_ILM_C","MUX_ST","MUX_SS","CHG_SNS","CHG_DP","CHG_DM",
+                                      "MUX_ILM","MUX_ILM_A","MUX_ILM_B","MUX_ILM_C","MUX_ST","MUX_SS","CHG_SNS","CHG_DP","CHG_DM","CHG_HV","CHG_LIM","CHG_LIM_A",
                                       "TMUX_CC1","TMUX_CC2","SBU1_P","SBU2_P","SBU1_D","SBU2_D"})
 print(f"{len(comps)} comps")

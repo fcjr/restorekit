@@ -30,8 +30,9 @@ The TPS2121 gives the charger priority whenever charger VBUS is above about
 5 us. Each input has an off switch (its OV pin held above 1.06 V):
 
 - Host 5 V is off until the MCU pulls `HOST_EN_N` low.
-- Charger VBUS is off until the MCU drives `CHG_EN` high. With the MCU
-  unpowered it stays off no matter what the charger does.
+- Charger VBUS is off with the MCU unpowered, no matter what the charger does.
+  `CHG_EN` lets it through only while it is under about 6.4 V. `CHG_HV` lets
+  it through at any voltage.
 
 The current limit follows the source by itself: 1.2 A on host power, 3.6 A on
 the charger (the mux's status pin switches the limit resistor).
@@ -53,7 +54,7 @@ On top of the v2 notes:
 - Read the charger's PDOs from 0x60..0x8F and offer the Mac the fixed ones,
   capped at 3 A. When the Mac requests one: write the voltage to 0x0A, wait
   for it, then send PS_RDY.
-- Handover: host on (`HOST_EN_N` low), then `CHG_EN` high. The mux moves to
+- Handover: host on (`HOST_EN_N` low), CH224Q at 5 V, then `CHG_EN` high. The mux moves to
   the charger by itself, at any charger voltage, and back to the host if the
   charger goes away. Both inputs can stay on.
 - On host power the target gets 1.2 A at most. Advertise less than that.
@@ -61,11 +62,12 @@ On top of the v2 notes:
   microseconds, but the limit drops to 1.2 A with it. If the Mac was drawing
   more it browns out. Above 5 V the Mac will most likely treat the sag as a
   detach either way.
-- `CHG_EN` puts whatever the charger is at on the target port. Never raise it
-  before the CH224Q is confirmed at 5 V.
+- `CHG_EN` alone cannot put more than about 6.4 V on the target port, so the
+  CH224Q's 9 V default is blocked in hardware. Raise `CHG_HV` only after the
+  Mac has accepted a contract above 5 V, and drop it before going back to 5 V.
 - On target detach turn `CHG_EN` off straight away. A 5k bleeder takes target
   VBUS from 20 V to under 0.8 V in about 0.3 s.
-- Pins: PA6 `HOST_EN_N`, PA7 `CHG_EN`. PB7 is free now.
+- Pins: PA6 `HOST_EN_N`, PA7 `CHG_EN`, PB0 `CHG_HV`. PB7 is free now.
 
 ## Regenerating
 
@@ -93,8 +95,11 @@ Everything on the v2 list except item 7, plus:
 8. 20 V sits next to CC, SBU and the lane pins in the target receptacle, and a
    crooked unplug can short across. CC and SBU are protected now (see the
    table). The lane pins are not: the CH9441P switch pins are 3.6 V parts
-   behind 5 V TVS arrays, and the only real fix is AC coupling caps in all
-   eight lane traces.
+   behind 5 V TVS arrays. The fix is a 330 nF cap plus a discharge resistor
+   on the connector side of each of the eight lane pins, and there is no room
+   for the resistors on the through-hole row. Caps without them would hold
+   20 V after a short and dump it into the next Mac plugged in, which is
+   worse than losing the dongle's mux.
 9. The SBU protection resistors run hot if the short is held: about 0.2 W in
    an 0402 at 20 V. Fine for an unplug, not for a jammed connector. During
    the short about 1.5 mA per pin still goes into the MCU's clamp diodes;
@@ -106,6 +111,8 @@ Everything on the v2 list except item 7, plus:
    limits.
 12. Charger side bulk is 10 uF + 1 uF nominal against USB's 10 uF sink limit.
    DC bias should bring it under, not measured.
-13. The target CH9441P now reads CC through 100k. Its input current is not in
+13. The 6.4 V trip on `CHG_EN` comes from 1% resistors and a 1.06 V
+   reference: 6.1 to 6.6 V. Check 5.5 V passes and 9 V does not.
+14. The target CH9441P now reads CC through 100k. Its input current is not in
    the datasheet. If it picks the wrong lane, that resistor is why.
-14. CPL rotation for the TPS2121 and CH224Q.
+15. CPL rotation for the TPS2121 and CH224Q.
