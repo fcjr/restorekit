@@ -3,7 +3,7 @@
 Dongle-Pro v2 with a charger port. Plug a USB-C PD charger in next to the host cable and
 the target Mac charges through the target port, at up to 20 V 3 A, while it
 restores. Without a charger it behaves like the v2 and passes host 5 V.
-32 x 55 mm, 4 layers, single-sided assembly, 25 BOM lines. Not built yet.
+32 x 55 mm, 4 layers, single-sided assembly, 26 BOM lines. Not built yet.
 Nothing here has been on a bench.
 
 The left 21 mm is the [v2](../dongle-pro-v2) layout almost untouched. Read its
@@ -21,6 +21,7 @@ README for the SuperSpeed path, the layer plan and the v2 firmware notes.
 | Power LED | from 3V3 | from host 5 V |
 | Target VBUS bleeder | none | 5k (2x 10k), 2x 10 uF bulk |
 | Target CC to the mux | direct | through 10k |
+| Target CC capacitance | none | 220 pF on each line at the HUSB311 |
 | Target SBU | direct to the level shifters | series 30 V FET, gate at 3.3 V |
 | Target lanes | direct to the TVS arrays | 330 nF in series + 200k bleed on every pin |
 | Length | 48 mm | 55 mm, the extra 7 mm is the lane protection |
