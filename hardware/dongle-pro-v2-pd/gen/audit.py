@@ -64,6 +64,14 @@ for t in tracks:
     if is_via(t) and SS.match(t.GetNetname()):
         x, y = t.GetPosition().x / 1e6, t.GetPosition().y / 1e6
         print(f'  {t.GetNetname():12s} ({x:.2f},{y:.2f})  {min(math.hypot(x-gx, y-gy) for gx, gy in gv):.2f}')
+print('== power nets: narrowest copper and via count (IPC-2221 outer layer, 1 oz, 10 C rise: 0.3 mm ~1.0 A, 0.5 ~1.4, 0.8 ~2.0, 1.0 ~2.4, 1.2 ~2.7)')
+for net in ('VBUS_IN', 'TGT_VBUS', '+5V', '+3V3'):
+    w = collections.defaultdict(list); nv = 0
+    for t in tracks:
+        if t.GetNetname() != net: continue
+        if is_via(t): nv += 1
+        else: w[round(t.GetWidth() / 1e6, 2)].append(t.GetLength() / 1e6)
+    print(f'  {net:9s} vias {nv:2d}  ' + '  '.join(f'{k:.2f} mm x {sum(v):5.1f}' for k, v in sorted(w.items())))
 print('== support parts: pad-to-pin distance (mm)')
 P = {(fp.GetReference(), p.GetNumber()): (p.GetPosition().x / 1e6, p.GetPosition().y / 1e6) for fp in b.GetFootprints() for p in fp.Pads()}
 def dist(a, c): return math.hypot(P[a][0] - P[c][0], P[a][1] - P[c][1])

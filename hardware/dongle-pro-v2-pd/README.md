@@ -39,6 +39,13 @@ The TPS2121 gives the charger priority whenever charger VBUS is above about
 The current limit follows the source by itself: 1.5 A on host power, 3.9 A on
 the charger (the mux's status pin switches the limit resistor).
 
+Copper for 3 A: charger VBUS runs at 1.2 mm from the port to the mux and
+target VBUS at 1.0 to 1.2 mm from the mux to the port, each with three or
+more vias per layer change. Host 5 V to the mux is 0.5 to 0.8 mm, except
+3.5 mm at the host receptacle that is pinned at 0.3 mm between the CC1 via
+and lane 1. The 20 V nets keep 0.25 mm from the ground pours and at least
+0.15 mm from everything else, the minimum being the receptacle's own pin pitch.
+
 The CH224Q does the PD talking to the charger. It has its own Rd and 32 V
 tolerant CC pins, which the CH32X035's PD pins do not. The MCU reads the
 charger's source caps from it and tells it which voltage to ask for. The
@@ -130,7 +137,10 @@ Everything on the v2 list except item 7, plus:
    reference: 6.1 to 6.6 V. Check 5.5 V passes and 9 V does not.
 12. The target CH9441P reads CC through 10k. A 20 V short puts 1.5 mA into
    its 6 V pins' clamps.
-13. Rotations: every placed part's footprint has the same pad layout and
+13. The 0.3 mm neck on host 5 V at the host receptacle carries everything the
+   target draws on host power. Fine at the 1.5 A typical limit, warm at the
+   2 A worst case.
+14. Rotations: every placed part's footprint has the same pad layout and
    zero orientation as the one JLCPCB places from, and the TPS2121 pattern
    matches TI's drawing, so the CPL angles should be right as written. Still
    look at the placement preview before paying.
