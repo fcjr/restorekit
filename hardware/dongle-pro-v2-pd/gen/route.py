@@ -171,7 +171,7 @@ T('TMUX_CC2', 'F', ['R31.2', 'U4.14'], W)
 # -> neck between the D- via and the lane-2 fan -> bar joining B9 and B4
 YV = 136.75
 T('TGT_VBUS', 'F', ['U7.8', 'U7.1'], 0.4, r=0)
-T('TGT_VBUS', 'F', [(121.95, 136.1), (121.35, 137.0)], 0.6, r=0)
+T('TGT_VBUS', 'F', [(121.95, 136.1), (121.35, 137.0)], 0.5, r=0)
 T('TGT_VBUS', 'F', [(121.35, 137.0), (115.2, 137.0)], 1.0, r=0)
 for x in (115.2, 116.0, 116.8): V('TGT_VBUS', (x, YV), d=0.6, drill=0.3)
 YB = YJ - 3.25
