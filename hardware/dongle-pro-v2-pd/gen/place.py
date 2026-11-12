@@ -1,5 +1,5 @@
 # Placement table: ref -> (x mm, y mm, rot deg). exec'd by gen/pcb.py with
-# P, CX, X0, Y0, X1, Y1 in scope. Board x 100..132, y 100..148.
+# P, CX, X0, Y0, X1, Y1 in scope. Board x 100..132, y 100..155.
 P.update({
  # ---- host end (top) ----
  "J1": (CX, 104.4, 180),
@@ -30,20 +30,20 @@ P.update({
  # ---- charger strip (right 11 mm): charger port and PD sink at the top, power mux at the bottom ----
  "U7": (122.3, 135.3, 0),
  "C15": (122.22, 133.3, 180), "C18": (119.95, 135.7, 180),
- "R34": (121.0, 132.9, 90), "R35": (118.4, 135.6, 0),
+ "R34": (121.0, 132.9, 90), "R35": (118.5, 135.75, 180), "R48": (116.97, 135.75, 180), "R49": (115.6, 135.75, 180),
  "R16": (120.3, 133.6, 90), "R19": (120.3, 132.2, 90), "R20": (121.4, 131.77, 0),
  "R2": (123.73, 132.4, 0), "R21": (124.59, 133.4, 0),
  "R22": (127.6, 137.05, 180), "R23": (125.9, 137.05, 180), "R24": (124.3, 137.05, 180), "R39": (126.3, 135.8, 90),
  "Q3": (127.5, 134.55, 180), "R25": (128.45, 132.1, 90),
- "Q4": (125.75, 128.6, 180), "R45": (126.7, 129.9, 270), "R43": (125.75, 130.9, 90), "R44": (125.75, 132.4, 90),
- "R17": (123.3, 131.3, 90), "D1": (123.3, 129.4, 270),
+ "Q4": (125.75, 128.6, 180), "R45": (126.7, 129.9, 270), "R43": (125.75, 131.4, 90),
+ "R17": (123.7, 114.6, 0), "D1": (125.4, 114.6, 180),
  "C17": (118.0, 138.2, 270), "C20": (119.6, 138.2, 270),
  "C16": (122.2, 139.4, 180),
  "R27": (105.9, 134.5, 180), "R42": (105.9, 135.6, 180),
- # ---- 20 V protection: target mux CC, SBU series/clamp, MCU-side series ----
+ # ---- 20 V protection: target mux CC, SBU series FETs and their gate bias ----
  "R30": (107.75, 130.85, 0), "R31": (107.75, 131.6, 0),
- "D16": (120.0, 143.6, 0), "R28": (119.0, 142.0, 270), "R29": (117.5, 145.6, 0),
- "R32": (118.05, 124.6, 0), "R33": (119.5, 125.2, 90),
+ "Q5": (119.45, 142.5, 180), "Q6": (121.4, 144.5, 180),
+ "R46": (123.3, 131.3, 90), "R47": (123.3, 129.9, 90),
  "J3": (125.5, 104.4, 180),
  "U8": (124.0, 110.6, 0), "R26": (122.4, 108.9, 180), "C19": (121.9, 112.3, 180),
  "R40": (125.65, 112.3, 0), "R41": (125.65, 111.53, 0),
@@ -51,5 +51,20 @@ P.update({
  "U4": (CX, 131.9, 0),
  "C10": (113.2, 131.4, 0),
  "D14": (CX - 2.6, 136.2, 0), "D15": (CX + 2.6, 136.2, 0),
- "J2": (CX, 143.6, 0),
+ "J2": (CX, YJ, 0),
 })
+# Target lane protection, between the TVS arrays and the receptacle. Per line:
+# (cap, bleed resistor, x at the array, cap row, +1/-1 = side away from its pair
+#  partner, x in the resistor zone, resistor row). The caps stagger in two rows
+# so they fit the arrays' 0.5 mm pitch; each resistor sits with one pad on its
+# line and points away from the partner.
+YCB, YCA, YR1, YR2 = 138.0, 139.6, 142.3, 143.1
+LANE_PROT = [
+ ("C30", "R60", 106.9, YCA, -1, 105.9,  YR1), ("C31", "R61", 107.4, YCB, +1, 106.4,  YR2),   # RX1 P/N (B row)
+ ("C32", "R62", 108.4, YCA, -1, 108.25, YR1), ("C33", "R63", 108.9, YCB, +1, 108.75, YR2),   # TX1 P/N (A row)
+ ("C34", "R64", 112.6, YCA, +1, 112.75, YR1), ("C35", "R65", 112.1, YCB, -1, 112.25, YR2),   # RX2 P/N (A row)
+ ("C36", "R66", 114.1, YCA, +1, 115.1,  YR1), ("C37", "R67", 113.6, YCB, -1, 114.6,  YR2),   # TX2 P/N (B row)
+]
+for cref, rref, xe, yc, away, xl, yr in LANE_PROT:
+    P[cref] = (xe + 0.01 * away, yc, 90)                       # pin 1 (connector side) below
+    P[rref] = (xl + away * (0.03 + 0.43), yr, 0 if away > 0 else 180)   # pin 1 on the line

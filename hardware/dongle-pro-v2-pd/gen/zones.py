@@ -14,7 +14,7 @@ import pcbnew
 PCB = 'dongle-pro-v2-pd.kicad_pcb'
 board = pcbnew.LoadBoard(PCB)
 gnd = board.GetNetInfo().NetsByName()['GND']
-X0, Y0, X1, Y1 = 100.0, 100.0, 132.0, 148.0
+X0, Y0, X1, Y1 = 100.0, 100.0, 132.0, 155.0
 
 tracks = [t for t in board.GetTracks() if t.GetNetname() != 'GND']
 pads = [p for fp in board.GetFootprints() for p in fp.Pads()]

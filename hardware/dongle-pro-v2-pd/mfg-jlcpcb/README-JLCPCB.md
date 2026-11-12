@@ -11,12 +11,12 @@ the constraint behind both layouts below: rails can only go on the long sides.
 
 Files in `../panel/mfg-jlcpcb/`: `gerbers.zip`, `bom.csv`, `pos.csv`.
 
-- 114.1 x 48.1 mm, three boards side by side, 2 mm apart.
+- 114.1 x 55.1 mm, three boards side by side, 2 mm apart.
 - 5 mm rails left and right with three tooling holes and three fiducials.
 - Two 3 mm mouse-bite tabs on each long edge. Top and bottom are open.
 - Every part has its own designator (`C1_1`, `C1_2`, `C1_3`), so the placement
   file has no repeats and uploads under Delivery Format "Single PCB" as one
-  114 x 48 mm board. JLCPCB's review can still see three boards in the gerbers
+  114 x 55 mm board. JLCPCB's review can still see three boards in the gerbers
   and may reclassify it as "Panel by Customer"; if it does, pick that with
   1 design and 3 boards per panel. Quantity is panels: 5 is 15 dongles.
 - Regenerate with `gen/panel.sh` after any board change.
@@ -24,12 +24,12 @@ Files in `../panel/mfg-jlcpcb/`: `gerbers.zip`, `bom.csv`, `pos.csv`.
 ## Option 2: let JLCPCB panel it
 
 Files in this directory: `dongle-pro-v2-pd-gerbers-jlcpcb.zip`, `bom.csv`,
-`cpl.csv`. This is the single 32 x 48 mm board.
+`cpl.csv`. This is the single 32 x 55 mm board.
 
 - Delivery Format "Panel by JLCPCB", 3 columns x 1 row, edge rails on the left
   and right.
 - Their panels are V-cut. One row keeps the receptacles clear, but check the
-  form accepts a 48 mm tall panel; if it insists on 70 mm, use option 1.
+  form accepts a 55 mm tall panel; if it insists on 70 mm, use option 1.
 - Do not pick two rows: the receptacles of stacked boards would collide.
 - If you order single boards with no panel, expect them to add rails for
   assembly because of the overhanging connectors.

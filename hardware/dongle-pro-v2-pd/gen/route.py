@@ -55,9 +55,33 @@ def lane(J, yj, s, D, a, b, U):
 # host, lane 1 (right) and lane 2 (left)
 lane('J1', 104.4, +1, 'D12', ('A2', 'A3', '9', '2', '10', '1', '1', '2'), ('B11', 'B10', '6', '5', '7', '4', '15', '16'), 'U3')
 lane('J1', 104.4, +1, 'D13', ('A11', 'A10', '7', '4', '6', '5', '4', '3'), ('B2', 'B3', '10', '1', '9', '2', '6', '5'), 'U3')
-# target, lane 1 (left) and lane 2 (right)
-lane('J2', 143.6, -1, 'D14', ('A2', 'A3', '4', '7', '5', '6', '1', '2'), ('B11', 'B10', '1', '10', '2', '9', '15', '16'), 'U4')
-lane('J2', 143.6, -1, 'D15', ('A11', 'A10', '2', '9', '1', '10', '4', '3'), ('B2', 'B3', '5', '6', '4', '7', '6', '5'), 'U4')
+# target: the lanes go mux -> TVS array -> 330nF -> bleed resistor -> receptacle.
+# Mux side is the same shape as the host's. Below the arrays every line runs
+# straight down through its cap (two staggered rows), then the A-row pair steps
+# 0.15 mm onto its pads and the B-row pair steps 1 mm outward to its vias.
+YJ = 150.6
+def tlane(jpin, D, en, ef, mux, cap, res, xl, brow=None):
+    """brow = (via y, B.Cu x next to the pin, is the outer leg) for a through-hole pin."""
+    nic = R.netof(f'{D}.{en}'); ncon = R.netof(f'J2.{jpin}')
+    xe, _ = P(f'{D}.{en}'); xm, ym = P(f'U4.{mux}')
+    if brow: T(nic, 'F', [f'{D}.{ef}', (xe, ym), f'U4.{mux}'], W_SS, r=0.85 if brow[2] else 0.35)
+    else:    T(nic, 'F', [f'{D}.{ef}', (xe, 135.2), (xm, 133.9), f'U4.{mux}'], W_SS, r=0.9)
+    T(nic, 'F', [f'{D}.{en}', f'{D}.{ef}'], W_SS); T(nic, 'F', [f'{D}.{en}', f'{cap}.2'], W_SS, r=0)
+    down = [f'{cap}.1', (xe, 140.45), (xl, 140.45 + abs(xl - xe))]
+    if brow:
+        yv, xc, _ = brow
+        T(ncon, 'F', down + [(xl, yv)], W_SS, r=0.5); V(ncon, (xl, yv))
+        T(ncon, 'B', [f'J2.{jpin}', (xc, YJ - 1.5), (xc, YJ - 3.6), (xl, YJ - 3.6 - abs(xl - xc)), (xl, yv)], W_SS, r=0.7)
+    else:
+        T(ncon, 'F', down + [f'J2.{jpin}'], W_SS, r=0.3)
+tlane('B11', 'D14', '1', '10', '15', 'C30', 'R60', 105.9,  (144.3,  108.25, True))
+tlane('B10', 'D14', '2', '9',  '16', 'C31', 'R61', 106.4,  (143.75, 108.75, False))
+tlane('A2',  'D14', '4', '7',  '1',  'C32', 'R62', 108.25)
+tlane('A3',  'D14', '5', '6',  '2',  'C33', 'R63', 108.75)
+tlane('A11', 'D15', '2', '9',  '4',  'C34', 'R64', 112.75)
+tlane('A10', 'D15', '1', '10', '3',  'C35', 'R65', 112.25)
+tlane('B2',  'D15', '5', '6',  '6',  'C36', 'R66', 115.1,  (144.3,  112.75, True))
+tlane('B3',  'D15', '4', '7',  '5',  'C37', 'R67', 114.6,  (143.75, 112.25, False))
 
 # mux-to-mux corridor: two coupled pairs straight down the middle on F.Cu
 for (pl, pr, ql, qr), xc in ((('9', '10', '12', '11'), 110.0), (('11', '12', '10', '9'), 111.0)):
@@ -97,15 +121,16 @@ T('HOST_CC2', 'F', ['U3.14', VC2B], W); T('HOST_CC2', 'F', [VC2B, 'R7.1'], W)
 # ---------------------------------------------------------------- target port centre
 T('GND', 'F', ['J2.A1', 'J2.B12'], 0.25); T('GND', 'F', ['J2.A12', 'J2.B1'], 0.25)
 T('TGT_VBUS', 'F', ['J2.A4', 'J2.B9'], 0.25); T('TGT_VBUS', 'F', ['J2.A9', 'J2.B4'], 0.25)
-V6T, V7T, VC1T, VS1T = (110.25, 138.2), (110.75, 138.85), (109.7, 138.85), (111.3, 135.6)
+V6T, V7T, VC1T, VS1T = (110.25, YJ - 5.4), (110.75, YJ - 4.75), (109.7, YJ - 4.75), (111.3, 135.6)
 T('TGT_D_P', 'F', ['J2.A6', V6T], 0.2); V('TGT_D_P', V6T)
 T('TGT_D_N', 'F', ['J2.A7', V7T], 0.2); V('TGT_D_N', V7T)
-T('TGT_CC1', 'F', ['J2.A5', (109.75, 139.45), VC1T], W); V('TGT_CC1', VC1T)
-# SBU1 runs up the channel between the ESD arrays so its via clears the VBUS neck
-T('TGT_SBU1', 'F', ['J2.A8', (111.25, 136.6), VS1T], W, r=0.3); V('TGT_SBU1', VS1T)
+T('TGT_CC1', 'F', ['J2.A5', (109.75, YJ - 4.15), VC1T], W); V('TGT_CC1', VC1T)
+# SBU1 runs up the middle of the protection zone and between the TVS arrays, so
+# its via clears the VBUS neck
+T('TGT_SBU1', 'F', ['J2.A8', (111.25, YJ - 6.0), (110.5, YJ - 6.75), (110.5, 137.2), (111.3, 136.4), VS1T], W, r=0.3); V('TGT_SBU1', VS1T)
 # B.Cu under the pads belongs to VBUS here, so D- joins on In1 and D+ on In2
-T('TGT_D_N', 'I1', [V7T, (110.75, 139.9), 'J2.B7'], 0.2, r=0.6)
-T('TGT_D_P', 'I2', [V6T, (110.25, 139.6), 'J2.B6'], 0.2, r=0.6)
+T('TGT_D_N', 'I1', [V7T, (110.75, YJ - 3.7), 'J2.B7'], 0.2, r=0.6)
+T('TGT_D_P', 'I2', [V6T, (110.25, YJ - 4.0), 'J2.B6'], 0.2, r=0.6)
 
 # ---------------------------------------------------------------- hub: target and MCU ports
 # port 1 (east pins) -> ESD -> vias -> B.Cu trunk east, then south down the centre
@@ -114,7 +139,7 @@ T('TGT_D_N', 'F', ['U5.9', (105.9, 120.25), 'D11.7'], 0.2, r=0.3); T('TGT_D_N', 
 VTN, VTP = (105.9, 126.3), (106.45, 126.85)
 T('TGT_D_N', 'F', ['D11.4', VTN], 0.2); T('TGT_D_P', 'F', ['D11.5', (106.4, 126.4), VTP], 0.2, r=0.3)
 V('TGT_D_N', VTN); V('TGT_D_P', VTP)
-R.pair('TGT_D_N', 'TGT_D_P', 'B', [(107.2, 126.6), (110.5, 126.6), (110.5, 137.4)],
+R.pair('TGT_D_N', 'TGT_D_P', 'B', [(107.2, 126.6), (110.5, 126.6), (110.5, YJ - 6.2)],
        w=0.2, gap=0.15, r=0.9, ends=((VTN, VTP), (V7T, V6T)))
 # port 2 (south pins) -> vias -> B.Cu east under the corridor to the MCU
 VMN, VMP = (103.6, 125.2), (104.2, 125.75)
@@ -131,12 +156,12 @@ T('MCU_D_P', 'F', [VP, 'R1.2'], W)
 
 # ---------------------------------------------------------------- target CC, VBUS, SBU
 VC1P, VC1M = (102.25, 130.85), (107.45, 130.0)
-T('TGT_CC1', 'B', [VC1T, (109.55, 138.45), (109.55, 130.4), (109.15, 130.0), (102.7, 130.0), VC1P], W, r=0.6)
+T('TGT_CC1', 'B', [VC1T, (109.45, YJ - 5.15), (109.45, 130.4), (109.15, 130.0), (102.7, 130.0), VC1P], W, r=0.6)
 V('TGT_CC1', VC1P); V('TGT_CC1', VC1M)
 T('TGT_CC1', 'F', ['U2.10', VC1P], W); T('TGT_CC1', 'F', [VC1M, 'R30.1'], W)
 T('TMUX_CC1', 'F', ['R30.2', (108.5, 131.15), 'U4.13'], W, r=0.1)
 VC2P, VC2M = (105.95, 131.05), (106.95, 131.75)
-T('TGT_CC2', 'B', ['J2.B5', (111.3, 143.4), (103.6, 143.4), (103.1, 142.9), (103.1, 133.7), (103.6, 133.2),
+T('TGT_CC2', 'B', ['J2.B5', (111.3, YJ - 0.2), (103.6, YJ - 0.2), (103.1, YJ - 0.7), (103.1, 133.7), (103.6, 133.2),
                    (105.45, 133.2), (105.95, 132.7), VC2P], W, r=0.6)
 T('TGT_CC2', 'B', [(105.45, 133.2), (106.5, 133.2), (106.95, 132.75), VC2M], W, r=0.3)
 V('TGT_CC2', VC2P); V('TGT_CC2', VC2M)
@@ -149,28 +174,35 @@ T('TGT_VBUS', 'F', ['U7.8', 'U7.1'], 0.4, r=0)
 T('TGT_VBUS', 'F', [(121.95, 136.1), (121.35, 137.0)], 0.5, r=0)
 T('TGT_VBUS', 'F', [(121.35, 137.0), (115.2, 137.0)], 1.0, r=0)
 for x in (115.2, 116.0, 116.8): V('TGT_VBUS', (x, YV), d=0.6, drill=0.3)
-T('TGT_VBUS', 'B', [(116.8, YV), (111.55, YV), (111.55, 140.35)], 0.8, r=0.5)
-T('TGT_VBUS', 'B', [(109.45, 140.35), (111.55, 140.35)], 0.8, r=0)
-T('TGT_VBUS', 'B', ['J2.B9', (109.3, 140.35)], 0.45, r=0); T('TGT_VBUS', 'B', ['J2.B4', (111.7, 140.35)], 0.45, r=0)
+YB = YJ - 3.25
+# the neck stays east of the centre channel through the protection zone (the
+# bleed resistors' ground vias need the room) and steps in above the lane-2 fan
+T('TGT_VBUS', 'B', [(116.8, YV), (112.6, YV), (112.6, YJ - 6.0)], 1.0, r=0.5)
+T('TGT_VBUS', 'B', [(112.6, YJ - 6.0), (111.55, YJ - 4.95), (111.55, YB)], 0.8, r=0.3)
+T('TGT_VBUS', 'B', [(109.45, YB), (111.55, YB)], 0.8, r=0)
+T('TGT_VBUS', 'B', ['J2.B9', (109.3, YB)], 0.45, r=0); T('TGT_VBUS', 'B', ['J2.B4', (111.7, YB)], 0.45, r=0)
 # VBUS sense for the PD controller
 VVS = (106.1, 136.95)
-T('TGT_VBUS', 'B', [(109.3, 140.35), (109.15, 139.8), (109.15, 137.4), (108.7, 136.95), VVS], 0.2, r=0.4); V('TGT_VBUS', VVS)
+T('TGT_VBUS', 'B', [(109.3, YB), (109.15, YB - 0.55), (109.15, 137.4), (108.7, 136.95), VVS], 0.2, r=0.4); V('TGT_VBUS', VVS)
 T('TGT_VBUS', 'F', [VVS, (106.45, 136.5), (106.45, 130.8), (106.0, 130.35), 'U2.2'], W, r=0.3)
 T('TGT_VBUS', 'F', ['R27.1', (106.45, 134.5)], W); T('TGT_VBUS', 'F', ['R42.1', (106.45, 135.6)], W)
 # SBU1 goes up the right side on B.Cu; SBU2 is another boxed-in row-1 pin and
 # has to cross CC2's mouth-side run, so it takes In2 to the right first
 VS1, VS2 = (117.05, 121.4), (117.05, 118.4)
-# Both SBU lines detour through the protection cluster below the VBUS trunk
-# (1k, then a TVS channel) before they go up to the level shifters.
-VS1U, VS1P, VS2A, VS2P = (118.5, 140.7), (119.0, 144.9), (115.9, 143.4), (121.0, 142.3)
-T('TGT_SBU1', 'B', [VS1T, (111.3, 135.3), (111.8, 134.8), (118.0, 134.8), (118.5, 135.3), VS1U], W, r=0.4); V('TGT_SBU1', VS1U)
-T('TGT_SBU1', 'F', [VS1U, 'R28.1'], W)
-T('SBU1_P', 'F', ['R28.2', 'D16.10'], W); T('SBU1_P', 'F', ['D16.10', 'D16.1'], W); T('SBU1_P', 'F', ['D16.1', VS1P], W); V('SBU1_P', VS1P)
+# Both SBU lines detour through a series FET (gate at 3.3 V) below the VBUS
+# trunk before they go up to the level shifters.
+VS1U, VS1P, VS2A, VS2P, VSG, VSGT = (118.2, 144.3), (119.0, 140.6), (115.9, YJ - 0.2), (120.2, 142.7), (121.5, 141.0), (121.5, 130.6)
+T('TGT_SBU1', 'B', [VS1T, (111.3, 135.3), (111.8, 134.8), (117.7, 134.8), (118.2, 135.3), VS1U], W, r=0.4); V('TGT_SBU1', VS1U)
+T('TGT_SBU1', 'F', [VS1U, (119.1, 143.8), 'Q5.3'], W, r=0)
+T('SBU1_P', 'F', ['Q5.2', VS1P], W); V('SBU1_P', VS1P)
 T('SBU1_P', 'B', [VS1P, (119.0, 134.4), (118.6, 134.0), (117.5, 134.0), (117.05, 133.5), VS1], W, r=0.3); V('SBU1_P', VS1)
-T('TGT_SBU2', 'I2', ['J2.B8', (109.7, 143.4), VS2A], W, r=0.4); V('TGT_SBU2', VS2A)
-T('TGT_SBU2', 'F', [VS2A, (115.9, 145.6), 'R29.1'], W, r=0.4)
-T('SBU2_P', 'F', ['R29.2', (121.0, 145.6), 'D16.5'], W, r=0.4); T('SBU2_P', 'F', ['D16.5', 'D16.6'], W); T('SBU2_P', 'F', ['D16.6', VS2P], W); V('SBU2_P', VS2P)
-T('SBU2_P', 'B', [VS2P, (120.2, 141.5), (120.2, 118.0), (119.8, 117.6), (117.5, 117.6), VS2], W, r=0.5); V('SBU2_P', VS2)
+T('TGT_SBU2', 'I2', ['J2.B8', (109.7, YJ - 0.2), VS2A], W, r=0.4); V('TGT_SBU2', VS2A)
+T('TGT_SBU2', 'F', [VS2A, (119.5, 146.8), (121.4, 146.8), 'Q6.3'], W, r=0.5)
+T('SBU2_P', 'F', ['Q6.2', VS2P], W); V('SBU2_P', VS2P)
+T('SBU2_P', 'B', [VS2P, (120.2, 118.0), (119.8, 117.6), (117.5, 117.6), VS2], W, r=0.5); V('SBU2_P', VS2)
+V('SBU_G', VSG); V('SBU_G', VSGT); T('SBU_G', 'B', [VSGT, VSG], W)
+T('SBU_G', 'F', [VSG, (120.75, 141.3), 'Q5.1'], W, r=0); T('SBU_G', 'F', [VSG, (122.35, 141.85), 'Q6.1'], W, r=0.2)
+T('SBU_G', 'F', ['R46.2', 'R47.1'], W); T('SBU_G', 'F', [(123.3, 130.6), VSGT], W)
 
 # ---------------------------------------------------------------- power
 VA, VB2, V5A, VH5 = (114.9, 111.0), (118.55, 113.4), (109.0, 118.65), (104.9, 117.3)
@@ -182,13 +214,12 @@ T('+5V', 'F', ['U6.1', VB2], WP); V('+5V', VB2, d=0.6, drill=0.3)
 T('+5V', 'B', [VB2, (117.2, 114.75), (116.3, 115.2), (116.3, 119.5), (115.9, 119.9), (110.2, 119.9)], WP, r=0.8)
 T('+5V', 'B', [(110.2, 119.9), (109.35, 119.9), (109.0, 119.55), V5A], WP, r=0.3); V('+5V', V5A, d=0.6, drill=0.3)
 T('+5V', 'B', [(110.2, 119.9), (109.8, 120.3), (105.3, 120.3), (104.9, 119.9), VH5], WP, r=0.3); V('+5V', VH5, d=0.6, drill=0.3)
-# host 5 V to the power mux: over the charger I2C run on F.Cu, then B.Cu down the strip
-V5M, V5N, V5T = (122.65, 132.4), (122.65, 131.55), (123.6, 114.9)
-T('+5V', 'F', [VB2, (119.35, 114.2), (123.2, 114.2), V5T], 0.4, r=0.3); V('+5V', V5T, d=0.6, drill=0.3)
-T('+5V', 'B', [V5T, (123.6, 116.5), (122.65, 117.45), V5M], 0.5, r=0.4)
-V('+5V', V5M, d=0.6, drill=0.3); V('+5V', V5N, d=0.6, drill=0.3)
-T('+5V', 'F', [V5N, V5M, 'C15.1'], 0.5, r=0); T('+5V', 'F', ['C15.1', 'U7.7'], 0.4, r=0)
-T('+5V', 'F', [V5M, 'R2.1'], 0.3); T('+5V', 'F', [V5N, 'R17.1'], 0.25); T('+5V', 'F', ['R17.1', 'R2.1'], 0.25)
+# host 5 V to the power mux: F.Cu across to the strip, then B.Cu straight down it
+V5M, V5T = (122.65, 132.4), (122.5, 114.6)
+T('+5V', 'F', [VB2, (119.35, 114.2), (122.1, 114.2), V5T], 0.4, r=0.3); V('+5V', V5T, d=0.8, drill=0.4)
+T('+5V', 'B', [V5T, (122.5, 131.9), V5M], 0.5, r=0.2); V('+5V', V5M, d=0.8, drill=0.4)
+T('+5V', 'F', [V5M, 'C15.1'], 0.5, r=0); T('+5V', 'F', ['C15.1', 'U7.7'], 0.4, r=0)
+T('+5V', 'F', [V5M, 'R2.1'], 0.3); T('+5V', 'F', ['R2.1', 'R46.1'], 0.25); T('+5V', 'F', [V5T, 'R17.1'], 0.25)
 T('+5V', 'F', ['U3.8', 'C6.1'], 0.25); T('+5V', 'F', ['C6.1', V5A], 0.25)
 T('+5V', 'F', [VH5, 'C7.1'], 0.25); T('+5V', 'F', ['C7.1', (103.55, 117.5), 'U5.15'], 0.2, r=0.2)
 T('HMUX_VDD', 'F', ['U3.7', 'C5.1'], 0.2)
@@ -236,19 +267,16 @@ T('SBU2_P', 'F', ['R10.2', VS2], 0.2); T('SBU2_P', 'F', [VS2, 'Q2.2'], 0.2); T('
 T('SBU_VG', 'F', ['R12.2', 'R13.1'], W); T('SBU_VG', 'F', ['R13.1', 'C12.1'], W)
 T('SBU_VG', 'F', ['C12.1', (120.25, 116.25), (120.25, 117.75), 'Q2.1'], W, r=0.3)
 T('SBU_VG', 'F', ['Q2.1', 'Q1.1'], W)
-# MCU side: 1k in each drain, then B.Cu to the second MCU pin of each net.
-# PA4..PA7 leave the east side on F.Cu to the charger strip, so nothing wraps it on F.Cu.
+# MCU side: each net has two MCU pins, joined on B.Cu. PA4..PB0 leave the east
+# side on F.Cu to the charger strip, so nothing wraps it on F.Cu.
 VQ1A, VQ1B = (117.65, 129.95), (117.65, 123.85)
-T('SBU1_D', 'F', ['Q1.3', (118.9, 124.25), 'R32.2'], W, r=0.1)
-T('SBU1_MCU', 'F', ['U1.15', 'R32.1'], W); T('SBU1_MCU', 'F', [VQ1B, 'R32.1'], W)
+T('SBU1_MCU', 'F', ['U1.15', (117.2, 124.3), (118.45, 124.3), 'Q1.3'], W, r=0.4); T('SBU1_MCU', 'F', [VQ1B, (117.65, 124.3)], W)
 T('SBU1_MCU', 'F', ['U1.7', (117.2, 129.5), VQ1A], W, r=0.2); V('SBU1_MCU', VQ1A); V('SBU1_MCU', VQ1B)
 T('SBU1_MCU', 'B', [VQ1A, VQ1B], W)
-VD2, VD2D, VD2B, VD2C = (118.9, 121.25), (119.75, 124.2), (118.75, 125.75), (118.9, 128.6)
-T('SBU2_D', 'F', ['Q2.3', VD2], 0.2); V('SBU2_D', VD2); V('SBU2_D', VD2D)
-T('SBU2_D', 'B', [VD2, (118.9, 123.3), VD2D], W, r=0.3); T('SBU2_D', 'F', [VD2D, 'R33.2'], W)
-V('SBU2_MCU', VD2B); V('SBU2_MCU', VD2C)
-T('SBU2_MCU', 'B', [VD2B, (118.9, 126.1), VD2C], W, r=0.1)
-T('SBU2_MCU', 'F', ['R33.1', (119.3, 125.75), VD2B, 'U1.14'], W, r=0.1); T('SBU2_MCU', 'F', [VD2C, (118.5, 128.2), 'U1.8'], W, r=0.2)
+VD2, VD2B, VD2C = (118.9, 121.25), (118.75, 125.75), (118.9, 128.6)
+T('SBU2_MCU', 'F', ['Q2.3', VD2], 0.2); V('SBU2_MCU', VD2); V('SBU2_MCU', VD2B); V('SBU2_MCU', VD2C)
+T('SBU2_MCU', 'B', [VD2, (118.9, 125.3), VD2B, (118.9, 126.1), VD2C], W, r=0.1)
+T('SBU2_MCU', 'F', [VD2B, 'U1.14'], W); T('SBU2_MCU', 'F', [VD2C, (118.5, 128.2), 'U1.8'], W, r=0.2)
 
 # ---------------------------------------------------------------- debug pads, boot, LEDs
 T('SWCLK', 'F', ['U1.24', (113.2, 126.6), (113.2, 125.6), (112.75, 124.95), 'TP9.1'], W, r=0.4)
@@ -261,7 +289,8 @@ T('TGT_CC1', 'F', ['U2.10', 'U2.11'], W); T('TGT_CC2', 'F', ['U2.1', 'U2.14'], W
 # ---------------------------------------------------------------- charger strip
 # power mux straps
 T('MUX_SS', 'F', ['U7.11', 'C18.1'], W)
-T('MUX_ILM', 'F', ['U7.10', (120.7, 135.05), (120.5, 135.2), (119.2, 135.2), 'R35.2'], W, r=0.1)
+T('MUX_ILM', 'F', ['U7.10', (120.7, 135.05), (120.5, 135.2), (117.73, 135.2), (117.73, 135.75)], W, r=0.1)
+T('MUX_ILM', 'F', ['R48.1', 'R35.2'], W); T('MUX_ILM_D', 'F', ['R48.2', 'R49.1'], W); T('GND', 'F', ['R35.1', 'C18.2'], W)
 T('MUX_ILM', 'F', [(120.3, 135.2), 'R16.1'], W)
 T('MUX_ILM_A', 'F', ['R16.2', 'R19.1'], W); T('MUX_ILM_B', 'F', ['R19.2', 'R20.1'], W)
 T('MUX_ILM_C', 'F', ['R20.2', (121.83, 132.15), (121.5, 132.47), 'R34.2'], W, r=0.1)
@@ -289,20 +318,19 @@ VCC = (124.75, 108.75)
 T('CHG_CC1', 'B', ['J3.B5', (124.7, 104.45), (120.4, 104.45), (120.4, 108.75), VCC], W, r=0.6); V('CHG_CC1', VCC)
 T('CHG_CC1', 'F', [VCC, (124.4, 109.15), 'U8.7'], W, r=0.1)
 T('CHG_CFG', 'F', ['U8.9', (123.6, 108.9), 'R26.1'], W, r=0.2)
-VSCB, VSDB, VSCT, VSDT = (123.45, 112.4), (124.15, 112.4), (120.8, 128.5), (121.35, 127.95)
+VSCB, VSDB, VSCT, VSDT = (123.45, 112.4), (124.15, 112.4), (123.2, 128.3), (123.75, 127.75)
 T('CHG_SCL', 'F', ['U8.2', (123.6, 112.0), VSCB], W, r=0.1); T('CHG_SDA', 'F', ['U8.3', (124.0, 112.0), VSDB], W, r=0.1)
 for n, v in (('CHG_SCL', VSCB), ('CHG_SDA', VSDB), ('CHG_SCL', VSCT), ('CHG_SDA', VSDT)): V(n, v)
-T('CHG_SCL', 'B', [VSCB, (123.45, 112.7), (121.6, 114.55), (120.8, 115.35), VSCT], W, r=0.4)
-T('CHG_SDA', 'B', [VSDB, (124.15, 113.0), (122.3, 114.85), (121.3, 115.85), (121.3, 128.4), VSDT], W, r=0.4)
-T('CHG_SCL', 'F', ['U1.9', (120.1, 127.8), VSCT], W, r=0.4)
-T('CHG_SDA', 'F', ['U1.10', (120.8, 127.4), VSDT], W, r=0.4)
+T('CHG_SCL', 'B', [VSCB, (123.3, 112.9), (123.3, 127.8), VSCT], W, r=0.2)
+T('CHG_SDA', 'B', [VSDB, (123.85, 112.9), (123.85, 127.3), VSDT], W, r=0.2)
+T('CHG_SCL', 'F', ['U1.9', (122.7, 127.8), VSCT], W, r=0.3)
+T('CHG_SDA', 'F', ['U1.10', (123.4, 127.4), VSDT], W, r=0.2)
 # enables
-T('HOST_EN_N', 'F', ['U1.11', (124.16, 127.0), 'R2.2'], W, r=0.6)
+T('HOST_EN_N', 'F', ['U1.11', (124.16, 127.0), 'R2.2'], W, r=0.2)
 T('HOST_EN_N', 'F', ['R2.2', 'R21.1'], W); T('HOST_EN_N', 'F', ['R21.1', (124.16, 135.05), 'U7.5'], W, r=0.2)
 T('CHG_HV', 'F', ['U1.13', (127.75, 126.2), (127.75, 132.53), 'R25.1'], W, r=0.6); T('CHG_HV', 'F', ['R25.1', 'Q3.1'], W)
 T('CHG_EN', 'F', ['U1.12', (126.7, 126.6), 'Q4.1'], W, r=0.3); T('CHG_EN', 'F', ['Q4.1', 'R45.1'], W)
-T('CHG_LIM', 'F', ['Q4.3', 'R43.2'], W); T('CHG_LIM_A', 'F', ['R43.1', 'R44.2'], W)
-T('CHG_OV', 'F', ['R44.1', (125.75, 135.55)], W)
+T('CHG_LIM', 'F', ['Q4.3', 'R43.2'], W); T('CHG_OV', 'F', ['R43.1', (125.75, 135.55)], W)
 T('CHG_OV', 'F', ['U7.4', 'Q3.3'], W)
 T('CHG_SNS', 'F', ['U7.3', (126.3, 136.05), 'R39.1'], W, r=0)
 T('CHG_SNS', 'F', [(125.1, 136.05), (125.1, 137.05)], W); T('CHG_SNS', 'F', ['R24.1', 'R23.2'], W)
@@ -315,6 +343,10 @@ T('LEDP_A', 'F', ['R17.2', 'D1.1'], W)
 for xy in ((110.2, 116.1), (111.15, 131.9), (116.1, 126.3), (116.1, 127.7), (103.6, 119.2), (124.0, 110.6)):
     V('GND', xy)
 T('GND', 'F', ['C10.2', (113.75, 130.72)], 0.2); V('GND', (113.75, 130.72))
+# ground for the two bleed resistors that point into the centre channel, and for the limit resistor's pocket
+T('GND', 'F', ['R63.2', (109.875, 143.75)], W); V('GND', (109.875, 143.75))
+T('GND', 'F', ['R65.2', (111.4, 143.75)], W); V('GND', (111.4, 143.75))
+T('GND', 'F', ['R49.2', (114.75, 135.32)], W); V('GND', (114.75, 135.32))
 # the mux's strap pins sit in pockets the pour cannot reach
 T('GND', 'F', ['U7.12', (120.75, 136.2), (119.6, 136.2), 'C18.2'], W, r=0.1); V('GND', (119.6, 136.0))
 T('GND', 'F', ['C15.2', (122.0, 132.75)], W); V('GND', (122.0, 132.75))

@@ -28,7 +28,7 @@ def write_pro():
     p['net_settings']['classes'].append(pwr)
     p['net_settings']['netclass_patterns'] = (
         [{'netclass': 'USB3_SS', 'pattern': pat} for pat in
-         ['HOST_TX*', 'HOST_RX*', 'TGT_TX*', 'TGT_RX*', 'SSA_*', 'SSB_*']] +
+         ['HOST_TX*', 'HOST_RX*', 'TGT_TX*', 'TGT_RX*', 'TGTC_*', 'SSA_*', 'SSB_*']] +
         [{'netclass': 'PWR', 'pattern': pat} for pat in
          ['+5V', '+3V3', 'HUB_3V3', 'TGT_VBUS', 'VBUS_IN']])
 

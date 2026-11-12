@@ -351,6 +351,10 @@
       },
       {
         "netclass": "USB3_SS",
+        "pattern": "TGTC_*"
+      },
+      {
+        "netclass": "USB3_SS",
         "pattern": "SSA_*"
       },
       {

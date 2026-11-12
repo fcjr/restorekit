@@ -4,7 +4,7 @@ Run with KiCad's bundled python (needs pcbnew):
   KPY=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
   $KPY -u gen/pcb.py
 
-32 x 48 mm, 4-layer (JLC04161H-7628), single-sided assembly. Host receptacle on
+32 x 55 mm, 4-layer (JLC04161H-7628), single-sided assembly. Host receptacle on
 the top edge, target on the bottom edge, charger receptacle beside the host one;
 the SuperSpeed pairs run straight down between the two CH9441P muxes. The left
 21 mm is the Dongle-Pro v2 layout, the right 11 mm is the charger path. In1 and In2 are both solid GND so the
@@ -26,11 +26,12 @@ def fp_for(sym):
     m = re.search(r'"Footprint"\s*\n?\s*"[^:"]*:([^"]*)"', libsrc[i:i+8000])
     return m.group(1)
 
-X0, Y0, X1, Y1 = 100.0, 100.0, 132.0, 148.0
+X0, Y0, X1, Y1 = 100.0, 100.0, 132.0, 155.0
 CX = 110.5   # host/target port centreline
 RAD = 1.6   # board corner radius
 P = {}
-exec(open('gen/place.py').read(), {'P': P, 'CX': CX, 'X0': X0, 'Y0': Y0, 'X1': X1, 'Y1': Y1})
+YJ = 150.6   # target receptacle
+exec(open('gen/place.py').read(), {'P': P, 'CX': CX, 'X0': X0, 'Y0': Y0, 'X1': X1, 'Y1': Y1, 'YJ': YJ})
 
 board = pcbnew.CreateEmptyBoard()
 board.SetFileName(os.path.abspath('dongle-pro-v2-pd.kicad_pcb'))
