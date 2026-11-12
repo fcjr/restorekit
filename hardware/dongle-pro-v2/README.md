@@ -15,7 +15,7 @@ less than the Lite's parts cost. 21 x 48 mm, 4 layers, single-sided assembly,
 | Target VBUS switch | AP22653 | MT9700-N, 10k -> 0.68 A |
 | SBU level shift | 2x 74AVC1T45 + 1.2 V LDO | 2x HL2302 + five resistors |
 | ESD | USBLC6 + TPD4E05U06 | H5VU25U everywhere |
-| Debug | Tag-Connect | two pads (clk, dio) + 3v3/gnd pads |
+| Debug | Tag-Connect | Tag-Connect, a 4-pin header (not fitted), two pads at the MCU |
 
 The CH32X035 has its own PD PHY but it cannot send SOP'' Debug (no RST-2 in
 K-code slot 2), so the HUSB311 does the Apple VDMs.
@@ -46,6 +46,13 @@ each power net and how far each decoupling cap is from its pin.
 Target VBUS is capped at 0.68 A and runs on 0.3 mm copper. A 10k bleeds it
 down when the switch is off, and the HUSB311 VBUS pin is wired to it so the
 PHY can see the rail.
+
+Debug is WCH's two-wire SDI. It comes out three ways: a TC2030 Tag-Connect
+footprint next to the target port (same pinout as the other dongles), four
+through-holes at 2.54 mm on the other side of that port for a pin header
+(gnd, 3v3, dio, clk), and the `clk`/`dio` pads at the MCU. `vbus` and `5v`
+are probe pads for the two rails. There are no pads for CC or SBU; probe those
+at C22/C23 and R8/R10.
 
 ## Regenerating
 
