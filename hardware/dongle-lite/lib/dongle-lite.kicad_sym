@@ -9255,7 +9255,7 @@
     )
     (property
       "Footprint"
-      "dongle-lite:SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BL-1"
+      "dongle-lite:SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR"
       (id 2)
       (at 0 -12.70 0)
       (effects (font (size 1.27 1.27) ) hide)

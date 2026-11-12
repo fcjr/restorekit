@@ -122,4 +122,7 @@ Everything on the v2 list except item 7, plus:
    reference: 6.1 to 6.6 V. Check 5.5 V passes and 9 V does not.
 12. The target CH9441P reads CC through 10k. A 20 V short puts 1.5 mA into
    its 6 V pins' clamps.
-13. CPL rotation for the TPS2121, CH224Q and the AO3400As.
+13. Rotations: every placed part's footprint has the same pad layout and
+   zero orientation as the one JLCPCB places from, and the TPS2121 pattern
+   matches TI's drawing, so the CPL angles should be right as written. Still
+   look at the placement preview before paying.
