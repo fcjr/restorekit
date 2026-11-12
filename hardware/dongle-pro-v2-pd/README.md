@@ -93,9 +93,10 @@ Everything on the v2 list except item 7, plus:
    for a 20 V to 5 V step with a light load or a hard reset.
 5. No TVS on charger VBUS. PD chargers ramp to 20 V after attach so it should
    not see a 20 V hot plug, but the mux's absolute max is 24 V.
-6. JLCPCB lists the receptacle as 5 V rated. That looks like a catalog default
-   (USB-C contacts are specified for 20 V and more), but get the JXTCONN
-   drawing before putting 20 V on it.
+6. The receptacles are hanxia HX TYPE-C 24P QCHT, rated 20 V 5 A in its
+   datasheet. It is the part the footprint was drawn for. The v2 swapped to a
+   JXTCONN part when this one went out of stock; that one is rated 5 V, so do
+   not substitute it here.
 7. The CH224Q's supply cap is the 25 V 1 uF and sees up to 21 V.
 8. The target lanes now have a second set of AC caps in series with the Macs'
    own: about 130 nF per lane end to end, inside USB's 75 to 265 nF. Eight
