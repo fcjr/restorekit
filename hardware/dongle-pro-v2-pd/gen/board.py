@@ -11,13 +11,13 @@ CH9441P picking the live lane pair from its port's CC pins. USB 2.0 goes
 through a CH334P hub (DS1 = MCU, DS2 = target). CH32X035G8U6 runs the dongle,
 HUSB311 (TCPCI) owns the target CC for the Apple DFU VDMs.
 
-BOM-row discipline: resistors are only 5.1k / 10k / 5.6k / 6.8k, caps only
+BOM-row discipline: resistors are only 1k / 5.1k / 5.6k / 6.8k / 10k / 100k, caps only
 100nF / 1uF plus the 10uF 50 V on the two VBUS rails.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dongle-lite", "gen"))
 import gen
-R={"5.1k":"0402WGF5101TCE","10k":"0402WGF1002TCE","5.6k":"0402WGF5601TCE","6.8k":"0402WGF6801TCE"}
+R={"5.1k":"0402WGF5101TCE","10k":"0402WGF1002TCE","5.6k":"0402WGF5601TCE","6.8k":"0402WGF6801TCE","1k":"0402WGF1001TCE","100k":"0402WGF1003TCE"}
 C={"100nF":"CL05B104KO5NNNC","1uF":"CL05A105KA5NQNC","10uF":"GRM21BR61H106KE43L"}
 XTAL="X322512MSB4SI"; LED="KT-0603R"; BTN="TS3315A"
 USBC="HXTYPE-C24PQCHT"; ESD="H5VU25U"; MUX="CH9441P"; FET="HL2302"
@@ -120,11 +120,14 @@ c("C7","1uF",(600,300,0),"+5V","GND"); c("C8","1uF",(630,300,0),"HUB_3V3","GND")
 # external supply is allowed) with the LDO input tied to the same rail, which
 # keeps +5V out of the bottom half of the board.
 add("U4",MUX,(830,150,0),{
- "13":"TGT_CC1","14":"TGT_CC2","8":"+3V3","7":"+3V3","17":"GND",
+ "13":"TMUX_CC1","14":"TMUX_CC2","8":"+3V3","7":"+3V3","17":"GND",
  "1":"TGT_TX1_P","2":"TGT_TX1_N","15":"TGT_RX1_P","16":"TGT_RX1_N",
  "3":"TGT_RX2_N","4":"TGT_RX2_P","5":"TGT_TX2_N","6":"TGT_TX2_P",
  "12":"SSA_P","11":"SSA_N","10":"SSB_P","9":"SSB_N"})
 c("C10","100nF",(830,230,0),"+3V3","GND")
+# The mux's CC inputs are 6 V pins and only sense the level, so they sit behind
+# 100k: a VBUS-to-CC short at 20 V pushes 0.15 mA into them. HUSB311 CC is 24 V rated.
+r("R30","100k",(800,600,0),"TGT_CC1","TMUX_CC1"); r("R31","100k",(830,600,0),"TGT_CC2","TMUX_CC2")
 add("J2",USBC,(950,150,0),{
  "A1":"GND","A12":"GND","B1":"GND","B12":"GND","25":"GND",
  # all four VBUS contacts: this port carries up to 3 A at 20 V
@@ -144,10 +147,16 @@ esd("D15",(940,300,0),"TGT_RX2_N","TGT_RX2_P","TGT_TX2_N","TGT_TX2_P")
 # lift SBU above ~1.1 V. SBU_PU low or Hi-Z: gate at 0 V, FETs off, and each SBU
 # line is left with 5.6k (low) or 15.6k (Hi-Z) to ground. The MCU side idles
 # high on the MCU's internal pull-ups.
-add("Q1",FET,(360,430,0),{"1":"SBU_VG","2":"TGT_SBU1","3":"SBU1_MCU"})
-add("Q2",FET,(440,430,0),{"1":"SBU_VG","2":"TGT_SBU2","3":"SBU2_MCU"})
-r("R8","10k",(330,470,0),"SBU_PU","TGT_SBU1"); r("R9","5.6k",(355,470,0),"TGT_SBU1","GND")
-r("R10","10k",(410,470,0),"SBU_PU","TGT_SBU2"); r("R11","5.6k",(435,470,0),"TGT_SBU2","GND")
+# 20 V protection (VBUS sits next to SBU in the receptacle): 1k from the pin,
+# then a TVS channel that holds the FET source under its 10 V gate rating, then
+# 1k on the drain so the body diode cannot push more than ~3 mA into the MCU.
+add("Q1",FET,(360,430,0),{"1":"SBU_VG","2":"SBU1_P","3":"SBU1_D"})
+add("Q2",FET,(440,430,0),{"1":"SBU_VG","2":"SBU2_P","3":"SBU2_D"})
+r("R8","10k",(330,470,0),"SBU_PU","SBU1_P"); r("R9","5.6k",(355,470,0),"SBU1_P","GND")
+r("R10","10k",(410,470,0),"SBU_PU","SBU2_P"); r("R11","5.6k",(435,470,0),"SBU2_P","GND")
+r("R28","1k",(330,600,0),"TGT_SBU1","SBU1_P"); r("R29","1k",(360,600,0),"TGT_SBU2","SBU2_P")
+r("R32","1k",(390,600,0),"SBU1_MCU","SBU1_D"); r("R33","1k",(420,600,0),"SBU2_MCU","SBU2_D")
+esd("D16",(480,620,0),"SBU1_P",None,None,"SBU2_P")
 r("R12","10k",(330,500,0),"SBU_PU","SBU_VG"); r("R13","10k",(355,500,0),"SBU_VG","GND")
 c("C12","100nF",(380,500,0),"SBU_VG","GND")
 
@@ -161,14 +170,21 @@ c("C13","1uF",(530,470,0),"+5V","GND"); c("C14","1uF",(560,470,0),"+3V3","GND")
 #   OV2 (charger) 20k/6.8k from VBUS_IN = 1.2 V at 4.75 V, 5.3 V at 21 V; Q3 pulls
 #                 it low when CHG_EN is high. With the MCU unpowered the charger
 #                 input stays off whatever the charger does.
-# ILM 30k = 3.5 A limit. SS 100nF keeps the 20 V turn-on slow.
+# CP2 follows charger VBUS (same divider, 100k isolates it from Q3): with the
+# charger above ~4.5 V it has priority over the host whatever the host voltage
+# is, and switchover is the fast kind (5 us instead of 100 us).
+# ILM: 100k to ground = 1.2 A while the host feeds the target. ST goes low when
+# the charger is selected and adds 40k in parallel = 3.6 A.
+# SS 100nF keeps the 20 V turn-on slow.
 add("U7","TPS2121RUXR",(660,430,0),{"1":"TGT_VBUS","8":"TGT_VBUS","7":"+5V","2":"VBUS_IN",
- "6":"GND","3":"GND","9":"GND","12":"GND","10":"MUX_ILM","11":"MUX_SS","5":"HOST_EN_N","4":"CHG_OV"})
+ "6":"GND","3":"CHG_SNS","9":"MUX_ST","12":"GND","10":"MUX_ILM","11":"MUX_SS","5":"HOST_EN_N","4":"CHG_OV"})
 r("R16","10k",(620,480,0),"MUX_ILM","MUX_ILM_A"); r("R19","10k",(645,480,0),"MUX_ILM_A","MUX_ILM_B")
-r("R20","10k",(670,480,0),"MUX_ILM_B","GND")
+r("R20","10k",(670,480,0),"MUX_ILM_B","MUX_ILM_C"); r("R34","10k",(560,600,0),"MUX_ST","MUX_ILM_C")
+r("R35","100k",(590,600,0),"GND","MUX_ILM")
 c("C18","100nF",(695,480,0),"MUX_SS","GND")
-# 10k bleeder: with the mux off, target VBUS falls from 20 V to under 0.8 V in ~0.3 s
-r("R27","10k",(745,525,0),"TGT_VBUS","GND")
+# 5k bleeder (2x 10k): with the mux off, 20 uF falls from 20 V to under 0.8 V in ~0.3 s
+r("R27","10k",(745,525,0),"TGT_VBUS","GND"); r("R42","10k",(620,600,0),"TGT_VBUS","GND")
+c("C20","10uF",(660,610,0),"TGT_VBUS","GND")
 c("C15","1uF",(680,525,0),"+5V","GND"); c("C17","10uF",(720,525,0),"TGT_VBUS","GND")
 r("R2","10k",(730,430,0),"+5V","HOST_EN_N"); r("R21","5.1k",(730,460,0),"HOST_EN_N","GND")
 add("D1",LED,(530,510,0),{"1":"LEDP_A","2":"GND"}); r("R17","5.1k",(560,510,0),"+5V","LEDP_A")
@@ -190,18 +206,20 @@ add("J3",USBC,(1050,150,0),{
  "A6":None,"A7":None,"B6":None,"B7":None,"A8":None,"B8":None,
  "A2":None,"A3":None,"B11":None,"B10":None,"B2":None,"B3":None,"A11":None,"A10":None})
 add("U8","CH224Q",(1050,330,0),{"1":"VBUS_IN","8":"VBUS_IN","11":"GND",
- "2":"CHG_SCL","3":"CHG_SDA","4":None,"5":None,"6":"CHG_CC2","7":"CHG_CC1","9":"CHG_CFG","10":None})
+ "2":"CHG_SCL","3":"CHG_SDA","4":"CHG_DP","5":"CHG_DM","6":"CHG_CC2","7":"CHG_CC1","9":"CHG_CFG","10":None})
 r("R26","6.8k",(1100,370,0),"CHG_CFG","GND")
 c("C19","1uF",(1130,370,0),"VBUS_IN","GND")   # CH224Q supply; 25 V part, sees up to 21 V
 c("C16","10uF",(1010,370,0),"VBUS_IN","GND")
-r("R22","10k",(1010,420,0),"VBUS_IN","CHG_OV_A"); r("R23","10k",(1035,420,0),"CHG_OV_A","CHG_OV")
-r("R24","6.8k",(1060,420,0),"CHG_OV","GND")
+r("R22","10k",(1010,420,0),"VBUS_IN","CHG_OV_A"); r("R23","10k",(1035,420,0),"CHG_OV_A","CHG_SNS")
+r("R24","6.8k",(1060,420,0),"CHG_SNS","GND"); r("R39","100k",(1060,470,0),"CHG_SNS","CHG_OV")
+# BC1.2 pins: PD only, held low instead of left floating
+r("R40","10k",(1010,520,0),"CHG_DP","GND"); r("R41","10k",(1040,520,0),"CHG_DM","GND")
 add("Q3",FET,(1100,450,0),{"1":"CHG_EN","2":"GND","3":"CHG_OV"})
 r("R25","10k",(1130,420,0),"CHG_EN","GND")
 
 # ===== Debug / bring-up cluster =====
 # SDI debug is two pads next to the MCU (WCH-LinkE: SWDIO, SWCLK + the 3V3/GND pads)
-for i,(ref,net) in enumerate([("TP2","+3V3"),("TP4","TGT_VBUS"),("TP5","GND"),
+for i,(ref,net) in enumerate([("TP2","+3V3"),("TP5","GND"),
                               ("TP9","SWCLK"),("TP10","SWDIO")]):
     comps.append({"ref":ref,"sym":"TP","at":(760+(i%4)*20,480+(i//4)*25,0),
                   "in_bom":False,"value":net,"nets":{"1":net}})
@@ -217,5 +235,6 @@ gen.build_wired(comps,"dongle-pro-v2-pd.kicad_sch",
                                       "HOST_CC1","HOST_CC2","TGT_CC1","TGT_CC2","TGT_SBU1","TGT_SBU2",
                                       "I2C_SCL","I2C_SDA","PD_INT","SBU1_MCU","SBU2_MCU","SBU_PU","SBU_VG","SWCLK","SWDIO","LED_STAT","BOOT_SW","LEDP_A","LEDS_A","HUB_XI","HUB_XO","HMUX_VDD","HUB_3V3",
                                       "TGT_VBUS","VBUS_IN","HOST_EN_N","CHG_EN","CHG_OV","CHG_OV_A","CHG_SCL","CHG_SDA","CHG_CC1","CHG_CC2","CHG_CFG",
-                                      "MUX_ILM","MUX_ILM_A","MUX_ILM_B","MUX_SS"})
+                                      "MUX_ILM","MUX_ILM_A","MUX_ILM_B","MUX_ILM_C","MUX_ST","MUX_SS","CHG_SNS","CHG_DP","CHG_DM",
+                                      "TMUX_CC1","TMUX_CC2","SBU1_P","SBU2_P","SBU1_D","SBU2_D"})
 print(f"{len(comps)} comps")

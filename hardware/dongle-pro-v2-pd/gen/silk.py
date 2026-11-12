@@ -115,7 +115,7 @@ def pin1(ref, num, dx, dy):
 pin1('U1', '1', -0.55, 0.75); pin1('U2', '1', 0.55, 0.0); pin1('U3', '1', 0.0, -0.75); pin1('U4', '1', 0.0, 0.75)
 pin1('U5', '1', -0.65, 0.0); pin1('U6', '1', 0.75, 0.4); pin1('U7', '1', -0.6, 0.9); pin1('U8', '1', -0.55, 0.0)
 # ESD arrays: dot just past pin 1, in line with the pin row
-for ref in ('D10', 'D11', 'D12', 'D13', 'D14', 'D15'):
+for ref in ('D10', 'D11', 'D12', 'D13', 'D14', 'D15', 'D16'):
     (x1, y1), (x2, y2) = pad[(ref, '1')], pad[(ref, '2')]
     l = math.hypot(x1 - x2, y1 - y2)
     dot(x1 + (x1 - x2) / l * 0.45, y1 + (y1 - y2) / l * 0.45, 0.15, F)
@@ -125,12 +125,11 @@ for ref in ('D1', 'D2'):
     ux, uy = (x - ax), (y - ay); l = math.hypot(ux, uy); ux, uy = ux / l, uy / l
     cx_, cy_ = x + ux * 0.7, y + uy * 0.7
     seg((cx_ - uy * 0.4, cy_ + ux * 0.4), (cx_ + uy * 0.4, cy_ - ux * 0.4), F, 0.15)
-text('boot', 117.2, 135.7, F, 0.8)
+text('boot', 116.3, 135.75, F, 0.8)
 text('act', 119.5, 129.6, F, 0.8, w_ratio=0.8)
 text('pwr', 122.1, 129.4, F, 0.8, angle=270, w_ratio=0.8)
 text('clk', 110.7, 124.55, F, 0.8, w_ratio=0.8); text('dio', 110.7, 126.6, F, 0.8, w_ratio=0.8)
-text('3v3', 113.9, 121.8, F, 0.8, w_ratio=0.8); text('gnd', 116.7, 141.4, F, 0.8, w_ratio=0.8)
-text('vbus', 120.3, 138.1, F, 0.8, w_ratio=0.8)
+text('3v3', 113.9, 121.8, F, 0.8, w_ratio=0.8); text('gnd', 125.0, 143.8, F, 0.8, w_ratio=0.8)
 # top-left corner: the mark, small
 mx, my, ms = 103.0, 103.9, 3.6
 rrect(mx, my, ms, ms, 0.7, F, 0.2)
@@ -139,7 +138,7 @@ text('restorekit', 102.85, 107.0, F, 0.8, th=0.14, w_ratio=0.78)
 text('dongle pro', 102.85, 108.3, F, 0.8, w_ratio=0.78); text('pd', 102.85, 109.6, F, 0.8)
 text('<host', 118.0, 102.2, F, 1.0, th=0.17)
 text('pd in>', 118.0, 103.9, F, 0.9, th=0.15, w_ratio=0.85)
-text('target', 118.0, 146.2, F, 1.1, th=0.18)
+text('target', 118.6, 147.0, F, 1.1, th=0.18)
 text('dfu port', 103.0, 146.2, F, 0.8)
 text('charger', 127.4, 119.5, F, 1.1, th=0.18, angle=270)
 text('20 V 3 A max', 125.9, 119.5, F, 0.8, w_ratio=0.8, angle=270)
