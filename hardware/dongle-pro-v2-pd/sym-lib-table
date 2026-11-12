@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "dongle-lite")(type "KiCad")(uri "${KIPRJMOD}/lib/dongle-lite.kicad_sym")(options "")(descr "LCSC-sourced project symbols"))
+)
