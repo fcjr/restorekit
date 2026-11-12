@@ -38,8 +38,14 @@ target, port 2 is the MCU.
 | B.Cu | the B-row lane pairs near each receptacle, both USB 2.0 trunks, power, slow signals crossing under the corridor |
 
 Lane pairs are 0.211 mm wide. A-row pairs and the corridor match to 0.00 mm,
-B-row pairs to 0.80 mm (`gen/lengths.py`). Order with JLC04161H-7628 and
-impedance control. Every bend is an arc.
+B-row pairs to 0.03 mm (`gen/lengths.py`). Order with JLC04161H-7628 and
+impedance control. Every bend is an arc. `gen/audit.py` lists what sits near
+the lanes, how far each lane via is from a ground via, the narrowest copper on
+each power net and how far each decoupling cap is from its pin.
+
+Target VBUS is capped at 0.68 A and runs on 0.3 mm copper. A 10k bleeds it
+down when the switch is off, and the HUSB311 VBUS pin is wired to it so the
+PHY can see the rail.
 
 ## Regenerating
 

@@ -61,7 +61,7 @@ r("R2","10k",(200,110,0),"TGT_VBUS_EN","GND")
 add("U2","HUSB311BLA",(150,330,0),{
  "3":"+3V3","4":"+3V3","9":"GND","8":"GND","15":"GND",
  "10":"TGT_CC1","11":"TGT_CC1","1":"TGT_CC2","14":"TGT_CC2",
- "2":None,"12":None,"13":None,
+ "2":"TGT_VBUS","12":None,"13":None,
  "5":"PD_INT","6":"I2C_SCL","7":"I2C_SDA"})
 # no external pull-ups: SDA/SCL/INT_N use the MCU's internal ones (bit-banged, ~100 kHz)
 c("C3","1uF",(190,380,0),"+3V3","GND")
@@ -153,6 +153,7 @@ c("C13","1uF",(530,470,0),"+5V","GND"); c("C14","1uF",(560,470,0),"+3V3","GND")
 add("U7","MT9700-N",(660,430,0),{"5":"+5V","2":"GND","4":"TGT_VBUS_EN","3":"ILIM_SET","1":"TGT_VBUS"})
 r("R16","10k",(660,470,0),"ILIM_SET","GND")
 c("C15","1uF",(630,470,0),"+5V","GND"); c("C16","1uF",(700,470,0),"TGT_VBUS","GND")
+r("R19","10k",(700,500,0),"TGT_VBUS","GND")   # bleeder: the switch does not discharge its output
 add("D1",LED,(530,510,0),{"1":"LEDP_A","2":"GND"}); r("R17","5.1k",(560,510,0),"+3V3","LEDP_A")
 add("D2",LED,(600,510,0),{"1":"LEDS_A","2":"GND"}); r("R18","5.1k",(630,510,0),"LED_STAT","LEDS_A")
 for i,rail in enumerate(["+5V","+3V3","GND","HUB_3V3","TGT_VBUS","HMUX_VDD"]):

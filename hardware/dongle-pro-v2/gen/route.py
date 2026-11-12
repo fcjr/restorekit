@@ -16,6 +16,15 @@ R = Router('dongle-pro-v2.kicad_pcb')
 P, T, V = R.P, R.track, R.via
 W_SS = 0.211          # 90 ohm coupled on JLC04161H-7628 outer layers (with 0.127 gap)
 CX = 110.5
+# A through-hole-row pair turns 90 degrees into the mux's side pins, which leaves
+# the inside leg about 0.8 mm short. It gets that back in two small bumps toward
+# the empty ground-pin column of the TVS array (tuned with gen/audit.py).
+BUMP_H = 0.54
+def bumps(x, y, s, n=2):
+    d = 1 if x < CX else -1; pts = [(x, y)]
+    for _ in range(n):
+        pts += [(x + d * BUMP_H, y + s * BUMP_H), (x, y + 2 * s * BUMP_H)]; y += 2 * s * BUMP_H
+    return pts
 
 # ---------------------------------------------------------------- SuperSpeed
 def lane(J, yj, s, D, a, b, U):
@@ -48,7 +57,11 @@ def lane(J, yj, s, D, a, b, U):
         T(net, 'F', [(xe, yv), f'{D}.{en}'], W_SS)
         T(net, 'F', [f'{D}.{en}', f'{D}.{ef}'], W_SS)
         # into the mux side pin: the leg further from the mux takes the larger arc
-        T(net, 'F', [f'{D}.{ef}', (xe, ym), f'{U}.{pm}'], W_SS, r=0.85 if is_outer else 0.35)
+        yf = P(f'{D}.{ef}')[1]
+        if is_outer: T(net, 'F', [f'{D}.{ef}', (xe, ym), f'{U}.{pm}'], W_SS, r=0.85)
+        else:
+            bp = bumps(xe, yf + s * 0.55, s)
+            T(net, 'F', [f'{D}.{ef}'] + bp, W_SS, r=0.1); T(net, 'F', [bp[-1], (xe, ym), f'{U}.{pm}'], W_SS, r=0.35)
 
 # host, lane 1 (right) and lane 2 (left)
 lane('J1', 104.4, +1, 'D12', ('A2', 'A3', '9', '2', '10', '1', '1', '2'), ('B11', 'B10', '6', '5', '7', '4', '15', '16'), 'U3')
@@ -142,7 +155,10 @@ VVB = (103.65, 137.65)
 T('TGT_VBUS', 'F', ['U7.1', VVB], WP); T('TGT_VBUS', 'F', ['U7.1', 'C16.1'], WP)
 V('TGT_VBUS', VVB, d=0.6, drill=0.3)
 T('TGT_VBUS', 'B', [VVB, (104.35, 136.95), (108.85, 136.95), (109.15, 137.35), (109.15, 141.2), 'J2.B9'], WP, r=0.4)
-T('TGT_VBUS', 'F', ['C16.1', (102.9, 138.5), 'TP4.1'], 0.25, r=0.4)
+T('TGT_VBUS', 'F', ['C16.1', (102.9, 138.5), 'TP4.1'], 0.25, r=0.4); T('TGT_VBUS', 'F', ['TP4.1', 'R19.1'], 0.25)
+# VBUS sense for the PD controller
+VVS = (106.4, 136.95); V('TGT_VBUS', VVS)
+T('TGT_VBUS', 'F', [VVS, (106.45, 136.5), (106.45, 130.8), (106.0, 130.35), 'U2.2'], W, r=0.3)
 # SBU1 goes up the right side on B.Cu; SBU2 is another boxed-in row-1 pin and
 # has to cross CC2's mouth-side run, so it takes In2 to the right first
 VS1, VS2 = (117.05, 121.4), (117.05, 118.4)
@@ -153,10 +169,10 @@ T('TGT_SBU2', 'B', [VS2A, (119.8, 143.4), (120.2, 143.0), (120.2, 118.0), (119.8
 
 # ---------------------------------------------------------------- power
 VA, VB2, V5A, VH5, V5U = (114.9, 111.0), (118.55, 113.4), (109.0, 118.65), (104.9, 117.3), (101.3, 134.5)
-T('+5V', 'B', ['J1.B9', (111.85, 107.3), (111.85, 110.7), (112.15, 111.0), VA], WP, r=0.4); V('+5V', VA, d=0.6, drill=0.3)
+T('+5V', 'B', ['J1.B9', (111.8, 107.3), (111.8, 110.7), (112.1, 111.0), VA], WP, r=0.4); V('+5V', VA, d=0.6, drill=0.3)
 T('+5V', 'F', [VA, (115.4, 109.9), (115.9, 109.7), 'C13.1'], WP, r=0.5)
 T('+5V', 'F', ['U6.3', (118.55, 109.7)], WP)
-T('+5V', 'F', ['C13.1', (119.45, 110.25), (119.45, 111.95), (119.1, 112.35), 'U6.1'], 0.2, r=0.3)
+T('+5V', 'F', ['C13.1', (119.4, 110.25), (119.4, 111.95), (119.1, 112.35), 'U6.1'], WP, r=0.3)
 T('+5V', 'F', ['U6.1', VB2], WP); V('+5V', VB2, d=0.6, drill=0.3)
 T('+5V', 'B', [VB2, (117.2, 114.75), (116.3, 115.2), (116.3, 119.5), (115.9, 119.9), (110.2, 119.9)], WP, r=0.8)
 T('+5V', 'B', [(110.2, 119.9), (109.35, 119.9), (109.0, 119.55), V5A], WP, r=0.3); V('+5V', V5A, d=0.6, drill=0.3)
@@ -237,6 +253,10 @@ T('TGT_CC1', 'F', ['U2.10', 'U2.11'], W); T('TGT_CC2', 'F', ['U2.1', 'U2.14'], W
 for xy in ((110.2, 116.1), (111.15, 131.9), (116.1, 126.3), (116.1, 127.7), (103.6, 119.2)):
     V('GND', xy)
 T('GND', 'F', ['C10.2', (113.75, 130.72)], 0.2); V('GND', (113.75, 130.72))
+# return-path vias beside the lane pairs' layer changes
+for xy in ((114.75, 109.0), (106.25, 110.0), (114.8, 138.9), (106.2, 138.9)): V('GND', xy)
+# the skew bumps close off each TVS array's ground-pin column, so it gets its own via
+for xy in ((107.9, 111.8), (113.1, 111.8), (107.9, 136.2), (113.1, 136.2)): V('GND', xy)
 
 R.save('dongle-pro-v2.kicad_pcb')
 import runpy
