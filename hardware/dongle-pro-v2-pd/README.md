@@ -87,13 +87,17 @@ Everything on the v2 list except item 7, plus:
 1. A Mac in DFU or restore mode takes a PD contract above 5 V and charges
    from it. This is the whole point and I have not seen it measured. What
    points to yes: the Lite firmware already gets a PD Request from the Mac
-   on the DFU port, so it is a working sink there, and iBoot ships its own
-   "charging over USB-C" screens, so charging does not need macOS.
+   on the DFU port, so it is a working sink there. iBEC, which every DFU
+   restore loads before the restore OS, talks to the SMC charger and reads
+   the adapter and precharge state (strings in the 27.2.1 IPSW), and iBoot
+   ships "charging over USB-C" screens. The port controller has its own
+   firmware. I did not find its sink voltage table.
 2. CH224Q with an off-table CFG1 value is untested, so it uses the datasheet's
    6.8k (9 V). Confirm I2C comes up in that mode and the source caps read back.
 3. TPS2121 at 3 A dissipates about 0.5 W in a 2 x 2.5 mm package with no
    thermal pad. Its charger input is tied to about 70 mm2 of bottom copper
-   through four vias. Still a guess until measured. If it runs hot, cap what
+   through four vias. From the datasheet's junction-to-board figure and a
+   board this size I estimate 30 to 50 C of rise. Still a guess until measured. If it runs hot, cap what
    the firmware offers at 2.25 A (45 W at 20 V).
 4. The only discharge on target VBUS is a 5k bleeder. Fine for detach, slow
    for a 20 V to 5 V step with a light load or a hard reset.
