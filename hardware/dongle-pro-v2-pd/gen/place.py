@@ -76,3 +76,5 @@ LANE_PROT = [
 for cref, rref, xe, yc, away, xl, yr in LANE_PROT:
     P[cref] = (xe + 0.01 * away, yc, 90)                       # pin 1 (connector side) below
     P[rref] = (xl + away * (0.03 + 0.43), yr, 0 if away > 0 else 180)   # pin 1 on the line
+# I2C pull-ups, just above the under-corridor via field
+P.update({"R70": (107.1, 120.87, 90), "R71": (108.05, 120.87, 90)})

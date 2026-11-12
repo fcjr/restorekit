@@ -74,8 +74,8 @@ field warnings.
 Needs a port to `ch32-hal` and a TCPCI driver. Pin map is at the top of the MCU
 block in `gen/board.py`. Things the port has to know:
 
-- I2C to the HUSB311 is bit-banged on PB10/PB9 with internal pull-ups; INT_N on
-  PB8 also uses the internal pull-up.
+- I2C to the HUSB311 is bit-banged on PB10/PB9, with 10k pull-ups on the
+  board. INT_N on PB8 uses the MCU's internal pull-up.
 - SBU serial: USART2 for a normal cable, USART3 for a flipped one. Drive PB6
   high to enable the level shifters.
 - Firmware update is WCH's ROM USB bootloader. Enter it from the app, or hold

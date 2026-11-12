@@ -40,3 +40,5 @@ P.update({
  "D14": (CX - 2.6, 136.2, 0), "D15": (CX + 2.6, 136.2, 0),
  "J2": (CX, 143.6, 0),
 })
+# I2C pull-ups, just above the under-corridor via field
+P.update({"R70": (107.1, 120.87, 90), "R71": (108.05, 120.87, 90)})

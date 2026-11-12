@@ -63,7 +63,9 @@ add("U2","HUSB311BLA",(150,330,0),{
  "10":"TGT_CC1","11":"TGT_CC1","1":"TGT_CC2","14":"TGT_CC2",
  "2":"TGT_VBUS","12":None,"13":None,
  "5":"PD_INT","6":"I2C_SCL","7":"I2C_SDA"})
-# no external pull-ups: SDA/SCL/INT_N use the MCU's internal ones (bit-banged, ~100 kHz)
+# 10k pull-ups on SDA/SCL (bit-banged, the MCU's own pull-ups are too weak to lean on);
+# INT_N uses the MCU's internal one
+r("R70","10k",(230,330,0),"I2C_SDA","+3V3"); r("R71","10k",(230,360,0),"I2C_SCL","+3V3")
 c("C3","1uF",(190,380,0),"+3V3","GND")
 # PD wants 200..600 pF on each CC line at a port; the HUSB311's edge rates are specified into 200 pF
 c("C22","220pF",(120,400,0),"TGT_CC1","GND"); c("C23","220pF",(100,430,0),"TGT_CC2","GND")
