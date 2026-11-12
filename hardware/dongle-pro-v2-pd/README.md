@@ -116,8 +116,10 @@ Everything on the v2 list except item 7, plus:
    the firmware offers at 2.25 A (45 W at 20 V).
 4. The only discharge on target VBUS is a 5k bleeder. Fine for detach, slow
    for a 20 V to 5 V step with a light load or a hard reset.
-5. No TVS on charger VBUS. PD chargers ramp to 20 V after attach so it should
-   not see a 20 V hot plug, but the mux's absolute max is 24 V.
+5. No TVS on charger VBUS, and the mux's absolute max is 24 V. A compliant
+   charger plugs in at 5 V and ramps afterwards: `sim/hotplug.cir` (ngspice)
+   puts that plug-in peak at about 8 V. A supply that is already at 20 V when
+   plugged in would ring to about 31 to 33 V. Do not use one.
 6. The receptacles are hanxia HX TYPE-C 24P QCHT, rated 20 V 5 A in its
    datasheet. It is the part the footprint was drawn for. The v2 swapped to a
    JXTCONN part when this one went out of stock; that one is rated 5 V, so do
