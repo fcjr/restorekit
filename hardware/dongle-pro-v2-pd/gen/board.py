@@ -20,7 +20,8 @@ import gen
 R={"5.1k":"0402WGF5101TCE","10k":"0402WGF1002TCE","5.6k":"0402WGF5601TCE","6.8k":"0402WGF6801TCE","100k":"0402WGF1003TCE","200k":"0402WGF2003TCE"}
 C={"100nF":"CL05B104KO5NNNC","1uF":"CL05A105KA5NQNC","10uF":"GRM21BR61H106KE43L","330nF":"TCC0402X5R334K250AT","4.7uF":"CL21A475KBQNNNE"}
 XTAL="X322512MSB4SI"; LED="KT-0603R"; BTN="TS3315A"
-USBC="HX-TYPE-C-24P-QCHT"   # hanxia C5178545, rated 20 V 5 A; same footprint as the v2's JXTCONN part, which is rated 5 V; ESD="H5VU25U"; MUX="CH9441P"; FET="HL2302"; FET30="AO3400A"
+# receptacle: hanxia C5178545, rated 20 V 5 A. Same footprint as the v2's JXTCONN part, which is rated 5 V.
+USBC="HX-TYPE-C-24P-QCHT"; ESD="H5VU25U"; MUX="CH9441P"; FET="HL2302"; FET30="AO3400A"
 comps=[]
 def add(ref,sym,at,nets,value=None): comps.append({"ref":ref,"sym":sym,"at":at,"nets":nets,"value":value})
 def r(ref,val,at,a,b): add(ref,R[val],at,{"1":a,"2":b},val)
