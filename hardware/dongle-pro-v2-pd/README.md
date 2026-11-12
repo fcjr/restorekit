@@ -57,8 +57,12 @@ On top of the v2 notes:
   the charger by itself, at any charger voltage, and back to the host if the
   charger goes away. Both inputs can stay on.
 - On host power the target gets 1.2 A at most. Advertise less than that.
-- Charger unplugged at a 5 V contract: the target should not notice. Above
-  5 V the Mac will most likely treat the sag as a detach.
+- Charger unplugged at a 5 V contract: the mux is back on the host in
+  microseconds, but the limit drops to 1.2 A with it. If the Mac was drawing
+  more it browns out. Above 5 V the Mac will most likely treat the sag as a
+  detach either way.
+- `CHG_EN` puts whatever the charger is at on the target port. Never raise it
+  before the CH224Q is confirmed at 5 V.
 - On target detach turn `CHG_EN` off straight away. A 5k bleeder takes target
   VBUS from 20 V to under 0.8 V in about 0.3 s.
 - Pins: PA6 `HOST_EN_N`, PA7 `CHG_EN`. PB7 is free now.
@@ -90,13 +94,18 @@ Everything on the v2 list except item 7, plus:
    crooked unplug can short across. CC and SBU are protected now (see the
    table). The lane pins are not: the CH9441P switch pins are 3.6 V parts
    behind 5 V TVS arrays, and the only real fix is AC coupling caps in all
-   eight lane traces. Same exposure as most USB-C gear.
+   eight lane traces.
 9. The SBU protection resistors run hot if the short is held: about 0.2 W in
-   an 0402 at 20 V. Fine for an unplug, not for a jammed connector.
+   an 0402 at 20 V. Fine for an unplug, not for a jammed connector. During
+   the short about 1.5 mA per pin still goes into the MCU's clamp diodes;
+   the CH32X035 datasheet gives no injection rating.
 10. The 1k in each SBU drain and the 1k at the pin sit in the serial path.
    Low level is about 0.26 V against a 1.2 V rail. Check it on a scope.
 11. TPS2121 status pin as the current limit switch is my idea, not a
-   datasheet circuit. Measure both limits.
+   datasheet circuit, and 100k is the top of the allowed range. Measure both
+   limits.
 12. Charger side bulk is 10 uF + 1 uF nominal against USB's 10 uF sink limit.
-   Under bias it is below 10 uF.
-13. CPL rotation for the TPS2121 and CH224Q.
+   DC bias should bring it under, not measured.
+13. The target CH9441P now reads CC through 100k. Its input current is not in
+   the datasheet. If it picks the wrong lane, that resistor is why.
+14. CPL rotation for the TPS2121 and CH224Q.
