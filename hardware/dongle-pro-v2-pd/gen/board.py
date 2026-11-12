@@ -238,7 +238,14 @@ r("R45","10k",(1130,600,0),"CHG_EN","GND")
 r("R43","200k",(1010,600,0),"CHG_OV","CHG_LIM")
 
 # ===== Debug / bring-up cluster =====
-# SDI debug is two pads next to the MCU (WCH-LinkE: SWDIO, SWCLK + the 3V3/GND pads)
+# SDI debug (WCH-LinkE: SWDIO, SWCLK, 3V3, GND) three ways: pads next to the MCU,
+# a row of four through-holes at 2.54 mm for a pin header (not fitted), and a
+# TC2030 Tag-Connect footprint with the same pinout as the other dongles
+# (1 VTREF, 2 SWDIO, 4 SWCLK, 5 GND; 3 and 6 are open, this MCU has no reset pin).
+comps.append({"ref":"J4","sym":"TC2030","at":(900,480,0),"in_bom":False,"value":"TC2030-IDC-NL",
+              "nets":{"1":"+3V3","2":"SWDIO","3":None,"4":"SWCLK","5":"GND","6":None}})
+for i,(ref,net) in enumerate([("TP11","SWCLK"),("TP12","SWDIO"),("TP13","+3V3"),("TP14","GND")]):
+    comps.append({"ref":ref,"sym":"TPTH","at":(900+i*20,540,0),"in_bom":False,"value":net,"nets":{"1":net}})
 for i,(ref,net) in enumerate([("TP2","+3V3"),("TP5","GND"),
                               ("TP9","SWCLK"),("TP10","SWDIO")]):
     comps.append({"ref":ref,"sym":"TP","at":(760+(i%4)*20,480+(i//4)*25,0),

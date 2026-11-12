@@ -71,6 +71,9 @@ On top of the v2 notes:
 - On target detach turn `CHG_EN` off straight away. A 5k bleeder takes target
   VBUS from 20 V to under 0.8 V in about 0.3 s.
 - Pins: PA6 `HOST_EN_N`, PA7 `CHG_EN`, PB0 `CHG_HV`. PB7 is free now.
+- Debug: `clk dio 3v3 gnd` holes at 2.54 mm on the left edge take a pin
+  header (not fitted), and there is a TC2030 Tag-Connect footprint below them
+  with the other dongles' pinout. Its pin 6 (BOOT) is not connected here.
 
 ## Regenerating
 
@@ -82,7 +85,10 @@ Same as the v2: `gen/build.sh`, then `$KPY gen/fab.py`, `gen/panel.sh` for the
 Everything on the v2 list except item 7, plus:
 
 1. A Mac in DFU or restore mode takes a PD contract above 5 V and charges
-   from it. This is the whole point and I have not seen it measured.
+   from it. This is the whole point and I have not seen it measured. What
+   points to yes: the Lite firmware already gets a PD Request from the Mac
+   on the DFU port, so it is a working sink there, and iBoot ships its own
+   "charging over USB-C" screens, so charging does not need macOS.
 2. CH224Q with an off-table CFG1 value is untested, so it uses the datasheet's
    6.8k (9 V). Confirm I2C comes up in that mode and the source caps read back.
 3. TPS2121 at 3 A dissipates about 0.5 W in a 2 x 2.5 mm package with no
@@ -101,7 +107,8 @@ Everything on the v2 list except item 7, plus:
 8. The target lanes now have a second set of AC caps in series with the Macs'
    own: about 130 nF per lane end to end, inside USB's 75 to 265 nF. Eight
    more 0402s sit in the pairs, on a path with two muxes and no redriver.
-   Check the link still trains at 5 Gbps.
+   My estimate for the dongle is 6 to 7 dB at 2.5 GHz against roughly 20 dB
+   for the whole link, so short cables on both sides. Check it trains.
 9. The SBU clamp FETs pass the 1.2 V serial through an AO3400A with 3.3 V on
    the gate. Worst-case threshold leaves about 0.6 V of gate drive. Check the
    serial on a scope.

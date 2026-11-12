@@ -53,6 +53,9 @@ P.update({
  "D14": (CX - 2.6, 136.2, 0), "D15": (CX + 2.6, 136.2, 0),
  "J2": (CX, YJ, 0),
 })
+# debug: 1x4 header holes (clk, dio, 3v3, gnd from the top) and the Tag-Connect pads
+for i, ref in enumerate(("TP11", "TP12", "TP13", "TP14")): P[ref] = (102.9, 138.6 + 2.54 * i, 0)
+P["J4"] = (102.2, 150.9, 270)
 # Target lane protection, between the TVS arrays and the receptacle. Per line:
 # (cap, bleed resistor, x at the array, cap row, +1/-1 = side away from its pair
 #  partner, x in the resistor zone, resistor row). The caps stagger in two rows

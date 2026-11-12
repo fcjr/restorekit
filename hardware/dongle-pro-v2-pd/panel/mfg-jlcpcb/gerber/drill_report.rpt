@@ -1,5 +1,5 @@
 Drill report for dongle-pro-v2-pd-panel.kicad_pcb
-Created on 2026-11-12T14:24:51
+Created on 2026-11-12T14:33:29
 
 Copper Layer Stackup:
     =============================================================
@@ -12,13 +12,14 @@ Copper Layer Stackup:
 Drill file 'dongle-pro-v2-pd-panel-PTH.drl' contains
     plated through holes:
     =============================================================
-    T1  0.200mm  0.0079"  (870 holes))
+    T1  0.200mm  0.0079"  (813 holes))
     T2  0.300mm  0.0118"  (48 holes))
     T3  0.400mm  0.0157"  (6 holes))
     T4  0.400mm  0.0157"  (108 holes))
     T5  0.600mm  0.0236"  (36 holes)  (with 36 slots)
+    T6  1.000mm  0.0394"  (12 holes))
 
-    Total plated holes count 1068
+    Total plated holes count 1023
 
 
 Drill file 'dongle-pro-v2-pd-panel-NPTH.drl' contains
@@ -26,6 +27,7 @@ Drill file 'dongle-pro-v2-pd-panel-NPTH.drl' contains
     =============================================================
     T1  0.500mm  0.0197"  (72 holes))
     T2  0.800mm  0.0315"  (18 holes))
-    T3  1.500mm  0.0591"  (3 holes))
+    T3  0.991mm  0.0390"  (9 holes))
+    T4  1.500mm  0.0591"  (3 holes))
 
-    Total unplated holes count 93
+    Total unplated holes count 102

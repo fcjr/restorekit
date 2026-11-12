@@ -9618,4 +9618,50 @@
       )
     )
   )
+  (symbol "TPTH"
+    (in_bom no)
+    (on_board yes)
+    (property
+      "Reference"
+      "TP"
+      (id 0)
+      (at 0 5.08 0)
+      (effects (font (size 1.27 1.27) ) )
+    )
+    (property
+      "Value"
+      "TP"
+      (id 1)
+      (at 0 -5.08 0)
+      (effects (font (size 1.27 1.27) ) )
+    )
+    (property
+      "Footprint"
+      "dongle-lite:TestPoint_THT_D1.7mm_Drill1.0mm"
+      (id 2)
+      (at 0 -7.62 0)
+      (effects (font (size 1.27 1.27) ) hide)
+    )
+    (property
+      "ki_description"
+      "Test point pad 1.0mm"
+      (id 3)
+      (at 0 -10.16 0)
+      (effects (font (size 1.27 1.27) ) hide)
+    )
+    (symbol "TPTH_0_1"
+      (circle
+        (center 0 1.02)
+        (radius 0.762)
+        (stroke (width 0.254) (type default))
+        (fill (type none))
+      )
+      (pin passive line
+        (at 0 -2.54 90)
+        (length 2.54)
+        (name "1" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27))))
+      )
+    )
+  )
 )
