@@ -171,7 +171,7 @@ T('TMUX_CC2', 'F', ['R31.2', 'U4.14'], W)
 # -> neck between the D- via and the lane-2 fan -> bar joining B9 and B4
 YV = 136.75
 T('TGT_VBUS', 'F', ['U7.8', 'U7.1'], 0.4, r=0)
-T('TGT_VBUS', 'F', [(121.95, 136.1), (121.35, 137.0)], 0.5, r=0)
+T('TGT_VBUS', 'F', [(121.95, 136.1), (121.35, 137.0)], 0.6, r=0)
 T('TGT_VBUS', 'F', [(121.35, 137.0), (115.2, 137.0)], 1.0, r=0)
 for x in (115.2, 116.0, 116.8): V('TGT_VBUS', (x, YV), d=0.6, drill=0.3)
 YB = YJ - 3.25
@@ -308,6 +308,12 @@ T('VBUS_IN', 'F', [(XV, 110.0), (XV, 138.4), (122.65, 138.4)], 1.2, r=0.8)
 T('VBUS_IN', 'F', ['C16.1', (122.65, 137.4), 'U7.2'], 0.4, r=0)
 T('VBUS_IN', 'F', [(122.65, 139.0), (122.65, 136.9)], 0.8, r=0)
 T('VBUS_IN', 'F', ['R22.1', (128.03, 138.0)], 0.25)
+# heat: the mux has no thermal pad, its heat leaves through the IN2 and OUT
+# pins. Tie the charger input to a block of B.Cu (about 70 mm2) through vias
+# next to the pin and along the feed.
+for xy in ((122.65, 138.0), (124.6, 138.9), (125.8, 138.9), (127.0, 138.9)): V('VBUS_IN', xy, d=0.6, drill=0.3)
+T('VBUS_IN', 'B', [(122.65, 138.0), (124.2, 140.0)], 0.8, r=0)
+T('VBUS_IN', 'B', [(124.2, 140.0), (129.6, 140.0), (129.6, 142.6), (124.2, 142.6), (124.2, 145.2), (129.6, 145.2)], 2.8, r=0)
 # PD sink under the charger port. CC2 comes straight off the A row; CC1 is a
 # boxed-in row-1 pin and goes round the mouth side on B.Cu like the host's CC2
 T('VBUS_IN', 'F', ['J3.A9', (124.25, 108.4), (124.0, 108.8), 'U8.8'], 0.2, r=0.2)

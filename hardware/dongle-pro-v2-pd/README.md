@@ -86,8 +86,9 @@ Everything on the v2 list except item 7, plus:
 2. CH224Q with an off-table CFG1 value is untested, so it uses the datasheet's
    6.8k (9 V). Confirm I2C comes up in that mode and the source caps read back.
 3. TPS2121 at 3 A dissipates about 0.5 W in a 2 x 2.5 mm package with no
-   thermal pad. I expect 50 to 60 C of rise on this copper. Measure it. If it
-   runs hot, cap what the firmware offers at 2.25 A (45 W at 20 V).
+   thermal pad. Its charger input is tied to about 70 mm2 of bottom copper
+   through four vias. Still a guess until measured. If it runs hot, cap what
+   the firmware offers at 2.25 A (45 W at 20 V).
 4. The only discharge on target VBUS is a 5k bleeder. Fine for detach, slow
    for a 20 V to 5 V step with a light load or a hard reset.
 5. No TVS on charger VBUS. PD chargers ramp to 20 V after attach so it should
