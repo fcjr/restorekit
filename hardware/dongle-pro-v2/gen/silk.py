@@ -104,6 +104,7 @@ text('TARGET', CX, 146.0, B, 1.45, th=0.27)
 text('the Mac that doesn\'t', CX, 144.0, B, 0.8, w_ratio=0.85)
 text('LEFTSHIFT', 101.6, 106.0, B, 0.8, angle=90, w_ratio=0.85)
 text('<< LOGICAL', 102.9, 106.0, B, 0.8, angle=90, w_ratio=0.85)
+for t, x, y in (('cc1', 106.4, 128.8), ('cc2', 106.5, 134.4), ('s1', 117.05, 124.3), ('s2', 119.95, 131.3)): text(t, x, y, B, 0.8, w_ratio=0.7)
 text('USB 3', 117.3, 110.0, B, 1.0, th=0.18)
 text('flip-safe', 117.3, 111.5, B, 0.8, w_ratio=0.85)
 

@@ -168,6 +168,9 @@ comps.append({"ref":"J4","sym":"TC2030","at":(900,480,0),"in_bom":False,"value":
               "nets":{"1":"+3V3","2":"SWDIO","3":None,"4":"SWCLK","5":"GND","6":None}})
 for i,(ref,net) in enumerate([("TP11","SWCLK"),("TP12","SWDIO"),("TP13","+3V3"),("TP14","GND")]):
     comps.append({"ref":ref,"sym":"TPTH","at":(900+i*20,540,0),"in_bom":False,"value":net,"nets":{"1":net}})
+# probe pads on the back for the target CC and SBU lines (PD sniffing, serial)
+for i,(ref,net) in enumerate([("TP20","TGT_CC1"),("TP21","TGT_CC2"),("TP22","TGT_SBU1"),("TP23","TGT_SBU2")]):
+    comps.append({"ref":ref,"sym":"TP","at":(760+i*20,540,0),"in_bom":False,"value":net,"nets":{"1":net}})
 for i,(ref,net) in enumerate([("TP3","+5V"),("TP4","TGT_VBUS"),
                               ("TP9","SWCLK"),("TP10","SWDIO")]):
     comps.append({"ref":ref,"sym":"TP","at":(760+(i%4)*20,480+(i//4)*25,0),

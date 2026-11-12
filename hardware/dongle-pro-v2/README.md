@@ -51,8 +51,8 @@ Debug is WCH's two-wire SDI. It comes out three ways: a TC2030 Tag-Connect
 footprint next to the target port (same pinout as the other dongles), four
 through-holes at 2.54 mm on the other side of that port for a pin header
 (gnd, 3v3, dio, clk), and the `clk`/`dio` pads at the MCU. `vbus` and `5v`
-are probe pads for the two rails. There are no pads for CC or SBU; probe those
-at C22/C23 and R8/R10.
+are probe pads for the two rails. The target CC and SBU lines have bare pads
+on the back: `cc1`, `cc2`, `s1`, `s2`.
 
 ## Regenerating
 

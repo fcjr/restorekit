@@ -267,6 +267,7 @@ T('SWCLK', 'F', [VKT, (102.3, 141.0), (102.3, 143.6), 'J4.4'], W, r=0.2)
 T('SWDIO', 'F', [VDT, (104.1, 144.935), (102.3, 144.935), 'J4.2'], W, r=0.2)
 T('+3V3', 'F', [V3T2, (105.2, 145.2), (104.8, 145.57), 'J4.1'], W, r=0.2)
 T('GND', 'F', ['J4.5', VGT], W); V('GND', VGT)
+T('TGT_SBU2', 'B', [(119.95, 130.0), (120.2, 130.0)], W)
 
 # ---------------------------------------------------------------- ground
 # exposed pads get their own vias (placed between the B.Cu traces passing underneath)
