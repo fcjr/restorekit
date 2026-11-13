@@ -69,8 +69,8 @@ use restorekit_dongle_proto as proto;
 use restorekit_dongle_proto::{
     crc32, FLAG_POLARITY_CC2, FLAG_TARGET_ATTACHED, FW_CHUNK, RES_NONE, RES_NOTARGET, RES_OK,
     RES_PENDING, STATUS_LEN, STATUS_VERSION, VCMD_BOOTSEL, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP,
-    VCMD_REBOOT, VCMD_SERIAL, VREQ_CMD, VREQ_FW_BEGIN, VREQ_FW_DATA, VREQ_FW_DONE, VREQ_STATUS,
-    VREQ_VERSION,
+    VCMD_REBOOT, VCMD_REPLUG, VCMD_SERIAL, VREQ_CMD, VREQ_FW_BEGIN, VREQ_FW_DATA, VREQ_FW_DONE,
+    VREQ_STATUS, VREQ_VERSION,
 };
 
 use fusb302::*;
@@ -346,6 +346,7 @@ impl Handler for VendorHandler {
             VCMD_REBOOT => Command::Reboot,
             VCMD_SERIAL => Command::Serial,
             VCMD_DEBUGUSB => Command::DebugUsb,
+            VCMD_REPLUG => Command::Replug,
             // Resets into the bootloader, so its result is never published.
             VCMD_BOOTSEL => Command::Bootsel,
             _ => return Some(OutResponse::Rejected),

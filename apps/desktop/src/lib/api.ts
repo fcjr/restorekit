@@ -183,6 +183,8 @@ export const api = {
   listDongles: () => call<Dongle[]>("list_dongles"),
   dongleDfu: (serial: string) => call<void>("dongle_dfu", { serial }),
   dongleReboot: (serial: string) => call<void>("dongle_reboot", { serial }),
+  /** Cycle target VBUS and CC to recover USB enumeration. Interrupts USB data. */
+  dongleReplug: (serial: string) => call<void>("dongle_replug", { serial }),
   /** Check the published releases for newer dongle firmware (network). */
   dongleFwCheck: (serial: string) => call<DongleFwCheck>("dongle_fw_check", { serial }),
   /** Install the latest published firmware on a dongle; resolves with the
@@ -282,6 +284,7 @@ function browserMock(cmd: string): Promise<unknown> {
     list_dongles: dongles,
     dongle_dfu: null,
     dongle_reboot: null,
+    dongle_replug: null,
     dongle_fw_check: { current: "0.1.0", latest: "0.2.0", available: true },
     dongle_fw_update: "0.2.0",
     manual_instructions: "1. Connect the target's DFU port.\n2. Disconnect power.\n3. Hold power, reconnect, keep holding ~10s.",

@@ -138,6 +138,9 @@ enum DongleAction {
     /// Print the dongle's serial-console tty paths (control console and the
     /// target's UART bridge).
     Console(DongleSelect),
+    /// Cycle the target's USB connection (VBUS and CC) to recover enumeration.
+    /// Interrupts target USB data. Requires dongle firmware 0.1.3 or later.
+    Replug(DongleSelect),
     /// Reboot a dongle into its RP2040 bootrom for a factory reflash. Hidden:
     /// normal updates go through `dongle update`, which needs no bootloader
     /// mode; this is the recovery path (`just fw-flash-full`).
@@ -348,6 +351,7 @@ fn main() {
                 commands::dongle::list(cli.json, target)
             }
             DongleAction::Console(s) => commands::dongle::console(cli.json, s.into_target()),
+            DongleAction::Replug(s) => commands::dongle::replug(cli.json, s.into_target()),
             DongleAction::Bootsel(s) => commands::dongle::bootsel(cli.json, s.into_target()),
             DongleAction::Update {
                 file,

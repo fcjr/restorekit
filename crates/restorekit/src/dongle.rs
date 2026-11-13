@@ -525,6 +525,12 @@ impl Dongle {
         self.open()?.reboot()
     }
 
+    /// Cycle target VBUS and CC to recover its USB connection.
+    /// Requires dongle firmware 0.1.3 or later. This interrupts target USB data.
+    pub fn replug(&self) -> Result<()> {
+        self.open()?.replug()
+    }
+
     /// Put the cabled Mac into serial-console mode: the dongle muxes the target's
     /// debug UART onto SBU and bridges it to its target-serial CDC port.
     pub fn serial(&self) -> Result<()> {
@@ -574,6 +580,12 @@ impl DongleHandle {
     /// Reboot the cabled Mac.
     pub fn reboot(&self) -> Result<()> {
         self.command(proto::VCMD_REBOOT, "reboot")
+    }
+
+    /// Cycle target VBUS and CC, then re-establish the connection.
+    /// Requires dongle firmware 0.1.3 or later. This interrupts target USB data.
+    pub fn replug(&self) -> Result<()> {
+        self.command(proto::VCMD_REPLUG, "replug")
     }
 
     /// Mux the Mac's debug UART onto the dongle's SBU serial bridge.
@@ -724,7 +736,17 @@ impl DongleHandle {
 
     /// Send a command and block until the firmware reports its outcome.
     fn command(&self, code: u16, name: &str) -> Result<()> {
-        self.vendor_out(proto::VREQ_CMD, code, &[], CTRL_TIMEOUT)?;
+        self.vendor_out_raw(proto::VREQ_CMD, code, &[], CTRL_TIMEOUT)
+            .map_err(|e| match e {
+                nusb::transfer::TransferError::Stall if code == proto::VCMD_REPLUG => {
+                    Error::Dongle(
+                        "replug requires newer dongle firmware; update to 0.1.3 or later with \
+                         `restorekit dongle update`"
+                            .into(),
+                    )
+                }
+                e => Error::Dongle(e.to_string()),
+            })?;
 
         // The firmware marks the result pending synchronously in the OUT
         // handler, so we won't read a stale success from a prior command.

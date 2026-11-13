@@ -135,6 +135,12 @@ enumerating without requiring someone to unplug the cable. It does not request
 a target reboot. A `dfu` command interrupted by a PD hard reset within five
 seconds is retried after five seconds, up to three times.
 
+Firmware 0.1.3 also accepts `replug` over the vendor USB interface. Use
+`restorekit dongle replug [ID]` (or `--ecid ECID`), the SDK's `Dongle::replug()` /
+`DongleHandle::replug()`, or **Replug** in the desktop app's Dongles tab.
+The CLI supports `--json`. Replug interrupts target USB data, so run it after
+a failed operation, rather than during a restore or other USB transfer.
+
 The source advertises a fixed 5 V / 450 mA PDO with USB communication support.
 Source capabilities are retried until a contract is accepted, rather than
 continuously forcing renegotiation. The firmware also responds to

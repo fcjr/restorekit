@@ -65,6 +65,9 @@ pub const VCMD_DEBUGUSB: u16 = 4;
 /// Fire-and-forget: the device drops off the bus instead of reporting a
 /// result, so hosts must not poll the status after sending it.
 pub const VCMD_BOOTSEL: u16 = 5;
+/// Cycle target VBUS and CC, then re-establish the connection without a reboot VDM.
+/// Supported by dongle firmware 0.1.3 and later.
+pub const VCMD_REPLUG: u16 = 6;
 
 // `VREQ_STATUS` response: [version, pd_state, flags, last_result, seq].
 /// Current status struct version (byte 0).

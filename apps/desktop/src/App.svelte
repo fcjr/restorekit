@@ -851,6 +851,20 @@
     }
   }
 
+  async function dongleReplug(serial: string) {
+    error = "";
+    dongleBusy = serial;
+    try {
+      await api.dongleReplug(serial);
+      await refresh();
+      await refreshDongles();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      dongleBusy = "";
+    }
+  }
+
   // Stream the latest published firmware onto the dongle; it verifies,
   // reboots, and its bootloader swaps the image in (rolling back on failure).
   async function dongleFwUpdate(serial: string) {
@@ -1463,6 +1477,9 @@
                     onclick={() => dongleDfu(dg.serial)}>{dongleBusy === dg.serial ? "…" : "Enter DFU"}</button>
                   <button class="btn ghost sm" disabled={dongleBusy === dg.serial || !dg.status?.target_attached}
                     onclick={() => dongleReboot(dg.serial)}>Reboot</button>
+                  <button class="btn ghost sm" disabled={!!dongleBusy || !!fwUpdating || !dg.status?.target_attached}
+                    title="Cycle the target's USB connection to recover detection. Interrupts USB data. Requires firmware 0.1.3 or later."
+                    onclick={() => dongleReplug(dg.serial)}>Replug</button>
                 </td>
               </tr>
             {/each}

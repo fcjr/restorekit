@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "dongle-lite-fw"
-version = "0.1.3-dev.5"
+version = "0.1.3"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",

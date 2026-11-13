@@ -156,6 +156,17 @@ pub async fn dongle_reboot(serial: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Cycle the cabled target's VBUS and CC to recover USB enumeration.
+#[tauri::command]
+pub async fn dongle_replug(serial: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let d = dongle::find(restorekit::DongleTarget::Id(serial)).map_err(|e| e.to_string())?;
+        d.replug().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Firmware-update availability for one dongle, against the published
 /// releases (network).
 #[derive(Serialize)]

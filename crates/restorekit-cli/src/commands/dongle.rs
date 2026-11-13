@@ -64,6 +64,21 @@ pub fn list(json: bool, target: Option<DongleTarget>) -> Result<()> {
     Ok(())
 }
 
+/// `restorekit dongle replug [ID] [--ecid ECID]` — cycle target VBUS and CC.
+pub fn replug(json: bool, target: DongleTarget) -> Result<()> {
+    let d = dongle::find(target)?;
+    d.replug()?;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "serial": d.serial, "replugged": true })
+        );
+    } else {
+        println!("{}: target USB connection cycled.", d.serial);
+    }
+    Ok(())
+}
+
 /// `restorekit dongle bootsel`
 pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
     let d = dongle::find(target)?;
