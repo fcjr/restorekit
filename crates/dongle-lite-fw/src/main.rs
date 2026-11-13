@@ -100,6 +100,17 @@ const VDM_DEBUGUSB: [u32; 2] = [0x5ac_8012, 0x0182_4606];
 // to re-attach before giving up on the follow-up action.
 const REBOOT_RECONNECT_WINDOW_SECS: u64 = 30;
 
+// A battery-powered Mac reboots without dropping CC, so the reconnect that
+// fires a `reboot serial` / `reboot debugusb` follow-up may never come. Fire it
+// on this timer instead if no reconnect has happened by then.
+const REBOOT_FOLLOWUP_DELAY_SECS: u64 = 8;
+
+// A Mac that has just booted can answer `dfu` with a hard reset, dropping the
+// VDM. If one lands within this window of a `dfu`, send it again after a pause.
+const DFU_HARD_RESET_WINDOW_MS: u64 = 5000;
+const DFU_RETRY_DELAY_SECS: u64 = 5;
+const DFU_MAX_RETRIES: u8 = 3;
+
 // Consecutive ~50 ms disconnect-detection ticks of CC loss before we tear the
 // connection down. ~2 s, to ride out flaky hand-wired-bench CC contacts.
 const DISCONNECT_DEBOUNCE_TICKS: i32 = 40;
@@ -179,6 +190,7 @@ enum Command {
     Reboot,
     Serial,
     DebugUsb,
+    Replug,
     RebootThen(PostReboot),
     Status,
     Help,
@@ -536,10 +548,15 @@ async fn main(_spawner: Spawner) {
         ss_sel,
         state: PdState::Disconnected,
         source_cap_timer: 0,
+        contract: false,
         cc_debounce: 0,
         cc_line: false,
         pending_after_reconnect: None,
         pending_expiry: Instant::from_ticks(0),
+        pending_fire_at: Instant::from_ticks(0),
+        dfu_sent_at: None,
+        dfu_retry_at: None,
+        dfu_retries: 0,
         watchdog: Watchdog::new(p.WATCHDOG),
     };
 
@@ -599,6 +616,7 @@ fn parse_command(s: &str) -> Option<Command> {
         "dfu" => Some(Command::Dfu),
         "reboot" => Some(Command::Reboot),
         "serial" => Some(Command::Serial),
+        "replug" => Some(Command::Replug),
         "debugusb" => Some(Command::DebugUsb),
         "reboot serial" => Some(Command::RebootThen(PostReboot::Serial)),
         "reboot debugusb" => Some(Command::RebootThen(PostReboot::DebugUsb)),
@@ -656,12 +674,19 @@ struct Engine<'a, I2C: embedded_hal_async::i2c::I2c> {
     ss_sel: Output<'a>,
     state: PdState,
     source_cap_timer: i32,
+    // Set once the target's Request is accepted. Source_Cap is only re-sent
+    // while this is clear, so an established contract isn't renegotiated.
+    contract: bool,
     cc_debounce: i32,
     cc_line: bool,
     // Armed by `reboot serial` / `reboot debugusb`: the mode to enter once the
     // target re-attaches, and the deadline past which we stop waiting for it.
     pending_after_reconnect: Option<PostReboot>,
     pending_expiry: Instant,
+    pending_fire_at: Instant,
+    dfu_sent_at: Option<Instant>,
+    dfu_retry_at: Option<Instant>,
+    dfu_retries: u8,
     watchdog: Watchdog,
 }
 
@@ -759,6 +784,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         self.fusb.select_rp_usb().await;
         // Re-arm as source (Rp) so a target's Rd is detected.
         self.fusb.set_cc_rp().await;
+        self.contract = false;
         self.state = PdState::Disconnected;
         self.led.set_low();
     }
@@ -768,6 +794,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
     async fn establish(&mut self, cc1: i8, cc2: i8) {
         self.fusb.set_vconn(false).await;
         self.fusb.pd_reset().await;
+        self.contract = false;
         self.fusb.set_msg_header(true, true).await; // Source, DFP
         self.cc_line = !(cc1 > cc2);
         self.fusb.set_polarity(self.cc_line as i8).await;
@@ -803,14 +830,24 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         if let Some(mode) = self.pending_after_reconnect.take() {
             if Instant::now() <= self.pending_expiry {
                 logline!("reconnect: firing pending {}", mode.name());
-                match mode {
-                    PostReboot::Serial => self.enter_serial().await,
-                    PostReboot::DebugUsb => self.action("debugusb", &[&VDM_DEBUGUSB], true).await,
-                }
+                self.fire_post_reboot(mode).await;
             } else {
                 logline!("reconnect window expired; dropping pending {}", mode.name());
             }
         }
+    }
+
+    async fn fire_post_reboot(&mut self, mode: PostReboot) {
+        match mode {
+            PostReboot::Serial => self.enter_serial().await,
+            PostReboot::DebugUsb => self.action("debugusb", &[&VDM_DEBUGUSB], true).await,
+        }
+    }
+
+    async fn dfu(&mut self) {
+        self.action("dfu", &[&VDM_DFU_HOLD, &VDM_DFU_HOLD_T2], true)
+            .await;
+        self.dfu_sent_at = Some(Instant::now());
     }
 
     /// Once any transmit is acknowledged we know PD comms are up.
@@ -900,8 +937,8 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
 
     async fn send_source_cap(&mut self) -> TxResult {
         let hdr = pd_header(PD_DATA_SOURCE_CAP, 1, 1, 0, 1, PD_REV20);
-        // Variable non-battery PS, 0V/0mA - we only signal, never power.
-        let cap: u32 = 1u32 << 31;
+        // Fixed 5 V at 450 mA (under the ~520 mA load-switch limit), USB comm capable.
+        let cap: u32 = (1u32 << 26) | (100u32 << 10) | 45u32;
         let res = self.fusb.transmit(TxSop::Sop, hdr, &[cap]).await;
         self.source_cap_timer = 0;
         res
@@ -937,6 +974,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         let res = self.fusb.transmit(TxSop::Sop, hdr, &[]).await;
         if res.is_ok() {
             self.send_ps_rdy().await;
+            self.contract = true;
         }
     }
 
@@ -976,6 +1014,17 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 x if x == PD_CTRL_GET_SINK_CAP => self.send_sink_cap().await,
                 x if x == PD_CTRL_PR_SWAP => self.send_reject().await,
                 x if x == PD_CTRL_DR_SWAP => self.send_reject().await,
+                x if x == PD_CTRL_GET_SOURCE_CAP => {
+                    let cap = self.send_source_cap().await;
+                    self.advance_after_tx(cap);
+                }
+                x if x == PD_CTRL_SOFT_RESET => {
+                    self.contract = false;
+                    let hdr = pd_header(PD_CTRL_ACCEPT, 1, 1, 0, 0, PD_REV20);
+                    let _ = self.fusb.transmit(TxSop::Sop, hdr, &[]).await;
+                    let cap = self.send_source_cap().await;
+                    self.advance_after_tx(cap);
+                }
                 _ => {}
             }
         }
@@ -997,6 +1046,20 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         if irqa & INTA_HARDRESET != 0 {
             logline!("hard reset");
             self.disconnect().await;
+            if let Some(t) = self.dfu_sent_at.take() {
+                if t.elapsed() < Duration::from_millis(DFU_HARD_RESET_WINDOW_MS)
+                    && self.dfu_retries < DFU_MAX_RETRIES
+                {
+                    self.dfu_retries += 1;
+                    self.dfu_retry_at =
+                        Some(Instant::now() + Duration::from_secs(DFU_RETRY_DELAY_SECS));
+                    logline!(
+                        "dfu dropped by hard reset; retry {} in {}s",
+                        self.dfu_retries,
+                        DFU_RETRY_DELAY_SECS
+                    );
+                }
+            }
         }
         // TX_SUCCESS / RETRYFAIL are consumed inline by `transmit`; the main
         // loop only handles VBUSOK, target-initiated hard reset, and inbound
@@ -1030,19 +1093,35 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 return;
             }
             PdState::DfpVbusOn | PdState::DfpConnected | PdState::Idle | PdState::DfpAccept => {
-                // Keep the PD contract + SOP'' debug session alive even after a
-                // contract is up. The target can reboot underneath us without
-                // the CC line ever dropping, which resets its PD/debug state; a
-                // steady source-cap + debug-poke keeps a freshly-rebooted target
-                // ready for the next command without a physical re-attach. This
-                // runs in the background state machine, decoupled from the
-                // command path, so it doesn't disturb an action VDM in flight.
+                // Retry Source_Cap until a contract is established, then keep
+                // only the SOP'' debug poke running. Re-advertising capabilities
+                // after every tick forces the target to renegotiate continuously.
+                // A target reboot can reset its PD/debug state without dropping
+                // CC; Soft_Reset and Get_Source_Cap restart negotiation as needed.
+                // This runs outside the command path so it doesn't disturb an
+                // action VDM in flight.
                 self.source_cap_timer += 1;
                 if self.source_cap_timer > HANDSHAKE_RETRY_TICKS {
-                    let cap = self.send_source_cap().await;
+                    if self.contract {
+                        self.source_cap_timer = 0;
+                    } else {
+                        let cap = self.send_source_cap().await;
+                        self.advance_after_tx(cap);
+                    }
                     let poke = self.debug_poke().await;
-                    self.advance_after_tx(cap);
                     self.advance_after_tx(poke);
+                }
+                if self.dfu_retry_at.is_some_and(|t| Instant::now() >= t) {
+                    self.dfu_retry_at = None;
+                    logline!("retrying dfu");
+                    self.dfu().await;
+                }
+                if self.pending_after_reconnect.is_some() && Instant::now() >= self.pending_fire_at
+                {
+                    if let Some(mode) = self.pending_after_reconnect.take() {
+                        logline!("no reconnect after reboot; firing pending {}", mode.name());
+                        self.fire_post_reboot(mode).await;
+                    }
                 }
             }
         }
@@ -1074,12 +1153,25 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 VENDOR_RESULT.store(RES_OK, Ordering::Relaxed);
             }
             Command::Dfu => {
-                self.action("dfu", &[&VDM_DFU_HOLD, &VDM_DFU_HOLD_T2], true)
-                    .await
+                self.dfu_retries = 0;
+                self.dfu_retry_at = None;
+                self.dfu().await
             }
             Command::Reboot => self.action("reboot", &[&VDM_REBOOT], true).await,
             Command::DebugUsb => self.action("debugusb", &[&VDM_DEBUGUSB], true).await,
             Command::Serial => self.enter_serial().await,
+            Command::Replug => {
+                if !self.connected() {
+                    logline!("err replug no-target");
+                    VENDOR_RESULT.store(RES_NOTARGET, Ordering::Relaxed);
+                } else {
+                    logline!(">replug");
+                    self.vbus_off().await;
+                    self.reestablish_session().await;
+                    logline!("ok replug");
+                    VENDOR_RESULT.store(RES_OK, Ordering::Relaxed);
+                }
+            }
             Command::RebootThen(mode) => self.reboot_then(mode).await,
             Command::Status => {
                 let st = match self.state {
@@ -1097,7 +1189,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 );
             }
             Command::Help => {
-                logline!("commands: nop | dfu | reboot | serial | debugusb | reboot serial | reboot debugusb | status | help | bootsel");
+                logline!("commands: nop | dfu | reboot | serial | debugusb | replug | reboot serial | reboot debugusb | status | help | bootsel");
             }
             // Reboot into the RP2040 USB bootloader for firmware update. The
             // device drops off the bus and reappears as the RPI-RP2 drive /
@@ -1155,6 +1247,7 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
         logline!("ok reboot (sent)");
         self.pending_after_reconnect = Some(mode);
         self.pending_expiry = Instant::now() + Duration::from_secs(REBOOT_RECONNECT_WINDOW_SECS);
+        self.pending_fire_at = Instant::now() + Duration::from_secs(REBOOT_FOLLOWUP_DELAY_SECS);
         logline!("armed {} for after reconnect", mode.name());
     }
 }

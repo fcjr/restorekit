@@ -127,13 +127,35 @@ Open CDC0 in a terminal (`screen`, `picocom -b 115200`, etc.; baud on the
 control port is irrelevant, it's USB CDC). You should see a greeting. Type
 `help` for the command list. The console mirrors AsahiLinux `macvdmtool`:
 `nop`, `dfu`, `reboot`, `serial`, `debugusb`, `reboot serial`,
-`reboot debugusb`, plus `status`, `help`, and `bootsel` (firmware update).
+`reboot debugusb`, plus `replug`, `status`, `help`, and `bootsel` (firmware update).
+
+`replug` turns off target VBUS and opens CC for about one second, then
+re-establishes the connection. It can recover a booted Mac that has stopped
+enumerating without requiring someone to unplug the cable. It does not request
+a target reboot. A `dfu` command interrupted by a PD hard reset within five
+seconds is retried after five seconds, up to three times.
+
+The source advertises a fixed 5 V / 450 mA PDO with USB communication support.
+Source capabilities are retried until a contract is accepted, rather than
+continuously forcing renegotiation. The firmware also responds to
+`Get_Source_Cap` and accepts `Soft_Reset` before re-advertising capabilities.
+
+The `0.1.3-dev.5` image completed 40 consecutive Zero erase/restore cycles on an
+M1 MacBook Pro through the dongle on November 12-13, 2026. All 40 reported
+success and a booted target. The recovery watcher never issued `replug`, and
+the dongle log recorded no hard resets during that run. This single-machine
+test does not establish that the intermittent restore failure is eliminated.
+
+Known limitation on this image: `reboot serial` is not acted on after macOS
+boots, even with the timed follow-up for targets that keep CC attached during
+reboot. Standalone `reboot`, `dfu`, and `debugusb` worked on the test rig.
 
 Every command ends with a terminal status line so a host tool can drive it:
 `ok <cmd>` on success, or `err <cmd> <reason>` where reason is `no-target` (no
-target attached) or `no-ack` (the target didn't GoodCRC the VDM). Sends are
-ack-confirmed - the `ok`/`err` reflects whether the port partner actually
-acknowledged, not just that we transmitted.
+target attached) or `no-ack` (the target didn't GoodCRC the VDM). For action
+VDMs such as `dfu` and `reboot`, `ok <cmd> (sent)` confirms transmission only.
+The target may reboot before acknowledging, so confirm the resulting mode by
+watching it enumerate on the host.
 
 ### Test 1 - DFU trigger
 

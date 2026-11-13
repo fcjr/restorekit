@@ -155,9 +155,11 @@ pub const PD_CTRL_GOOD_CRC: u16 = 1;
 pub const PD_CTRL_ACCEPT: u16 = 3;
 pub const PD_CTRL_REJECT: u16 = 4;
 pub const PD_CTRL_PS_RDY: u16 = 6;
+pub const PD_CTRL_GET_SOURCE_CAP: u16 = 7;
 pub const PD_CTRL_GET_SINK_CAP: u16 = 8;
 pub const PD_CTRL_DR_SWAP: u16 = 9;
 pub const PD_CTRL_PR_SWAP: u16 = 10;
+pub const PD_CTRL_SOFT_RESET: u16 = 13;
 
 pub const fn pd_header(msg_type: u16, prole: u16, drole: u16, id: u16, cnt: u16, rev: u16) -> u16 {
     msg_type | (rev << 6) | (drole << 5) | (prole << 8) | (id << 9) | (cnt << 12)
