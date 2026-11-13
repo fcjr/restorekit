@@ -2946,7 +2946,7 @@ dependencies = [
 
 [[package]]
 name = "restorekit"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "core-foundation 0.10.1",
  "futures-core",
@@ -2968,7 +2968,7 @@ dependencies = [
 
 [[package]]
 name = "restorekit-desktop"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "cc",
  "libc",
@@ -2988,11 +2988,11 @@ dependencies = [
 
 [[package]]
 name = "restorekit-dongle-proto"
-version = "0.6.0"
+version = "0.6.1"
 
 [[package]]
 name = "restorekit-sys"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "cc",
  "cmake",
