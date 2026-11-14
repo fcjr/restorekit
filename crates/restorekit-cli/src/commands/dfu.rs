@@ -308,6 +308,41 @@ pub fn probe_ports(json: bool) -> Result<()> {
     Ok(())
 }
 
+/// `restorekit vdm` — send one raw VDM and dump the reply register.
+pub fn raw_vdm(json: bool, words: &[u32], port: Option<i32>) -> Result<()> {
+    let target = port
+        .map(restorekit::dfu::DfuTarget::Port)
+        .unwrap_or_default();
+    let reply = restorekit::dfu::raw_vdm(&target, words, &mut |e| emit_stage(json, e))?;
+    let status = reply[0];
+    let count = (status & 0x07) as usize;
+    let all: Vec<u32> = reply[1..61]
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "event": "vdm_reply", "status": status, "words": all })
+        );
+        return Ok(());
+    }
+    let kind = match all[0] & 0xc0 {
+        0x40 => "ACK",
+        0x80 => "NAK",
+        0xc0 => "BUSY",
+        _ => "REQ",
+    };
+    println!("status 0x{status:02x}, header 0x{:08x} ({kind})", all[0]);
+    for (i, w) in all.iter().enumerate().skip(1) {
+        let mark = if i < count { "" } else { "  (past count)" };
+        if i < count || *w != 0 {
+            println!("  [{i}] 0x{w:08x}{mark}");
+        }
+    }
+    Ok(())
+}
+
 /// Ensure a Mac is in DFU mode: return it if already there (with the interactive
 /// picker when several are present and no ECID pins one), otherwise trigger
 /// entry via a dongle or the host and wait. Shared by `restore`.

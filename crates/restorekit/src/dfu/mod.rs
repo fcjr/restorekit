@@ -84,6 +84,27 @@ pub fn probe_ports(progress: crate::progress::ProgressFn) -> crate::error::Resul
     }
 }
 
+/// Send one raw USB-PD VDM to the partner on a host DFU port and return the RX
+/// VDM register holding the reply. Diagnostic only: the words go out as given.
+/// Apple Silicon macOS only, needs root.
+pub fn raw_vdm(
+    target: &DfuTarget,
+    vdm: &[u32],
+    progress: crate::progress::ProgressFn,
+) -> crate::error::Result<[u8; 64]> {
+    #[cfg(target_os = "macos")]
+    {
+        vdm::raw(target, vdm, progress)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (target, vdm, progress);
+        Err(crate::error::Error::UnsupportedHost(
+            "sending VDMs needs an Apple Silicon Mac".into(),
+        ))
+    }
+}
+
 /// Human label of the host's DFU-capable port (e.g. "left-back"), if the host
 /// can trigger DFU and the port topology is known. `None` on hosts that can't
 /// trigger DFU or where the label couldn't be read.

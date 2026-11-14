@@ -44,6 +44,17 @@ enum Command {
     /// Diagnostic — sends no DFU action. Hidden.
     #[command(hide = true)]
     ProbePorts,
+    /// Send one raw USB-PD VDM to the partner on a host DFU port and print the
+    /// reply (Apple Silicon macOS, root). Diagnostic. Hidden.
+    #[command(hide = true)]
+    Vdm {
+        /// VDM words in hex, header first (e.g. 0x05ac8010).
+        #[arg(required = true, value_parser = parse_hex_u32)]
+        words: Vec<u32>,
+        /// Host DFU-capable port RID (defaults to the DFU port).
+        #[arg(long)]
+        port: Option<i32>,
+    },
     /// Resolve and download firmware for the detected (or specified) Mac.
     Download {
         /// Model identifier (e.g. MacBookPro17,1). Defaults to the DFU device.
@@ -240,6 +251,11 @@ struct ReviveArgs {
 }
 
 /// Parse an ECID: `0x`-prefixed or bare hex, or decimal.
+fn parse_hex_u32(s: &str) -> Result<u32, String> {
+    let hex = s.trim().trim_start_matches("0x").trim_start_matches("0X");
+    u32::from_str_radix(hex, 16).map_err(|e| format!("invalid hex word {s:?}: {e}"))
+}
+
 fn parse_ecid(s: &str) -> Result<u64, String> {
     let s = s.trim();
     let parsed = if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
@@ -307,6 +323,7 @@ fn main() {
         Command::Reboot(t) => commands::dfu::reboot(cli.json, t.dongle, t.ecid, t.port),
         Command::Serial(t) => commands::dfu::serial(cli.json, t.dongle, t.ecid, t.port),
         Command::ProbePorts => commands::dfu::probe_ports(cli.json),
+        Command::Vdm { words, port } => commands::dfu::raw_vdm(cli.json, &words, port),
         Command::Download {
             identifier,
             os_version,
