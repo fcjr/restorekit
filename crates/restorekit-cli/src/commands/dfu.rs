@@ -317,8 +317,10 @@ pub fn raw_vdm(json: bool, words: &[u32], port: Option<i32>) -> Result<()> {
     let status = reply[0];
     let count = (status & 0x07) as usize;
     let all: Vec<u32> = reply[1..61]
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
         .collect();
     if json {
         println!(

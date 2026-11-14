@@ -286,8 +286,10 @@ fn string_at(info: &[u8], off: usize) -> Option<String> {
     }
     let units: Vec<u16> = info
         .get(off + 2..off + 2 + len)?
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     let s = String::from_utf16(&units).ok()?;
     (!s.is_empty()).then_some(s)
@@ -444,8 +446,10 @@ mod dic {
         let mut scalars = vec![TIMEOUT_MS];
         scalars.extend(
             req[..words * 4]
-                .chunks_exact(4)
-                .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]) as u64),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|w| u32::from_le_bytes(*w) as u64),
         );
         let payload = &req[words * 4..];
         let mut out = vec![0u8; reply_cap];
