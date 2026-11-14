@@ -281,7 +281,8 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         // adds -lsetupapi for host_os mingw32*, but under the MSYS2 shell the
         // host detects as msys, so irecovery.exe fails to link SetupDi*). The
         // static libraries we ultimately link are archives and unaffected.
-        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32 -lsetupapi");
+        // winusb: libirecovery's KIS-over-WinUSB patch (irecovery.exe links it).
+        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32 -lsetupapi -lwinusb");
     }
     run(&mut configure, &format!("{name} configure"));
     if deps.windows {
@@ -482,6 +483,8 @@ fn patch_libirecovery_sources(manifest: &Path, vendor_src: &Path, out: &Path, de
 /// autotools output left by an earlier in-tree autogen. A copy gets fresh
 /// mtimes, so stale generated files could look out of date and make `make`
 /// re-run automake; leaving them out makes build_autotools regenerate them.
+/// Symlinks are skipped too: the upstream trees track none, but autogen on
+/// macOS links its aux files (`ltmain.sh`, `config.guess`, …) into Homebrew.
 fn copy_tree(src: &Path, dst: &Path) {
     std::fs::create_dir_all(dst).unwrap();
     for entry in std::fs::read_dir(src).unwrap() {
@@ -494,7 +497,11 @@ fn copy_tree(src: &Path, dst: &Path) {
             continue;
         }
         let path = entry.path();
-        if entry.file_type().unwrap().is_dir() {
+        let kind = entry.file_type().unwrap();
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
             copy_tree(&path, &dst.join(&name));
         } else {
             std::fs::copy(&path, dst.join(&name)).unwrap();
@@ -715,7 +722,7 @@ fn emit_link_directives(prefix: &Path) {
         println!("cargo:rustc-link-lib=static=usb-1.0");
         for lib in [
             "setupapi", "ole32", "ws2_32", "crypt32", "secur32", "bcrypt", "iphlpapi", "userenv",
-            "advapi32",
+            "advapi32", "winusb",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }

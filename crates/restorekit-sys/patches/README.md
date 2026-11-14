@@ -41,6 +41,12 @@ compiles the patched copy.
   `IRECV_KIS_NO_DIC=1` forces the plain IOKit path. Unlike idevicerestore,
   libirecovery is built with autotools from a patched copy of the whole tree,
   rebuilt only when the patches change.
+- `0002-kis-over-winusb-on-windows.patch` — libirecovery's Windows KIS code
+  talks to Apple's AppleKIS driver, which does the KIS framing itself behind
+  its own ioctls. restorekit binds plain WinUSB to `05ac:1881` instead, so a
+  KIS device was never found. When the KIS interface turns out to be a WinUSB
+  device, speak raw KIS on its bulk pipes through `WinUsb_*` (the same requests
+  the libusb and IOKit backends send). The AppleKIS path is untouched.
 
 ## Updating a patch
 

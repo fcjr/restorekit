@@ -1,0 +1,319 @@
+--- a/src/libirecovery.c
++++ b/src/libirecovery.c
+@@ -55,6 +55,7 @@
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+ #include <setupapi.h>
++#include <winusb.h>
+ #ifndef sleep
+ #define sleep(n) Sleep(1000 * n)
+ #endif
+@@ -137,6 +138,7 @@
+ #endif
+ #else
+ 	HANDLE handle;
++	WINUSB_INTERFACE_HANDLE kis_winusb;
+ #endif
+ 	irecv_event_cb_t progress_callback;
+ 	irecv_event_cb_t received_callback;
+@@ -1385,11 +1387,224 @@
+ 		*transferred = count;
+ 	}
+ 	return ok;
++}
++
++/*
++ * KIS over WinUSB. The KIS code above talks to Apple's AppleKIS driver, which
++ * does the KIS framing itself behind its own ioctls and shows up as
++ * "\\?\kis#vid_05ac&pid_0001". With plain WinUSB bound to 05ac:1881 instead
++ * (as restorekit does), the device shows up as a regular "\\?\usb#" interface
++ * and has to be spoken to the way the libusb and IOKit backends do: raw KIS
++ * requests on the bulk pipes (CONFIG portal on 0x01/0x81, RSM on 0x03/0x83).
++ * Requests are built as bytes so the layout doesn't depend on the AppleKIS
++ * structs defined for Windows.
++ */
++#define KISW_HEADER_SIZE 12
++#define KISW_INFO_SIZE   0x300
++#define KISW_TRAILER     8
++#define KISW_CHUNK       0x4000
++
++static int kisw_open(irecv_client_t client)
++{
++	if (!WinUsb_Initialize(client->handle, &client->kis_winusb)) {
++		debug("%s: WinUsb_Initialize failed: %d\n", __func__, (int)GetLastError());
++		client->kis_winusb = NULL;
++		return 0;
++	}
++	ULONG timeout = USB_TIMEOUT;
++	UCHAR pipes[] = { 0x01, 0x81, 0x03, 0x83 };
++	for (size_t i = 0; i < sizeof(pipes); i++) {
++		WinUsb_SetPipePolicy(client->kis_winusb, pipes[i], PIPE_TRANSFER_TIMEOUT, sizeof(timeout), &timeout);
++	}
++	return 1;
++}
++
++static void kisw_put32(uint8_t *p, uint32_t v)
++{
++	p[0] = v & 0xff;
++	p[1] = (v >> 8) & 0xff;
++	p[2] = (v >> 16) & 0xff;
++	p[3] = (v >> 24) & 0xff;
++}
++
++static uint32_t kisw_get32(const uint8_t *p)
++{
++	return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
++}
++
++/* Same layout as irecv_kis_request_init. */
++static void kisw_header(uint8_t *h, uint8_t portal, uint16_t index, size_t arg_count, size_t payload_size, size_t rpl_words)
++{
++	h[0] = 0;
++	h[1] = 0;
++	h[2] = 0xA0;
++	h[3] = portal;
++	h[4] = (uint8_t)arg_count;
++	h[5] = (uint8_t)(index & 0xFF);
++	h[6] = (uint8_t)(((index >> 8) & 0x3) | ((rpl_words << 2) & 0xFC));
++	h[7] = (uint8_t)((rpl_words >> 6) & 0xFF);
++	kisw_put32(h + 8, (uint32_t)(payload_size + (arg_count << 2)));
++}
++
++static irecv_error_t kisw_request(irecv_client_t client, const uint8_t *req, size_t req_size, uint8_t *rpl, size_t *rpl_size)
++{
++	UCHAR pipe;
++	switch (req[3]) {
++		case KIS_PORTAL_CONFIG:
++			pipe = 0x01;
++			break;
++		case KIS_PORTAL_RSM:
++			pipe = 0x03;
++			break;
++		default:
++			return IRECV_E_INVALID_INPUT;
++	}
++	ULONG sent = 0;
++	if (!WinUsb_WritePipe(client->kis_winusb, pipe, (PUCHAR)req, (ULONG)req_size, &sent, NULL) || sent != req_size) {
++		debug("%s: WinUsb_WritePipe(%#x) failed: %d\n", __func__, pipe, (int)GetLastError());
++		return IRECV_E_USB_UPLOAD;
++	}
++	ULONG rcvd = 0;
++	if (!WinUsb_ReadPipe(client->kis_winusb, pipe | 0x80, rpl, (ULONG)*rpl_size, &rcvd, NULL)) {
++		debug("%s: WinUsb_ReadPipe(%#x) failed: %d\n", __func__, pipe | 0x80, (int)GetLastError());
++		return IRECV_E_USB_UPLOAD;
++	}
++	*rpl_size = rcvd;
++	return IRECV_E_SUCCESS;
+ }
++
++static irecv_error_t kisw_write32(irecv_client_t client, uint8_t portal, uint16_t index, uint32_t value)
++{
++	uint8_t req[KISW_HEADER_SIZE + 4];
++	uint8_t rpl[KISW_HEADER_SIZE + KISW_TRAILER];
++	size_t rpl_size = sizeof(rpl);
++	kisw_header(req, portal, index, 1, 0, 1);
++	kisw_put32(req + KISW_HEADER_SIZE, value);
++	return kisw_request(client, req, sizeof(req), rpl, &rpl_size);
++}
++
++static irecv_error_t kisw_init(irecv_client_t client)
++{
++	irecv_error_t err = kisw_write32(client, KIS_PORTAL_CONFIG, KIS_INDEX_ENABLE_A, KIS_ENABLE_A_VAL);
++	if (err == IRECV_E_SUCCESS) {
++		err = kisw_write32(client, KIS_PORTAL_CONFIG, KIS_INDEX_ENABLE_B, KIS_ENABLE_B_VAL);
++	}
++	if (err != IRECV_E_SUCCESS) {
++		debug("%s: failed to enable KIS device, error %d\n", __func__, err);
++		return err;
++	}
++	client->isKIS = 1;
++	return IRECV_E_SUCCESS;
++}
++
++/* A USB string descriptor at word offset `word` of the info block, as ASCII. */
++static int kisw_read_string(const uint8_t *info, uint32_t word, char *buf, size_t buf_size)
++{
++	size_t off = (size_t)word * 4;
++	if (off + 2 > KISW_INFO_SIZE) {
++		return 0;
++	}
++	uint8_t len = info[off];
++	if ((len & 1) || info[off + 1] != 3 || len / 2 >= buf_size || off + 2 + len > KISW_INFO_SIZE) {
++		return 0;
++	}
++	for (size_t i = 0; i < len; i += 2) {
++		buf[i / 2] = info[off + 2 + i];
++	}
++	buf[len / 2] = 0;
++	return len / 2;
++}
++
++static irecv_error_t kisw_load_device_info(irecv_client_t client)
++{
++	uint8_t req[KISW_HEADER_SIZE];
++	uint8_t rpl[KISW_HEADER_SIZE + KISW_INFO_SIZE + KISW_TRAILER];
++	size_t rpl_size = sizeof(rpl);
++	kisw_header(req, KIS_PORTAL_RSM, KIS_INDEX_GET_INFO, 0, 0, KISW_INFO_SIZE / 4);
++	irecv_error_t err = kisw_request(client, req, sizeof(req), rpl, &rpl_size);
++	if (err != IRECV_E_SUCCESS) {
++		return err;
++	}
++	if (rpl_size < KISW_HEADER_SIZE + KISW_INFO_SIZE) {
++		debug("%s: short GET_INFO reply (%u bytes), not in DFU?\n", __func__, (unsigned)rpl_size);
++		return IRECV_E_INVALID_INPUT;
++	}
++	const uint8_t *info = rpl + KISW_HEADER_SIZE;
++	/* The embedded USB device descriptor starts at 64; iSerialNumber is at +16
++	 * and idProduct at +10. The nonce string's word offset is at 24. */
++	char buf[0x100];
++	if (!kisw_read_string(info, info[64 + 16], buf, sizeof(buf))) {
++		return IRECV_E_INVALID_INPUT;
++	}
++	debug("Serial: %s\n", buf);
++	irecv_load_device_info_from_iboot_string(client, buf);
++	if (kisw_read_string(info, kisw_get32(info + 24), buf, sizeof(buf))) {
++		debug("Nonces: %s\n", buf);
++		irecv_copy_nonce_with_tag_from_buffer("NONC", &client->device_info.ap_nonce, &client->device_info.ap_nonce_size, buf);
++		irecv_copy_nonce_with_tag_from_buffer("SNON", &client->device_info.sep_nonce, &client->device_info.sep_nonce_size, buf);
++	}
++	client->mode = info[64 + 10] | (info[64 + 11] << 8);
++	return IRECV_E_SUCCESS;
++}
++
++static irecv_error_t kisw_send_buffer(irecv_client_t client, unsigned char* buffer, unsigned long length, unsigned int options)
++{
++	unsigned long orig_len = length;
++	uint64_t address = 0;
++	uint8_t *req = malloc(KISW_HEADER_SIZE + 12 + KISW_CHUNK);
++	if (!req) {
++		return IRECV_E_OUT_OF_MEMORY;
++	}
++	while (length) {
++		size_t chunk = length > KISW_CHUNK ? KISW_CHUNK : length;
++		/* UPLOAD: args are the 64-bit address and the 32-bit size. */
++		kisw_header(req, KIS_PORTAL_RSM, KIS_INDEX_UPLOAD, 3, chunk, 0);
++		kisw_put32(req + KISW_HEADER_SIZE, (uint32_t)(address & 0xffffffff));
++		kisw_put32(req + KISW_HEADER_SIZE + 4, (uint32_t)(address >> 32));
++		kisw_put32(req + KISW_HEADER_SIZE + 8, (uint32_t)chunk);
++		memcpy(req + KISW_HEADER_SIZE + 12, buffer, chunk);
++
++		uint8_t rpl[KISW_HEADER_SIZE + KISW_TRAILER];
++		size_t rpl_size = sizeof(rpl);
++		irecv_error_t err = kisw_request(client, req, KISW_HEADER_SIZE + 12 + chunk, rpl, &rpl_size);
++		if (err != IRECV_E_SUCCESS) {
++			free(req);
++			debug("Failed to upload chunk, error %d\n", err);
++			return err;
++		}
++		address += chunk;
++		buffer += chunk;
++		length -= chunk;
++
++		if (client->progress_callback != NULL) {
++			irecv_event_t event;
++			event.progress = ((double)(orig_len - length) / (double)orig_len) * 100.0;
++			event.type = IRECV_PROGRESS;
++			event.data = (char*)"Uploading";
++			event.size = orig_len - length;
++			client->progress_callback(client, &event);
++		}
++	}
++	free(req);
++
++	if (options & IRECV_SEND_OPT_DFU_NOTIFY_FINISH) {
++		irecv_error_t err = kisw_write32(client, KIS_PORTAL_RSM, KIS_INDEX_BOOT_IMG, (uint32_t)orig_len);
++		if (err != IRECV_E_SUCCESS) {
++			debug("Failed to boot image, error %d\n", err);
++			return err;
++		}
++	}
++	return IRECV_E_SUCCESS;
++}
+ #endif
+ 
+ static irecv_error_t irecv_kis_init(irecv_client_t client)
+ {
++#ifdef _WIN32
++	if (client->kis_winusb) {
++		return kisw_init(client);
++	}
++#endif
+ #ifdef HAVE_IOKIT
+ 	/* deviceinterfaced enables the device itself when it attaches. */
+ 	if (client->kis_dic) {
+@@ -1419,6 +1634,11 @@
+ {
+ 	debug("Loading device info in KIS mode...\n");
+ #ifdef _WIN32
++	if (client->kis_winusb) {
++		return kisw_load_device_info(client);
++	}
++#endif
++#ifdef _WIN32
+ 	KIS_device_info kisInfo;
+ 	DWORD transferred = 0;
+ 	int ret = win32_device_io_control(client->handle, 0x220004, NULL, 0, &kisInfo, sizeof(kisInfo), &transferred, USB_TIMEOUT);
+@@ -1557,11 +1777,13 @@
+ 			if ((guids[k] == &GUID_DEVINTERFACE_DFU && pid != IRECV_K_DFU_MODE && pid != IRECV_K_WTF_MODE)
+ 			    || (guids[k] == &GUID_DEVINTERFACE_PORTDFU && pid != IRECV_K_PORT_DFU_MODE)
+ 			    || (guids[k] == &GUID_DEVINTERFACE_IBOOT && (pid < IRECV_K_RECOVERY_MODE_1 || pid > IRECV_K_RECOVERY_MODE_4))
+-			    || (guids[k] == &GUID_DEVINTERFACE_KIS && pid != 1)
++			    || (guids[k] == &GUID_DEVINTERFACE_KIS && pid != 1 && pid != KIS_PRODUCT_ID)
+ 			) {
+ 				free(details);
+ 				continue;
+ 			}
++			/* pid 1 is AppleKIS's own device; 05ac:1881 itself means WinUSB. */
++			int kis_winusb = (guids[k] == &GUID_DEVINTERFACE_KIS && pid == KIS_PRODUCT_ID);
+ 			if (guids[k] == &GUID_DEVINTERFACE_KIS) {
+ 				pid = KIS_PRODUCT_ID;
+ 			}
+@@ -1569,6 +1791,12 @@
+ 			_client->handle = CreateFileA(details->DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+ 			if (_client->handle == INVALID_HANDLE_VALUE) {
+ 				debug("%s: Failed to open device path %s: %d\n", __func__, details->DevicePath, (int)GetLastError());
++				free(details);
++				continue;
++			}
++			if (kis_winusb && !kisw_open(_client)) {
++				CloseHandle(_client->handle);
++				_client->handle = INVALID_HANDLE_VALUE;
+ 				free(details);
+ 				continue;
+ 			}
+@@ -2975,6 +3203,12 @@
+ 			free(client);
+ 			return NULL;
+ 		}
++		/* Not AppleKIS's "kis#" device: WinUSB on 05ac:1881. */
++		if (strncmp(result, "\\\\?\\kis#", 8) != 0 && !kisw_open(client)) {
++			CloseHandle(client->handle);
++			free(client);
++			return NULL;
++		}
+ 		client->mode = pid;
+ 	} else {
+ 		char* p = strchr(serial_str, '#');
+@@ -3776,6 +4010,10 @@
+ 		}
+ #endif
+ #else
++		if (client->kis_winusb) {
++			WinUsb_Free(client->kis_winusb);
++			client->kis_winusb = NULL;
++		}
+ 		if (client->handle != NULL && client->handle != INVALID_HANDLE_VALUE) {
+ 			CloseHandle(client->handle);
+ 		}
+@@ -3998,6 +4236,11 @@
+ 	if (client->mode != IRECV_K_DFU_MODE) {
+ 		return IRECV_E_UNSUPPORTED;
+ 	}
++#ifdef _WIN32
++	if (client->kis_winusb) {
++		return kisw_send_buffer(client, buffer, length, options);
++	}
++#endif
+ 
+ 	unsigned long origLen = length;
+ 
