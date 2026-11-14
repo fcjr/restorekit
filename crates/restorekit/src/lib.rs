@@ -69,6 +69,7 @@ pub mod error;
 pub mod firmware;
 #[cfg(feature = "history")]
 pub mod history;
+mod kis;
 pub mod progress;
 pub mod restore;
 #[cfg(any(target_os = "linux", target_os = "windows"))]

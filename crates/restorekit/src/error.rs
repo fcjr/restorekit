@@ -25,6 +25,9 @@ pub enum Error {
     #[error("timed out waiting for a Mac to appear in DFU mode")]
     WaitTimeout,
 
+    #[error("{}", kis_unreadable_message())]
+    KisUnreadable,
+
     #[error("DFU triggering requires an Apple Silicon Mac host running macOS: {0}")]
     UnsupportedHost(String),
 
@@ -108,6 +111,22 @@ impl From<nusb::Error> for Error {
             nusb::ErrorKind::PermissionDenied => Error::UsbPermission(e.to_string()),
             _ => Error::Usb(e.to_string()),
         }
+    }
+}
+
+/// Why a Mac in Debug USB DFU (`05ac:1881`) couldn't be identified, and what to
+/// do instead, per host OS.
+fn kis_unreadable_message() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), and macOS only lets \
+         Apple's own software open that. Restore it with Apple Configurator, or power it off \
+         fully and enter DFU with the key combo, which usually comes up as regular DFU"
+    } else if cfg!(target_os = "windows") {
+        "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), but restorekit couldn't \
+         read its identity. Run `restorekit setup-driver` so WinUSB is bound to it, then retry"
+    } else {
+        "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), but restorekit couldn't \
+         read its identity. Check USB permissions (the udev rule covers 05ac:1881) and retry"
     }
 }
 

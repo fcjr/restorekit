@@ -14,7 +14,7 @@ const DONGLE_DFU_TIMEOUT: Duration = Duration::from_secs(60);
 /// string so the backend can re-derive the exact ECID without a float round-trip.
 #[derive(Serialize)]
 pub struct DeviceView {
-    /// "dfu" | "port-dfu" | "recovery" | "wtf" | "restore" | "booted" |
+    /// "dfu" | "port-dfu" | "kis" | "recovery" | "wtf" | "restore" | "booted" |
     /// "billboard" | "other"
     pub mode: String,
     pub name: String,

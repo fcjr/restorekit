@@ -93,6 +93,9 @@ pub fn enter(
         Ok(DfuOutcome::Entered(device)) => {
             if json {
                 emit_stage(true, Event::DeviceDetected { device });
+            } else if device.kis_unreadable() {
+                println!("\nTarget is now in DFU mode over Debug USB (05ac:1881).");
+                println!("  Note: {}", Error::KisUnreadable);
             } else {
                 println!("\nTarget is now in DFU mode: {}", device.display_name());
                 println!("  ECID: {}", device.ecid_hex().unwrap_or_default());
@@ -338,6 +341,11 @@ pub(crate) fn ensure_present(
         if !present.is_empty() {
             return select_from(present, json);
         }
+        // Already in DFU over Debug USB but unreadable here: triggering again
+        // can't help.
+        if device::list()?.iter().any(Device::kis_unreadable) {
+            return Err(Error::KisUnreadable);
+        }
         // Name a target visible in another mode so the user knows the trigger
         // has something to act on.
         if !json {
@@ -361,6 +369,7 @@ pub(crate) fn ensure_present(
 /// cabled here, or a wait for a manual DFU entry when nothing can trigger.
 fn finish_trigger(json: bool, via: DfuVia, timeout: Duration, ecid: Option<u64>) -> Result<Device> {
     match restorekit::trigger_dfu(via, timeout, &mut |e| emit_stage(json, e)) {
+        Ok(DfuOutcome::Entered(dev)) if dev.kis_unreadable() => Err(Error::KisUnreadable),
         Ok(DfuOutcome::Entered(dev)) => Ok(dev),
         Ok(DfuOutcome::Sent) => Err(Error::Dongle(
             "triggered via dongle, but the target's USB data isn't cabled to this host; \

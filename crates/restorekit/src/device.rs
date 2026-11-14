@@ -586,6 +586,8 @@ pub fn model_from_device_version(bcd: u16) -> Option<&'static MacModel> {
 pub const APPLE_VID: u16 = 0x05ac;
 /// Product ID presented by an Apple SoC in DFU mode.
 pub const DFU_PID: u16 = 0x1227;
+/// Product ID of a Mac in DFU over Apple's Debug USB interface ("KIS").
+pub const KIS_PID: u16 = 0x1881;
 /// Product ID presented by a Mac's USB-C controller in Port DFU mode.
 pub const PORT_DFU_PID: u16 = 0xf014;
 /// Product ID a Mac's USB-C port controller presents as a USB Billboard device
@@ -605,6 +607,11 @@ pub enum UsbMode {
     /// reconnects in normal SoC DFU mode and the restore continues.
     #[serde(rename = "port-dfu")]
     PortDfu,
+    /// DFU over Apple's Debug USB interface ("KIS", `05ac:1881`): the same
+    /// bootrom DFU, but the chip identity sits behind a KIS request instead of
+    /// the USB serial. macOS only lets Apple's own `deviceinterfaced` open it,
+    /// so on a macOS host the identity stays unknown.
+    Kis,
     /// Recovery mode (iBoot).
     Recovery,
     /// WTF ("what's the firmware") mode.
@@ -631,6 +638,7 @@ impl UsbMode {
         match pid {
             DFU_PID => UsbMode::Dfu,
             PORT_DFU_PID => UsbMode::PortDfu,
+            KIS_PID => UsbMode::Kis,
             0x1280 | 0x1281 => UsbMode::Recovery,
             0x1222 => UsbMode::Wtf,
             0x1338 | 0x1339 => UsbMode::Restore,
@@ -649,6 +657,7 @@ impl fmt::Display for UsbMode {
         f.write_str(match self {
             UsbMode::Dfu => "dfu",
             UsbMode::PortDfu => "port-dfu",
+            UsbMode::Kis => "kis",
             UsbMode::Recovery => "recovery",
             UsbMode::Wtf => "wtf",
             UsbMode::Restore => "restore",
@@ -684,7 +693,8 @@ pub struct Device {
     pub mode: UsbMode,
     /// USB product string, e.g. "Apple Mobile Device (DFU Mode)".
     pub product: String,
-    /// Raw USB serial string (empty if the device exposes none).
+    /// Raw USB serial string (empty if the device exposes none). For a
+    /// [`UsbMode::Kis`] device, the identity string read over KIS instead.
     pub serial: String,
     /// The device's ECID, if known: parsed from the serial in restore modes, or
     /// filled in for a booted Mac by [`identify`].
@@ -787,13 +797,19 @@ pub struct Port {
 
 impl Device {
     pub fn in_dfu(&self) -> bool {
-        matches!(self.mode, UsbMode::Dfu | UsbMode::PortDfu)
+        matches!(self.mode, UsbMode::Dfu | UsbMode::PortDfu | UsbMode::Kis)
     }
 
-    /// Whether restorekit can restore this device right now (normal or Port
-    /// DFU mode with a readable identity).
+    /// Whether restorekit can restore this device right now (normal, Port, or
+    /// KIS DFU mode with a readable identity).
     pub fn restorable(&self) -> bool {
         self.in_dfu() && self.identity.is_some()
+    }
+
+    /// A Mac in Debug USB DFU whose identity couldn't be read (always the case
+    /// on a macOS host). It's in DFU, but restorekit can't restore it.
+    pub fn kis_unreadable(&self) -> bool {
+        self.mode == UsbMode::Kis && self.identity.is_none()
     }
 
     /// ECID formatted as idevicerestore expects it (hex with 0x prefix).
@@ -923,8 +939,12 @@ fn ecid_from_usb_serial(serial: &str) -> Option<u64> {
 }
 
 pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
-    let serial = info.serial_number().unwrap_or("").to_string();
     let mode = UsbMode::from_pid(info.product_id());
+    let serial = match mode {
+        UsbMode::Kis => crate::kis::serial(info),
+        _ => info.serial_number().map(str::to_string),
+    }
+    .unwrap_or_default();
     let parsed = if mode == UsbMode::PortDfu {
         parse_port_dfu_serial(&serial)
     } else {
@@ -1532,6 +1552,20 @@ mod tests {
         assert_eq!(d.ecid_hex().as_deref(), Some("0x1234"));
         assert!(dev(UsbMode::PortDfu, 2).restorable());
         assert!(!dev(UsbMode::Recovery, 1).restorable());
+    }
+
+    #[test]
+    fn kis_mode_is_dfu_and_restorable_once_identified() {
+        assert_eq!(UsbMode::from_pid(KIS_PID), UsbMode::Kis);
+        assert_eq!(UsbMode::Kis.to_string(), "kis");
+        let mut d = dev(UsbMode::Kis, 3);
+        assert!(d.in_dfu());
+        assert!(d.restorable());
+        // A macOS host can't read KIS identity: in DFU, but not restorable.
+        d.identity = None;
+        d.ecid = None;
+        assert!(d.in_dfu());
+        assert!(!d.restorable());
     }
 
     #[test]

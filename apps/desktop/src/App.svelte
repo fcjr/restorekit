@@ -201,6 +201,9 @@
   // or manual instructions.
   function deviceMode(d: Device): "restore" | "usb" | "dfu" | "manual" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
+    // Already in DFU over Debug USB, just unreadable here (always on macOS):
+    // re-triggering can't help.
+    if (d.mode === "kis") return d.driver_ready ? "manual" : "usb";
     // A Mac behind a dongle can be put into DFU over the dongle from any host,
     // even when this host can't trigger electronically.
     return canTrigger || d.via_dongle ? "dfu" : "manual";
@@ -233,6 +236,7 @@
   const MODE_TAG: Record<Mode, string> = {
     dfu: "DFU",
     "port-dfu": "Port DFU",
+    kis: "Debug USB DFU",
     recovery: "Recovery",
     restore: "Restore",
     wtf: "WTF",
@@ -243,6 +247,7 @@
   const MODE_COLOR: Record<Mode, string> = {
     dfu: "var(--acc)",
     "port-dfu": "var(--acc)",
+    kis: "var(--acc)",
     recovery: "var(--alt)",
     restore: "var(--ok)",
     wtf: "var(--danger)",
