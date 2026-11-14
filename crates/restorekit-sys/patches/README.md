@@ -30,6 +30,18 @@ compiles the patched copy.
   "Unable to discover device mode" while the Mac was still on its way back.
   Loop until the mode is known or the minute is up.
 
+## libirecovery
+
+- `0001-kis-via-deviceinterfaced-on-macos.patch` — macOS only lets processes
+  holding `com.apple.private.debug-usb.access` open a Debug USB (KIS,
+  `05ac:1881`) device, and only Apple's `deviceinterfaced` has it. On macOS,
+  open KIS devices through the daemon's private `DeviceInterfaceClient`
+  framework and send KIS requests with its `transfer_data`, instead of failing
+  to open the device (or dropping its device-add event). Loaded at runtime;
+  `IRECV_KIS_NO_DIC=1` forces the plain IOKit path. Unlike idevicerestore,
+  libirecovery is built with autotools from a patched copy of the whole tree,
+  rebuilt only when the patches change.
+
 ## Updating a patch
 
 1. Apply the existing patches to the submodule:
