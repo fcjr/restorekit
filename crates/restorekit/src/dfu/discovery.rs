@@ -13,7 +13,7 @@ pub struct Watch {
     /// ECIDs already in DFU when the watch started.
     already_present: Vec<u64>,
     /// Unidentified Debug USB (KIS) Macs present when the watch started. They
-    /// have no ECID to diff on (always the case on a macOS host), so count them.
+    /// have no ECID to diff on, so count them.
     kis_present: usize,
 }
 

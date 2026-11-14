@@ -118,9 +118,10 @@ impl From<nusb::Error> for Error {
 /// do instead, per host OS.
 fn kis_unreadable_message() -> &'static str {
     if cfg!(target_os = "macos") {
-        "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), and macOS only lets \
-         Apple's own software open that. Restore it with Apple Configurator, or power it off \
-         fully and enter DFU with the key combo, which usually comes up as regular DFU"
+        "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), and restorekit couldn't \
+         read its identity through deviceinterfaced (macOS only lets Apple's software open that \
+         interface directly). Restore it with Apple Configurator, or enter DFU with the key \
+         combo instead"
     } else if cfg!(target_os = "windows") {
         "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), but restorekit couldn't \
          read its identity. Run `restorekit setup-driver` so WinUSB is bound to it, then retry"

@@ -201,7 +201,7 @@
   // or manual instructions.
   function deviceMode(d: Device): "restore" | "usb" | "dfu" | "manual" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
-    // Already in DFU over Debug USB, just unreadable here (always on macOS):
+    // Already in DFU over Debug USB, just unreadable here:
     // re-triggering can't help.
     if (d.mode === "kis") return d.driver_ready ? "manual" : "usb";
     // A Mac behind a dongle can be put into DFU over the dongle from any host,

@@ -8,23 +8,32 @@
 //! restore-family device it finds first).
 //!
 //! macOS gates `05ac:1881` behind the `com.apple.private.debug-usb.access`
-//! entitlement (and `deviceinterfaced` holds the device), so on a macOS host the
-//! open fails and the identity stays unknown.
+//! entitlement, which only Apple's `deviceinterfaced` holds. The daemon hands a
+//! raw KIS transport to any client through the private
+//! `DeviceInterfaceClient.framework`, so on macOS the same request goes through
+//! it instead (see [`dic`]). The vendored libirecovery is patched the same way
+//! for the restore itself (`restorekit-sys/patches/libirecovery`).
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+#[cfg(not(target_os = "macos"))]
 use nusb::transfer::{Buffer, Bulk, In, Out};
 use nusb::MaybeFuture;
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const PORTAL_CONFIG: u8 = 0x01;
 const PORTAL_RSM: u8 = 0x10;
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const INDEX_ENABLE_A: u16 = 0x0a;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const INDEX_ENABLE_B: u16 = 0x14;
 const INDEX_GET_INFO: u16 = 0x100;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const ENABLE_A: u32 = 0x21;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const ENABLE_B: u32 = 0x01;
 
 const HEADER_LEN: usize = 12;
@@ -34,7 +43,10 @@ const INFO_LEN: usize = 0x300;
 const DESCRIPTOR_OFFSET: usize = 64;
 /// `iSerialNumber` within a USB device descriptor.
 const I_SERIAL_NUMBER: usize = 16;
+/// Word offset of the nonce string, inside the info block.
+const NONCE_OFFSET: usize = 24;
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The identity string (`CPID:… ECID:…`) of the KIS device behind `info`, or
@@ -52,22 +64,108 @@ pub(crate) fn serial(info: &nusb::DeviceInfo) -> Option<String> {
 }
 
 fn read(info: &nusb::DeviceInfo) -> Option<String> {
-    let dev = info.open().wait().ok()?;
-    let iface = dev.claim_interface(0).wait().ok()?;
-    let mut config = Portal::open(&iface, 0x01)?;
-    let mut rsm = Portal::open(&iface, 0x03)?;
-    config.request(PORTAL_CONFIG, INDEX_ENABLE_A, &[ENABLE_A], 1)?;
-    config.request(PORTAL_CONFIG, INDEX_ENABLE_B, &[ENABLE_B], 1)?;
-    let reply = rsm.request(PORTAL_RSM, INDEX_GET_INFO, &[], INFO_LEN / 4)?;
+    let reply = get_info(info).ok()?;
     serial_from_info(reply.get(HEADER_LEN..)?)
 }
 
+/// The raw GET_INFO reply (header, info block, trailer) for the device.
+#[cfg(not(target_os = "macos"))]
+fn get_info(info: &nusb::DeviceInfo) -> Result<Vec<u8>, String> {
+    let dev = info.open().wait().map_err(|e| format!("open: {e}"))?;
+    let iface = dev
+        .claim_interface(0)
+        .wait()
+        .map_err(|e| format!("claim interface 0: {e}"))?;
+    let mut config = Portal::open(&iface, 0x01).ok_or("open EP 0x01/0x81")?;
+    let mut rsm = Portal::open(&iface, 0x03).ok_or("open EP 0x03/0x83")?;
+    config
+        .request(PORTAL_CONFIG, INDEX_ENABLE_A, &[ENABLE_A], 1)
+        .ok_or("config write 0x0a")?;
+    config
+        .request(PORTAL_CONFIG, INDEX_ENABLE_B, &[ENABLE_B], 1)
+        .ok_or("config write 0x14")?;
+    rsm.request(PORTAL_RSM, INDEX_GET_INFO, &[], INFO_LEN / 4)
+        .ok_or_else(|| "GET_INFO".to_string())
+}
+
+/// The raw GET_INFO reply, through `deviceinterfaced`. It enables the device
+/// itself when it attaches, so there's no config write here.
+#[cfg(target_os = "macos")]
+fn get_info(info: &nusb::DeviceInfo) -> Result<Vec<u8>, String> {
+    let id = dic::interface_for(info.registry_entry_id())?;
+    let req = header(PORTAL_RSM, INDEX_GET_INFO, 0, INFO_LEN / 4);
+    dic::request(id, &req, HEADER_LEN + INFO_LEN + 8)
+}
+
+/// A readable dump of every KIS device on the bus: what `deviceinterfaced` sees
+/// (macOS), the raw GET_INFO reply and what it parses to. For checking the
+/// transport on real hardware; prints nothing it can't read rather than failing.
+pub fn probe() -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    #[cfg(target_os = "macos")]
+    dic::describe(&mut out);
+    let devices: Vec<_> = match nusb::list_devices().wait() {
+        Ok(d) => d
+            .filter(|d| {
+                d.vendor_id() == crate::device::APPLE_VID
+                    && d.product_id() == crate::device::KIS_PID
+            })
+            .collect(),
+        Err(e) => {
+            let _ = writeln!(out, "list USB devices: {e}");
+            return out;
+        }
+    };
+    if devices.is_empty() {
+        let _ = writeln!(out, "no 05ac:1881 device on the bus");
+    }
+    for info in &devices {
+        let _ = writeln!(out, "\n05ac:1881 {:?}", info.id());
+        #[cfg(target_os = "macos")]
+        let _ = writeln!(out, "  registry entry id {:#x}", info.registry_entry_id());
+        match get_info(info) {
+            Ok(reply) => {
+                let _ = writeln!(out, "  GET_INFO reply, {} bytes:", reply.len());
+                hexdump(&mut out, &reply);
+                let body = reply.get(HEADER_LEN..).unwrap_or_default();
+                let _ = writeln!(out, "  serial: {:?}", serial_from_info(body));
+                let _ = writeln!(out, "  nonces: {:?}", nonces_from_info(body));
+            }
+            Err(e) => {
+                let _ = writeln!(out, "  GET_INFO failed: {e}");
+            }
+        }
+    }
+    out
+}
+
+fn hexdump(out: &mut String, bytes: &[u8]) {
+    use std::fmt::Write;
+    for (i, row) in bytes.chunks(16).enumerate() {
+        let hex: Vec<String> = row.iter().map(|b| format!("{b:02x}")).collect();
+        let text: String = row
+            .iter()
+            .map(|&b| {
+                if (0x20..0x7f).contains(&b) {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        let _ = writeln!(out, "    {:04x}: {:<47}  {text}", i * 16, hex.join(" "));
+    }
+}
+
 /// A KIS portal: a bulk OUT/IN endpoint pair.
+#[cfg(not(target_os = "macos"))]
 struct Portal {
     out: nusb::Endpoint<Bulk, Out>,
     inp: nusb::Endpoint<Bulk, In>,
 }
 
+#[cfg(not(target_os = "macos"))]
 impl Portal {
     fn open(iface: &nusb::Interface, ep: u8) -> Option<Portal> {
         Some(Portal {
@@ -123,6 +221,12 @@ fn serial_from_info(info: &[u8]) -> Option<String> {
     string_at(info, index * 4)
 }
 
+/// The `NONC:… SNON:…` string, at the word offset stored at `NONCE_OFFSET`.
+fn nonces_from_info(info: &[u8]) -> Option<String> {
+    let word = u32::from_le_bytes(info.get(NONCE_OFFSET..NONCE_OFFSET + 4)?.try_into().ok()?);
+    string_at(info, word as usize * 4)
+}
+
 /// A USB string descriptor (`bLength`, `bDescriptorType` = 3, UTF-16LE) at `off`.
 fn string_at(info: &[u8], off: usize) -> Option<String> {
     let len = *info.get(off)? as usize;
@@ -136,6 +240,211 @@ fn string_at(info: &[u8], off: usize) -> Option<String> {
         .collect();
     let s = String::from_utf16(&units).ok()?;
     (!s.is_empty()).then_some(s)
+}
+
+/// The KIS transport `deviceinterfaced` exposes through
+/// `DeviceInterfaceClient.framework`. The framework is private and undocumented;
+/// these signatures come from disassembling it and were checked against a live
+/// Debug USB device (an iPhone with Debug USB enabled over USB-PD): listing,
+/// portal-to-endpoint mapping and a GET_INFO round trip.
+#[cfg(target_os = "macos")]
+mod dic {
+    use std::ffi::{c_char, c_void, CStr};
+    use std::fmt::Write;
+    use std::sync::atomic::{AtomicU16, Ordering};
+    use std::sync::OnceLock;
+
+    const FRAMEWORK: &CStr = c"/Library/Apple/System/Library/PrivateFrameworks/DeviceInterfaceClient.framework/DeviceInterfaceClient";
+    const TADFU_FRAMEWORK: &CStr =
+        c"/Library/Apple/System/Library/PrivateFrameworks/DeviceInterface.framework/DeviceInterface";
+    const TIMEOUT_MS: u64 = 2000;
+
+    type Create = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
+    type List = unsafe extern "C" fn(*mut c_void, *mut u64, *mut usize) -> bool;
+    type Transfer = unsafe extern "C" fn(
+        *mut c_void,
+        u64,
+        *const u64,
+        u32,
+        *const c_void,
+        usize,
+        *mut c_void,
+        *mut usize,
+    ) -> bool;
+
+    extern "C" {
+        fn dispatch_queue_create(label: *const c_char, attr: *mut c_void) -> *mut c_void;
+    }
+
+    struct Client {
+        handle: *mut c_void,
+        list: List,
+        transfer: Transfer,
+    }
+    // The framework's client is an XPC connection wrapper, safe across threads.
+    unsafe impl Send for Client {}
+    unsafe impl Sync for Client {}
+
+    fn client() -> Result<&'static Client, String> {
+        static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+        CLIENT
+            .get_or_init(|| unsafe {
+                let h = libc::dlopen(FRAMEWORK.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
+                if h.is_null() {
+                    return Err("DeviceInterfaceClient.framework not found".into());
+                }
+                let sym = |name: &CStr| libc::dlsym(h, name.as_ptr());
+                let create = sym(c"device_interface_client_server_xpc_client_create");
+                let list = sym(c"device_interface_client_server_xpc_client_list_devices");
+                let transfer = sym(c"device_interface_client_server_xpc_client_transfer_data");
+                if create.is_null() || list.is_null() || transfer.is_null() {
+                    return Err(
+                        "DeviceInterfaceClient.framework is missing expected symbols".into(),
+                    );
+                }
+                let create: Create = std::mem::transmute(create);
+                let queue = dispatch_queue_create(c"restorekit.kis".as_ptr(), std::ptr::null_mut());
+                let handle = create(queue);
+                if handle.is_null() {
+                    return Err("could not connect to deviceinterfaced".into());
+                }
+                Ok(Client {
+                    handle,
+                    list: std::mem::transmute::<*mut c_void, List>(list),
+                    transfer: std::mem::transmute::<*mut c_void, Transfer>(transfer),
+                })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    fn interfaces() -> Result<Vec<u64>, String> {
+        let c = client()?;
+        let mut ids = [0u64; 16];
+        let mut count = ids.len();
+        if !unsafe { (c.list)(c.handle, ids.as_mut_ptr(), &mut count) } {
+            return Err("deviceinterfaced list_devices failed".into());
+        }
+        Ok(ids[..count.min(ids.len())].to_vec())
+    }
+
+    /// The daemon's interface id for the device with this registry entry id.
+    /// Ids may be registry entry ids (unverified); failing a match, a lone
+    /// interface can only be this device.
+    pub fn interface_for(registry_id: u64) -> Result<u64, String> {
+        let ids = interfaces()?;
+        if ids.contains(&registry_id) {
+            return Ok(registry_id);
+        }
+        match ids.as_slice() {
+            [id] => Ok(*id),
+            [] => Err("deviceinterfaced lists no KIS interfaces".into()),
+            _ => Err(format!(
+                "{} KIS interfaces and none match this device",
+                ids.len()
+            )),
+        }
+    }
+
+    /// Send one KIS request (12-byte header, args, payload) and return the raw
+    /// reply. The daemon writes `scalars[1..]` out as little-endian u32 words
+    /// followed by the input bytes, so the header goes in as scalars.
+    pub fn request(id: u64, req: &[u8], reply_cap: usize) -> Result<Vec<u8>, String> {
+        let c = client()?;
+        // Replies are matched by the first header word and the daemon uses
+        // 0xFFxx itself; the patched libirecovery uses 1..0x8000.
+        static SEQ: AtomicU16 = AtomicU16::new(0);
+        let seq = 0x8000 + SEQ.fetch_add(1, Ordering::Relaxed) % 0x7f00;
+        let mut req = req.to_vec();
+        req[..2].copy_from_slice(&seq.to_le_bytes());
+
+        let words = (3 + req[4] as usize).min(15).min(req.len() / 4);
+        let mut scalars = vec![TIMEOUT_MS];
+        scalars.extend(
+            req[..words * 4]
+                .chunks_exact(4)
+                .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]) as u64),
+        );
+        let payload = &req[words * 4..];
+        let mut out = vec![0u8; reply_cap];
+        let mut out_len = out.len();
+        let ok = unsafe {
+            (c.transfer)(
+                c.handle,
+                id,
+                scalars.as_ptr(),
+                scalars.len() as u32,
+                if payload.is_empty() {
+                    std::ptr::null()
+                } else {
+                    payload.as_ptr().cast()
+                },
+                payload.len(),
+                out.as_mut_ptr().cast(),
+                &mut out_len,
+            )
+        };
+        if !ok {
+            return Err("deviceinterfaced transfer_data failed".into());
+        }
+        out.truncate(out_len);
+        Ok(out)
+    }
+
+    /// What the daemon reports: its KIS interfaces and TADFU devices.
+    pub fn describe(out: &mut String) {
+        match interfaces() {
+            Ok(ids) => {
+                let ids: Vec<String> = ids.iter().map(|i| format!("{i:#x}")).collect();
+                let _ = writeln!(out, "deviceinterfaced KIS interfaces: [{}]", ids.join(", "));
+            }
+            Err(e) => {
+                let _ = writeln!(out, "deviceinterfaced: {e}");
+            }
+        }
+        let _ = writeln!(out, "TADFU devices: {}", tadfu_devices());
+    }
+
+    /// `tadfu_transport_client_copy_all_devices_information`, described. This is
+    /// the higher-level path Apple's MobileDevice uses for KIS restores; dumped
+    /// so a hardware test shows what it offers if the raw path falls short.
+    fn tadfu_devices() -> String {
+        use core_foundation::base::{CFType, TCFType};
+        type Cb = unsafe extern "C" fn(*const c_void, *mut c_void);
+        type Create = unsafe extern "C" fn(Cb, *mut c_void, Cb, *mut c_void) -> *mut c_void;
+        type Copy = unsafe extern "C" fn(*mut c_void) -> *const c_void;
+        unsafe extern "C" fn ignore(_: *const c_void, _: *mut c_void) {}
+        unsafe {
+            let h = libc::dlopen(TADFU_FRAMEWORK.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
+            if h.is_null() {
+                return "DeviceInterface.framework not found".into();
+            }
+            let create = libc::dlsym(
+                h,
+                c"tadfu_transport_client_create_with_device_discovery_callbacks".as_ptr(),
+            );
+            let copy = libc::dlsym(
+                h,
+                c"tadfu_transport_client_copy_all_devices_information".as_ptr(),
+            );
+            if create.is_null() || copy.is_null() {
+                return "DeviceInterface.framework is missing expected symbols".into();
+            }
+            let create: Create = std::mem::transmute(create);
+            let copy: Copy = std::mem::transmute(copy);
+            let client = create(ignore, std::ptr::null_mut(), ignore, std::ptr::null_mut());
+            if client.is_null() {
+                return "could not connect to the TADFU server".into();
+            }
+            // Discovery is asynchronous; give the initial device list a moment.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let all = copy(client);
+            if all.is_null() {
+                return "none".into();
+            }
+            format!("{:?}", CFType::wrap_under_create_rule(all as _))
+        }
+    }
 }
 
 #[cfg(test)]

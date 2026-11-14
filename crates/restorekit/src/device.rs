@@ -610,7 +610,7 @@ pub enum UsbMode {
     /// DFU over Apple's Debug USB interface ("KIS", `05ac:1881`): the same
     /// bootrom DFU, but the chip identity sits behind a KIS request instead of
     /// the USB serial. macOS only lets Apple's own `deviceinterfaced` open it,
-    /// so on a macOS host the identity stays unknown.
+    /// so on a macOS host the request goes through that daemon.
     Kis,
     /// Recovery mode (iBoot).
     Recovery,
@@ -806,8 +806,8 @@ impl Device {
         self.in_dfu() && self.identity.is_some()
     }
 
-    /// A Mac in Debug USB DFU whose identity couldn't be read (always the case
-    /// on a macOS host). It's in DFU, but restorekit can't restore it.
+    /// A Mac in Debug USB DFU whose identity couldn't be read. It's in DFU, but
+    /// restorekit can't restore it.
     pub fn kis_unreadable(&self) -> bool {
         self.mode == UsbMode::Kis && self.identity.is_none()
     }

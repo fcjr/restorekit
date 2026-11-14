@@ -44,6 +44,11 @@ enum Command {
     /// Diagnostic — sends no DFU action. Hidden.
     #[command(hide = true)]
     ProbePorts,
+    /// Dump what restorekit reads from Debug USB (KIS, 05ac:1881) devices: the
+    /// raw GET_INFO reply and, on macOS, what deviceinterfaced reports.
+    /// Diagnostic. Hidden.
+    #[command(hide = true)]
+    KisProbe,
     /// Send one raw USB-PD VDM to the partner on a host DFU port and print the
     /// reply (Apple Silicon macOS, root). Diagnostic. Hidden.
     #[command(hide = true)]
@@ -323,6 +328,10 @@ fn main() {
         Command::Reboot(t) => commands::dfu::reboot(cli.json, t.dongle, t.ecid, t.port),
         Command::Serial(t) => commands::dfu::serial(cli.json, t.dongle, t.ecid, t.port),
         Command::ProbePorts => commands::dfu::probe_ports(cli.json),
+        Command::KisProbe => {
+            print!("{}", restorekit::kis::probe());
+            Ok(())
+        }
         Command::Vdm { words, port } => commands::dfu::raw_vdm(cli.json, &words, port),
         Command::Download {
             identifier,
