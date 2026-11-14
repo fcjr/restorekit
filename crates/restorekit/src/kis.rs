@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(not(target_os = "macos"))]
 use nusb::transfer::{Buffer, Bulk, In, Out};
@@ -49,23 +49,73 @@ const NONCE_OFFSET: usize = 24;
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 const TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The identity string (`CPID:… ECID:…`) of the KIS device behind `info`, or
-/// `None` if it can't be opened or read. Cached per enumeration, so polling
-/// `list()` opens each KIS device once rather than on every call.
-pub(crate) fn serial(info: &nusb::DeviceInfo) -> Option<String> {
-    static CACHE: OnceLock<Mutex<HashMap<nusb::DeviceId, Option<String>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(Default::default);
-    if let Some(hit) = cache.lock().unwrap().get(&info.id()) {
-        return hit.clone();
-    }
-    let serial = read(info);
-    cache.lock().unwrap().insert(info.id(), serial.clone());
-    serial
+/// What a Debug USB device answered to GET_INFO.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Read {
+    /// In DFU: the identity string (`CPID:… ECID:…`).
+    Serial(String),
+    /// It answered, but with no info block: the chip isn't in DFU (e.g. a
+    /// booted device with Debug USB switched on at its port), so there's no
+    /// identity to read.
+    NotInDfu,
+    /// The request itself failed.
+    Failed,
 }
 
-fn read(info: &nusb::DeviceInfo) -> Option<String> {
-    let reply = get_info(info).ok()?;
-    serial_from_info(reply.get(HEADER_LEN..)?)
+/// How long after a KIS device first shows up a failed read is retried right
+/// away. On macOS `deviceinterfaced` attaches to the device on the same
+/// arrival, so the first request can land before it's ready.
+const ARRIVAL_GRACE: Duration = Duration::from_secs(3);
+
+/// Read the KIS device behind `info`. A good identity is cached per
+/// enumeration, so polling `list()` asks each device once; anything else is
+/// asked again on the next call, so a device that finishes coming up (or a
+/// daemon that finishes attaching) isn't stuck with its first answer.
+pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
+    // When each device was first seen, and its identity once read.
+    type Seen = HashMap<nusb::DeviceId, (Instant, Option<String>)>;
+    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
+    let seen = SEEN.get_or_init(Default::default);
+    let first_seen = {
+        let mut seen = seen.lock().unwrap();
+        let entry = seen.entry(info.id()).or_insert((Instant::now(), None));
+        if let Some(serial) = &entry.1 {
+            return Read::Serial(serial.clone());
+        }
+        entry.0
+    };
+    let read = loop {
+        let read = read(info);
+        if read != Read::Failed || first_seen.elapsed() >= ARRIVAL_GRACE {
+            break read;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    };
+    if let Read::Serial(serial) = &read {
+        seen.lock()
+            .unwrap()
+            .insert(info.id(), (first_seen, Some(serial.clone())));
+    }
+    read
+}
+
+fn read(info: &nusb::DeviceInfo) -> Read {
+    match get_info(info) {
+        Ok(reply) => classify(&reply),
+        Err(_) => Read::Failed,
+    }
+}
+
+/// A full reply carries the 0x300-byte info block; a short one (just the
+/// header and the size/status trailer) means the device has none to give.
+fn classify(reply: &[u8]) -> Read {
+    if reply.len() < HEADER_LEN + INFO_LEN {
+        return Read::NotInDfu;
+    }
+    match serial_from_info(&reply[HEADER_LEN..]) {
+        Some(serial) => Read::Serial(serial),
+        None => Read::Failed,
+    }
 }
 
 /// The raw GET_INFO reply (header, info block, trailer) for the device.
@@ -129,6 +179,7 @@ pub fn probe() -> String {
                 let _ = writeln!(out, "  GET_INFO reply, {} bytes:", reply.len());
                 hexdump(&mut out, &reply);
                 let body = reply.get(HEADER_LEN..).unwrap_or_default();
+                let _ = writeln!(out, "  reads as: {:?}", classify(&reply));
                 let _ = writeln!(out, "  serial: {:?}", serial_from_info(body));
                 let _ = writeln!(out, "  nonces: {:?}", nonces_from_info(body));
             }
@@ -514,6 +565,16 @@ mod tests {
         info[off + 1] = 3;
         info[off + 2..off + 2 + utf16.len()].copy_from_slice(&utf16);
         assert_eq!(serial_from_info(&info).as_deref(), Some(serial));
+    }
+
+    #[test]
+    fn short_reply_means_not_in_dfu() {
+        // What a booted iPhone with Debug USB on answered: header + trailer.
+        let reply = [
+            0x00, 0x80, 0xa0, 0x10, 0, 0x01, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        assert_eq!(classify(&reply), Read::NotInDfu);
+        assert_eq!(classify(&[0u8; HEADER_LEN + INFO_LEN + 8]), Read::Failed);
     }
 
     #[test]

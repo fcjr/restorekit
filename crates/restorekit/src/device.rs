@@ -812,6 +812,13 @@ impl Device {
         self.mode == UsbMode::Kis && self.identity.is_none()
     }
 
+    /// A Debug USB (`05ac:1881`) device that isn't in DFU: it answered, but the
+    /// chip behind it isn't running the boot ROM, so there's no identity. Seen
+    /// with a booted device whose port was switched to Debug USB over USB-PD.
+    pub fn debug_usb_not_in_dfu(&self) -> bool {
+        self.mode == UsbMode::Other && self.usb.pid == KIS_PID
+    }
+
     /// ECID formatted as idevicerestore expects it (hex with 0x prefix).
     pub fn ecid_hex(&self) -> Option<String> {
         self.ecid.map(|e| format!("0x{e:x}"))
@@ -939,9 +946,17 @@ fn ecid_from_usb_serial(serial: &str) -> Option<u64> {
 }
 
 pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
-    let mode = UsbMode::from_pid(info.product_id());
+    let mut mode = UsbMode::from_pid(info.product_id());
     let serial = match mode {
-        UsbMode::Kis => crate::kis::serial(info),
+        UsbMode::Kis => match crate::kis::identify(info) {
+            crate::kis::Read::Serial(s) => Some(s),
+            // Debug USB without DFU behind it isn't a restore mode.
+            crate::kis::Read::NotInDfu => {
+                mode = UsbMode::Other;
+                None
+            }
+            crate::kis::Read::Failed => None,
+        },
         _ => info.serial_number().map(str::to_string),
     }
     .unwrap_or_default();

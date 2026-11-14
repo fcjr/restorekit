@@ -204,6 +204,12 @@ fn run_once(json: bool) -> Result<()> {
             restorekit::Error::KisUnreadable
         );
     } else if !devices.iter().any(|d| d.restorable()) {
+        if devices.iter().any(|d| d.debug_usb_not_in_dfu()) {
+            println!(
+                "Debug USB is on, but the device behind it isn't in DFU, so there's no identity \
+                 to read."
+            );
+        }
         println!("None are in DFU mode; only a Mac in DFU mode can be restored.");
         if restorekit::host_can_trigger_dfu() {
             println!("Run `restorekit dfu` to put the cabled target into DFU mode.");
