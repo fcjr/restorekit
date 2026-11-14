@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
+/// Longest IPSW name from the URL kept as the cache file name.
+const MAX_FILE_NAME: usize = 64;
+
 pub use cache::{cache_path, cached, default_cache_dir};
 pub use download::download;
 pub use resolve::resolve;
@@ -35,12 +38,18 @@ pub struct Firmware {
 impl Firmware {
     /// Canonical cache filename, derived from the download URL's basename.
     pub fn file_name(&self) -> String {
-        self.url
-            .rsplit('/')
-            .next()
-            .filter(|s| s.ends_with(".ipsw"))
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("UniversalMac_{}_{}_Restore.ipsw", self.version, self.build))
+        let from_url = self.url.rsplit('/').next().filter(|s| s.ends_with(".ipsw"));
+        match from_url {
+            // bridgeOS IPSWs are named after every T2 board they support (~210
+            // chars), which pushes the cache path past Windows' MAX_PATH and
+            // makes idevicerestore's ipsw_open fail.
+            Some(name) if name.len() > MAX_FILE_NAME => format!(
+                "{}_{}_{}_Restore.ipsw",
+                self.identifier, self.version, self.build
+            ),
+            Some(name) => name.to_string(),
+            None => format!("UniversalMac_{}_{}_Restore.ipsw", self.version, self.build),
+        }
     }
 }
 
@@ -80,5 +89,15 @@ mod tests {
         let mut f = fw();
         f.url = "https://example.com/redirect".into();
         assert_eq!(f.file_name(), "UniversalMac_26.5.2_25F84_Restore.ipsw");
+    }
+
+    #[test]
+    fn file_name_shortens_bridgeos_names() {
+        let mut f = fw();
+        f.identifier = "iBridge2,3".into();
+        f.version = "11.0".into();
+        f.build = "24P6005".into();
+        f.url = "https://updates.cdn-apple.com/2026FallFCS/fullrestores/140-55161/E2CF296A-8792-4933-8B38-F810EB1D9EAD/iBridge2,1,iBridge2,10,iBridge2,12,iBridge2,14,iBridge2,15,iBridge2,16,iBridge2,19,iBridge2,20,iBridge2,21,iBridge2,22,iBridge2,3,iBridge2,4,iBridge2,5,iBridge2,6,iBridge2,7,iBridge2,8_11.0_24P6005_Restore.ipsw".into();
+        assert_eq!(f.file_name(), "iBridge2,3_11.0_24P6005_Restore.ipsw");
     }
 }
