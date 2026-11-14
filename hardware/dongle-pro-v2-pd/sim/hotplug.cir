@@ -1,0 +1,27 @@
+* charger plugged into the dongle: cable inductance rings with the input caps
+.param vsrc=5
+V1 src 0 PWL(0 0 1u {vsrc})
+Rcab src a 0.15
+Lcab a vin 1u
+* 4.7 uF 0805 + 1 uF 0402, ESR a few milliohm, derated for DC bias
+C16 vin n1 {c16}
+R16 n1 0 5m
+C19 vin n2 {c19}
+R19 n2 0 10m
+* CH224Q + divider load
+Rl vin 0 5k
+.control
+foreach v 5 20
+  foreach derate 1.0 0.5
+    alterparam vsrc=$v
+    alterparam c16={4.7u*$derate}
+    alterparam c19={1u*$derate}
+    reset
+    tran 20n 200u
+    meas tran vpk max v(vin)
+    print vpk
+  end
+end
+.endc
+.param c16=4.7u c19=1u
+.end

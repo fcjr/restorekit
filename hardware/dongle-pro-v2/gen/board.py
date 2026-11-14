@@ -7,13 +7,14 @@ CH9441P picking the live lane pair from its port's CC pins. USB 2.0 goes
 through a CH334P hub (DS1 = MCU, DS2 = target). CH32X035G8U6 runs the dongle,
 HUSB311 (TCPCI) owns the target CC for the Apple DFU VDMs.
 
-BOM-row discipline: resistors are only 5.1k / 10k / 5.6k, caps only 100nF / 1uF.
+BOM-row discipline: resistors are only 5.1k / 10k / 5.6k, caps only 100nF / 1uF
+plus 220pF on the target CC lines.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dongle-lite", "gen"))
 import gen
 R={"5.1k":"0402WGF5101TCE","10k":"0402WGF1002TCE","5.6k":"0402WGF5601TCE"}
-C={"100nF":"CL05B104KO5NNNC","1uF":"CL05A105KA5NQNC"}
+C={"100nF":"CL05B104KO5NNNC","1uF":"CL05A105KA5NQNC","220pF":"0402B221K500NT"}
 XTAL="X322512MSB4SI"; LED="KT-0603R"; BTN="TS3315A"
 USBC="HXTYPE-C24PQCHT"; ESD="H5VU25U"; MUX="CH9441P"; FET="HL2302"
 comps=[]
@@ -60,10 +61,14 @@ r("R2","10k",(200,110,0),"TGT_VBUS_EN","GND")
 add("U2","HUSB311BLA",(150,330,0),{
  "3":"+3V3","4":"+3V3","9":"GND","8":"GND","15":"GND",
  "10":"TGT_CC1","11":"TGT_CC1","1":"TGT_CC2","14":"TGT_CC2",
- "2":None,"12":None,"13":None,
+ "2":"TGT_VBUS","12":None,"13":None,
  "5":"PD_INT","6":"I2C_SCL","7":"I2C_SDA"})
-# no external pull-ups: SDA/SCL/INT_N use the MCU's internal ones (bit-banged, ~100 kHz)
+# 10k pull-ups on SDA/SCL (bit-banged, the MCU's own pull-ups are too weak to lean on);
+# INT_N uses the MCU's internal one
+r("R70","10k",(230,330,0),"I2C_SDA","+3V3"); r("R71","10k",(230,360,0),"I2C_SCL","+3V3")
 c("C3","1uF",(190,380,0),"+3V3","GND")
+# PD wants 200..600 pF on each CC line at a port; the HUSB311's edge rates are specified into 200 pF
+c("C22","220pF",(120,400,0),"TGT_CC1","GND"); c("C23","220pF",(100,430,0),"TGT_CC2","GND")
 
 # ===== Host port cluster =====
 add("J1",USBC,(360,150,0),{
@@ -150,14 +155,25 @@ c("C13","1uF",(530,470,0),"+5V","GND"); c("C14","1uF",(560,470,0),"+3V3","GND")
 add("U7","MT9700-N",(660,430,0),{"5":"+5V","2":"GND","4":"TGT_VBUS_EN","3":"ILIM_SET","1":"TGT_VBUS"})
 r("R16","10k",(660,470,0),"ILIM_SET","GND")
 c("C15","1uF",(630,470,0),"+5V","GND"); c("C16","1uF",(700,470,0),"TGT_VBUS","GND")
+r("R19","10k",(700,500,0),"TGT_VBUS","GND")   # bleeder: the switch does not discharge its output
 add("D1",LED,(530,510,0),{"1":"LEDP_A","2":"GND"}); r("R17","5.1k",(560,510,0),"+3V3","LEDP_A")
 add("D2",LED,(600,510,0),{"1":"LEDS_A","2":"GND"}); r("R18","5.1k",(630,510,0),"LED_STAT","LEDS_A")
 for i,rail in enumerate(["+5V","+3V3","GND","HUB_3V3","TGT_VBUS","HMUX_VDD"]):
     add(f"#FLG{i+1}","PWR_FLAG",(520+i*22,550,0),{"1":rail},"PWR_FLAG")
 
 # ===== Debug / bring-up cluster =====
-# SDI debug is two pads next to the MCU (WCH-LinkE: SWDIO, SWCLK + the 3V3/GND pads)
-for i,(ref,net) in enumerate([("TP2","+3V3"),("TP4","TGT_VBUS"),("TP5","GND"),
+# SDI debug (WCH-LinkE: SWDIO, SWCLK, 3V3, GND) three ways: pads next to the MCU,
+# a row of four through-holes at 2.54 mm for a pin header (not fitted), and a
+# TC2030 Tag-Connect footprint with the same pinout as the other dongles
+# (1 VTREF, 2 SWDIO, 4 SWCLK, 5 GND; 3 and 6 are open, this MCU has no reset pin).
+comps.append({"ref":"J4","sym":"TC2030","at":(900,480,0),"in_bom":False,"value":"TC2030-IDC-NL",
+              "nets":{"1":"+3V3","2":"SWDIO","3":None,"4":"SWCLK","5":"GND","6":None}})
+for i,(ref,net) in enumerate([("TP11","SWCLK"),("TP12","SWDIO"),("TP13","+3V3"),("TP14","GND")]):
+    comps.append({"ref":ref,"sym":"TPTH","at":(900+i*20,540,0),"in_bom":False,"value":net,"nets":{"1":net}})
+# probe pads on the back for the target CC and SBU lines (PD sniffing, serial)
+for i,(ref,net) in enumerate([("TP20","TGT_CC1"),("TP21","TGT_CC2"),("TP22","TGT_SBU1"),("TP23","TGT_SBU2")]):
+    comps.append({"ref":ref,"sym":"TP","at":(760+i*20,540,0),"in_bom":False,"value":net,"nets":{"1":net}})
+for i,(ref,net) in enumerate([("TP3","+5V"),("TP4","TGT_VBUS"),
                               ("TP9","SWCLK"),("TP10","SWDIO")]):
     comps.append({"ref":ref,"sym":"TP","at":(760+(i%4)*20,480+(i//4)*25,0),
                   "in_bom":False,"value":net,"nets":{"1":net}})

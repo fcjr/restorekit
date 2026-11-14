@@ -102,8 +102,9 @@ text('HOST', CX, 102.3, B, 1.7, th=0.3)
 text('the Mac that works', CX, 103.95, B, 0.8, w_ratio=0.85)
 text('TARGET', CX, 146.0, B, 1.45, th=0.27)
 text('the Mac that doesn\'t', CX, 144.0, B, 0.8, w_ratio=0.85)
-text('LEFTSHIFT', 101.2, 143.4, B, 0.8, angle=90, w_ratio=0.85)
-text('<< LOGICAL', 102.5, 143.4, B, 0.8, angle=90, w_ratio=0.85)
+text('LEFTSHIFT', 101.6, 106.0, B, 0.8, angle=90, w_ratio=0.85)
+text('<< LOGICAL', 102.9, 106.0, B, 0.8, angle=90, w_ratio=0.85)
+for t, x, y in (('cc1', 106.4, 128.8), ('cc2', 106.5, 134.4), ('s1', 117.05, 124.3), ('s2', 119.95, 128.6)): text(t, x, y, B, 0.8, w_ratio=0.7)
 text('USB 3', 117.3, 110.0, B, 1.0, th=0.18)
 text('flip-safe', 117.3, 111.5, B, 0.8, w_ratio=0.85)
 
@@ -123,12 +124,13 @@ for ref in ('D1', 'D2'):
     ux, uy = (x - ax), (y - ay); l = math.hypot(ux, uy); ux, uy = ux / l, uy / l
     cx_, cy_ = x + ux * 0.7, y + uy * 0.7
     seg((cx_ - uy * 0.4, cy_ + ux * 0.4), (cx_ + uy * 0.4, cy_ - ux * 0.4), F, 0.15)
-text('boot', 117.4, 136.25, F, 0.8)
+text('boot', 117.0, 136.25, F, 0.8)
 text('act', 119.5, 129.6, F, 0.8, w_ratio=0.8)
-text('pwr', 120.3, 137.9, F, 0.8, angle=270, w_ratio=0.8)
+text('pwr', 119.2, 137.5, F, 0.8, angle=270, w_ratio=0.8)
 text('clk', 110.7, 124.55, F, 0.8, w_ratio=0.8); text('dio', 110.7, 126.6, F, 0.8, w_ratio=0.8)
-text('3v3', 115.6, 138.8, F, 0.8, w_ratio=0.8); text('gnd', 117.7, 140.0, F, 0.8, w_ratio=0.8)
-text('vbus', 102.1, 140.8, F, 0.8, w_ratio=0.8)
+for i, t in enumerate(('gnd', '3v3', 'dio', 'clk')): text(t, 116.25, 139.0 + 2.54 * i, F, 0.8, w_ratio=0.7)
+text('5v', 119.6, 106.5, F, 0.8, w_ratio=0.8)
+text('vbus', 101.6, 138.15, F, 0.8, w_ratio=0.7)
 # top-left corner: the mark, small
 mx, my, ms = 103.0, 103.9, 3.6
 rrect(mx, my, ms, ms, 0.7, F, 0.2)
@@ -136,8 +138,7 @@ poly([(mx - 2.35, my), (mx - 1.2, my), (mx - 0.75, my - 1.0), (mx, my + 1.05), (
 text('restorekit', 102.85, 107.0, F, 0.8, th=0.14, w_ratio=0.78)
 text('dongle pro', 102.85, 108.3, F, 0.8, w_ratio=0.78); text('r2', 102.85, 109.6, F, 0.8)
 text('host', 118.2, 103.0, F, 1.1, th=0.18)
-text('target', 118.0, 146.2, F, 1.1, th=0.18)
-text('dfu port', 103.0, 146.2, F, 0.8)
+text('target', 104.5, 146.3, F, 0.8, angle=90, w_ratio=0.7)
 
 pcbnew.SaveBoard(PCB, board)
 import runpy

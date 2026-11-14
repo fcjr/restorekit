@@ -66,7 +66,7 @@ for c in comps:
     fp.SetFPID(pcbnew.LIB_ID('dongle-lite', fp_for(c['sym'])))
     fp.SetReference(ref)
     fp.SetValue(c.get('value') or c['sym'])
-    x, y, rot = P[ref]
+    x, y, rot = P[ref][:3]
     fp.SetPosition(pcbnew.VECTOR2I_MM(x, y))
     fp.SetOrientationDegrees(rot)
     if not c.get('in_bom', True):
@@ -82,6 +82,8 @@ for c in comps:
         for pad in pads_by_num[pin]:
             pad.SetNet(netinfo[net])
     board.Add(fp)
+    if len(P[ref]) > 3 and P[ref][3] == 'B':   # bare pads on the back
+        fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
 
 def edge(shape, *pts):
     s = pcbnew.PCB_SHAPE(board); s.SetShape(shape)
