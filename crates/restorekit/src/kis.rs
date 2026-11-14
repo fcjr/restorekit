@@ -328,13 +328,44 @@ mod dic {
         Ok(ids[..count.min(ids.len())].to_vec())
     }
 
+    #[link(name = "IOKit", kind = "framework")]
+    extern "C" {
+        fn IORegistryEntryIDMatching(id: u64) -> *const c_void;
+        fn IOServiceGetMatchingService(main_port: u32, matching: *const c_void) -> u32;
+        fn IORegistryEntryGetParentEntry(entry: u32, plane: *const c_char, parent: *mut u32)
+            -> i32;
+        fn IORegistryEntryGetRegistryEntryID(entry: u32, id: *mut u64) -> i32;
+        fn IOObjectRelease(object: u32) -> i32;
+    }
+
+    /// Registry entry id of the parent (IOService plane) of the entry `id`.
+    fn parent_id(id: u64) -> Option<u64> {
+        unsafe {
+            let entry = IOServiceGetMatchingService(0, IORegistryEntryIDMatching(id));
+            if entry == 0 {
+                return None;
+            }
+            let mut parent = 0;
+            let kr = IORegistryEntryGetParentEntry(entry, c"IOService".as_ptr(), &mut parent);
+            IOObjectRelease(entry);
+            if kr != 0 {
+                return None;
+            }
+            let mut pid = 0;
+            let kr = IORegistryEntryGetRegistryEntryID(parent, &mut pid);
+            IOObjectRelease(parent);
+            (kr == 0).then_some(pid)
+        }
+    }
+
     /// The daemon's interface id for the device with this registry entry id.
-    /// Ids may be registry entry ids (unverified); failing a match, a lone
-    /// interface can only be this device.
+    /// The ids are registry entry ids of the device's `IOUSBHostInterface`
+    /// (seen on a live Debug USB device), so match on the parent; failing
+    /// that, a lone interface can only be this device.
     pub fn interface_for(registry_id: u64) -> Result<u64, String> {
         let ids = interfaces()?;
-        if ids.contains(&registry_id) {
-            return Ok(registry_id);
+        if let Some(id) = ids.iter().find(|&&id| parent_id(id) == Some(registry_id)) {
+            return Ok(*id);
         }
         match ids.as_slice() {
             [id] => Ok(*id),
@@ -395,7 +426,13 @@ mod dic {
     pub fn describe(out: &mut String) {
         match interfaces() {
             Ok(ids) => {
-                let ids: Vec<String> = ids.iter().map(|i| format!("{i:#x}")).collect();
+                let ids: Vec<String> = ids
+                    .iter()
+                    .map(|&i| match parent_id(i) {
+                        Some(p) => format!("{i:#x} (on device {p:#x})"),
+                        None => format!("{i:#x}"),
+                    })
+                    .collect();
                 let _ = writeln!(out, "deviceinterfaced KIS interfaces: [{}]", ids.join(", "));
             }
             Err(e) => {

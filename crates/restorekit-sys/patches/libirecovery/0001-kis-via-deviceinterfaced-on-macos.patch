@@ -20,10 +20,22 @@
  #endif
  #else
  	HANDLE handle;
-@@ -1064,9 +1070,186 @@
+@@ -762,6 +768,10 @@
+ #ifdef HAVE_IOKIT
+ static int iokit_get_string_descriptor_ascii(irecv_client_t client, uint8_t desc_index, unsigned char * buffer, int size)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
++		return IRECV_E_UNSUPPORTED;
++	}
+ 	IOReturn result;
+ 	IOUSBDevRequest request;
+ 	unsigned char descriptor[256];
+@@ -1063,10 +1073,187 @@
+ 	hdr->reqSize          = (uint32_t) reqSize;
  
  	return IRECV_E_SUCCESS;
- }
++}
 +
 +#ifdef HAVE_IOKIT
 +/*
@@ -36,7 +48,7 @@
 + */
 +#define DIC_FRAMEWORK "/Library/Apple/System/Library/PrivateFrameworks/DeviceInterfaceClient.framework/DeviceInterfaceClient"
 +#define DIC_MAX_SCALARS 16
- 
++
 +static struct {
 +	void *client;
 +	bool (*list_devices)(void *client, uint64_t *ids, size_t *count);
@@ -66,8 +78,8 @@
 +	if (!dic.client) {
 +		debug("%s: could not connect to deviceinterfaced\n", __func__);
 +	}
-+}
-+
+ }
+ 
 +static int dic_available(void)
 +{
 +	pthread_once(&dic_once, dic_load_once);
@@ -207,7 +219,7 @@
  	int endpoint = 0;
  	switch (req->portal) {
  		case KIS_PORTAL_CONFIG:
-@@ -1203,6 +1386,13 @@
+@@ -1203,6 +1390,13 @@
  
  static irecv_error_t irecv_kis_init(irecv_client_t client)
  {
@@ -221,27 +233,59 @@
  #ifndef _WIN32
  	irecv_error_t err = irecv_kis_config_write32(client, KIS_PORTAL_CONFIG, KIS_INDEX_ENABLE_A, KIS_ENABLE_A_VAL);
  	if (err != IRECV_E_SUCCESS) {
-@@ -1530,6 +1720,9 @@
- #else
- #ifndef _WIN32
- #ifdef HAVE_IOKIT
-+	if (client->kis_dic) {
-+		return IRECV_E_UNSUPPORTED;
-+	}
- 	return iokit_usb_control_transfer(client, bm_request_type, b_request, w_value, w_index, data, w_length, timeout);
- #else
- 	return libusb_control_transfer(client->handle, bm_request_type, b_request, w_value, w_index, data, w_length, timeout);
-@@ -1886,6 +2079,9 @@
+@@ -1479,9 +1673,17 @@
  
- #ifndef _WIN32
- #ifdef HAVE_IOKIT
+ static int check_context(irecv_client_t client)
+ {
+-	if (client == NULL || client->handle == NULL) {
++	if (client == NULL) {
+ 		return IRECV_E_NO_DEVICE;
+ 	}
++#ifdef HAVE_IOKIT
 +	if (client->kis_dic) {
++		return IRECV_E_SUCCESS;
++	}
++#endif
++	if (client->handle == NULL) {
++		return IRECV_E_NO_DEVICE;
++	}
+ 
+ 	return IRECV_E_SUCCESS;
+ }
+@@ -1491,6 +1693,10 @@
+ #ifdef HAVE_IOKIT
+ static int iokit_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index, unsigned char *data, uint16_t w_length, unsigned int timeout)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
 +		return IRECV_E_UNSUPPORTED;
 +	}
- 	return iokit_usb_bulk_transfer(client, endpoint, data, length, transferred, timeout);
- #else
- 	ret = libusb_bulk_transfer(client->handle, endpoint, data, length, transferred, timeout);
-@@ -1952,6 +2148,10 @@
+ 	IOReturn result;
+ 	IOUSBDevRequestTO req;
+ 
+@@ -1593,6 +1799,10 @@
+ 
+ static int iokit_async_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index, unsigned char *data, uint16_t w_length, struct irecv_async_transfer* transfer)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
++		return IRECV_E_UNSUPPORTED;
++	}
+ 	IOReturn result;
+ 	IOUSBDevRequest req;
+ 
+@@ -1740,6 +1950,10 @@
+ 						int *transferred,
+ 						unsigned int timeout)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
++		return IRECV_E_UNSUPPORTED;
++	}
+ 	IOReturn result;
+ 	IOUSBInterfaceInterface300 **intf = client->usbInterface;
+ 	UInt32 size = length;
+@@ -1952,6 +2166,10 @@
  	IOCFPlugInInterface **plug = NULL;
  	CFStringRef serialString;
  
@@ -252,7 +296,7 @@
  	client = (irecv_client_t) calloc( 1, sizeof(struct irecv_client_private));
  
  	// Create the plug-in
-@@ -2245,13 +2445,15 @@
+@@ -2245,13 +2463,15 @@
  	}
  
  #ifdef HAVE_IOKIT
@@ -274,7 +318,7 @@
  #endif
  
  	if (client->mode == IRECV_K_DFU_MODE || client->mode == IRECV_K_PORT_DFU_MODE || client->mode == IRECV_K_WTF_MODE || client->mode == KIS_PRODUCT_ID) {
-@@ -2323,6 +2525,10 @@
+@@ -2323,6 +2543,10 @@
  	debug("Setting to configuration %d\n", configuration);
  
  #ifdef HAVE_IOKIT
@@ -285,7 +329,7 @@
  	IOReturn result;
  
  	result = (*client->handle)->SetConfiguration(client->handle, configuration);
-@@ -2440,6 +2646,11 @@
+@@ -2440,6 +2664,11 @@
  	debug("Setting to interface %d:%d\n", usb_interface, usb_alt_interface);
  #ifndef _WIN32
  #ifdef HAVE_IOKIT
@@ -297,7 +341,7 @@
  	if (iokit_usb_set_interface(client, usb_interface, usb_alt_interface) < 0) {
  		return IRECV_E_USB_INTERFACE;
  	}
-@@ -2478,6 +2689,9 @@
+@@ -2478,6 +2707,9 @@
  
  #ifndef _WIN32
  #ifdef HAVE_IOKIT
@@ -307,7 +351,7 @@
  	IOReturn result;
  
  	result = (*client->handle)->ResetDevice(client->handle);
-@@ -2770,12 +2984,12 @@
+@@ -2770,12 +3002,12 @@
  		debug("%s: ERROR: no device?!\n", __func__);
  		return NULL;
  	}
@@ -325,7 +369,7 @@
  	if (!product_id) {
  		debug("%s: ERROR: could not get product id?!\n", __func__);
  		return NULL;
-@@ -3011,6 +3225,17 @@
+@@ -3011,6 +3243,17 @@
  	SInt32 score;
  
  	while ((device = IOIteratorNext(iterator))) {
