@@ -321,6 +321,11 @@ fn restore_attempt(
     // Windows (a CRITICAL_SECTION) if hit before the first `set_progress`.
     sys::init_progress();
 
+    // libtatsu only says why Apple refused a TSS request (status 94: not
+    // signing this build for this device) at debug level 1, straight to stderr.
+    // Without it a refusal reads as a bare "Unable to send TSS request".
+    unsafe { sys::tss_set_debug_level(if verbose { 1 } else { 0 }) };
+
     // idevicerestore's tagged progress bars (the "Uploading [====]" bars from
     // dfu.c/recovery.c) print straight to stdout unless we override their sink.
     // That raw output corrupts --json and interleaves with our progress UI, so

@@ -152,6 +152,9 @@ extern "C" {
         userdata: *mut c_void,
     );
     pub fn idevicerestore_start(client: *mut idevicerestore_client_t) -> c_int;
+    /// libtatsu's TSS logging. At 1 it prints why a TSS request failed (Apple's
+    /// status code and message) to stderr; at 0 (the default) it prints nothing.
+    pub fn tss_set_debug_level(level: c_int);
     /// Register a progress bar (or, with a NULL label, just run the one-time
     /// init of idevicerestore's global progress mutex).
     pub fn register_progress(tag: u32, label: *const c_char);
