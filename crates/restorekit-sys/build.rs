@@ -431,7 +431,12 @@ fn patch_idevicerestore_sources(manifest: &Path, vendor_src: &Path, out: &Path) 
 /// with autotools, so it's only re-copied and rebuilt when the patches change.
 /// The stamp lives in the staging prefix next to build_autotools' marker, so a
 /// CI cache that restores only the prefix still skips the rebuild.
-fn patch_libirecovery_sources(manifest: &Path, vendor_src: &Path, out: &Path, deps: &Deps) -> PathBuf {
+fn patch_libirecovery_sources(
+    manifest: &Path,
+    vendor_src: &Path,
+    out: &Path,
+    deps: &Deps,
+) -> PathBuf {
     use std::hash::{Hash, Hasher};
 
     let patch_dir = manifest.join("patches/libirecovery");
@@ -492,7 +497,14 @@ fn copy_tree(src: &Path, dst: &Path) {
         let name = entry.file_name();
         if matches!(
             name.to_str(),
-            Some(".git" | "autom4te.cache" | "configure" | "aclocal.m4" | "Makefile.in" | "config.h.in")
+            Some(
+                ".git"
+                    | "autom4te.cache"
+                    | "configure"
+                    | "aclocal.m4"
+                    | "Makefile.in"
+                    | "config.h.in"
+            )
         ) {
             continue;
         }
