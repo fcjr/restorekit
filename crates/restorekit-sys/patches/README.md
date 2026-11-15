@@ -46,7 +46,10 @@ compiles the patched copy.
   its own ioctls. restorekit binds plain WinUSB to `05ac:1881` instead, so a
   KIS device was never found. When the KIS interface turns out to be a WinUSB
   device, speak raw KIS on its bulk pipes through `WinUsb_*` (the same requests
-  the libusb and IOKit backends send). The AppleKIS path is untouched.
+  the libusb and IOKit backends send). The SetupAPI device checks (open, add
+  and the hotplug poller) accept pid `1881` next to AppleKIS's pid 1, so
+  idevicerestore gets the device-add event it reads the mode from. The AppleKIS
+  path is untouched.
 
 ## Updating a patch
 

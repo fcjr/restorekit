@@ -294,6 +294,15 @@
  		client->mode = pid;
  	} else {
  		char* p = strchr(serial_str, '#');
+@@ -3455,7 +3689,7 @@
+ 				if ((guids[k] == &GUID_DEVINTERFACE_DFU && pid != IRECV_K_DFU_MODE && pid != IRECV_K_WTF_MODE)
+ 				    || (guids[k] == &GUID_DEVINTERFACE_PORTDFU && pid != IRECV_K_PORT_DFU_MODE)
+ 				    || (guids[k] == &GUID_DEVINTERFACE_IBOOT && (pid < IRECV_K_RECOVERY_MODE_1 || pid > IRECV_K_RECOVERY_MODE_4))
+-				    || (guids[k] == &GUID_DEVINTERFACE_KIS && pid != 1)
++				    || (guids[k] == &GUID_DEVINTERFACE_KIS && pid != 1 && pid != KIS_PRODUCT_ID)
+ 				) {
+ 					skip = 1;
+ 				}
 @@ -3776,6 +4010,10 @@
  		}
  #endif
