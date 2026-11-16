@@ -29,6 +29,13 @@ compiles the patched copy.
   off USB as it reboots or re-enumerating once it's back. It then bailed with
   "Unable to discover device mode" while the Mac was still on its way back.
   Loop until the mode is known or the minute is up.
+- `0008-send-appletcon-firmware-without-response-tags.patch` — since upstream
+  started honoring `ResponseTags`, the AppleTCON updater only gets
+  `FirmwareData` when the request lists it. A Mac16,5 sends its request with
+  no `ResponseTags` at all, gets just the Baobab ticket, and fails checkpoint
+  0x1332 ("failed to copy response for AppleTCON") while the restore carries
+  on. When `ResponseTags` is missing, send the firmware like before, falling
+  back to the ticket-only reply if it can't be extracted.
 
 ## Updating a patch
 
