@@ -1292,6 +1292,17 @@
                 <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
               </div>
             </div>
+          {:else if selected.mode === "kis"}
+            <div class="block">
+              {#if isMac}
+                <p class="lede">This Mac is in DFU over Debug USB, but restorekit couldn't read its identity. Usually another app has the device open (Chrome, Apple Configurator). Quit it, then reboot the Mac and put it back into DFU.</p>
+              {:else}
+                <p class="lede">This Mac is in DFU over Debug USB, but restorekit couldn't read its identity. Check USB access, then reboot the Mac and put it back into DFU.</p>
+              {/if}
+              <div class="actions">
+                <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
+              </div>
+            </div>
           {:else}
             <div class="block">
               <p class="lede">This host can't trigger DFU. Put the target into DFU by hand:</p>
