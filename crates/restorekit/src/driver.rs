@@ -770,8 +770,12 @@ mod tests {
 
     #[test]
     fn dongle_interface_is_recognized() {
-        assert!(is_dongle_interface("USB\\VID_16D0&PID_14F0&MI_04\\6&2E2718E1&0&0004"));
-        assert!(!is_dongle_interface("USB\\VID_16D0&PID_14F0&MI_00\\6&2E2718E1&0&0000"));
+        assert!(is_dongle_interface(
+            "USB\\VID_16D0&PID_14F0&MI_04\\6&2E2718E1&0&0004"
+        ));
+        assert!(!is_dongle_interface(
+            "USB\\VID_16D0&PID_14F0&MI_00\\6&2E2718E1&0&0000"
+        ));
         assert!(!is_dongle_interface("USB\\VID_16D0&PID_14F0\\DL-6BAF14C4"));
     }
 
