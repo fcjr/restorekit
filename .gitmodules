@@ -33,3 +33,7 @@
 [submodule "crates/restorekit-sys/vendor/usbmuxd"]
 	path = crates/restorekit-sys/vendor/usbmuxd
 	url = https://github.com/libimobiledevice/usbmuxd.git
+[submodule "crates/restorekit-sys/vendor/libusb"]
+	path = crates/restorekit-sys/vendor/libusb
+	url = https://github.com/libusb/libusb.git
+	ignore = dirty

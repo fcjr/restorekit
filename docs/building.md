@@ -15,7 +15,8 @@ idevicerestore via autotools, libzip via CMake, plus OpenSSL/curl/zlib through
 vendored `-sys` crates. So `cargo install` / `cargo build` need **autotools, CMake,
 pkg-config, a C compiler, and libusb** present first. On Windows this specifically
 means an MSYS2 + GNU-toolchain environment — the default MSVC toolchain can't build
-an autotools stack.
+an autotools stack — and libusb comes from vendored source too, since MSYS2 no
+longer packages it for MINGW64.
 
 Everywhere you also need a [Rust toolchain](https://rustup.rs) (stable).
 
@@ -82,7 +83,7 @@ The vendored C stack is autotools-based, so it builds under **MSYS2** with the
    pacman -S --needed base-devel git make autoconf automake libtool \
      autoconf-archive gettext-devel pkgconf perl \
      mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-cmake \
-     mingw-w64-x86_64-libusb mingw-w64-x86_64-nasm
+     mingw-w64-x86_64-nasm
    ```
 
 3. **Add the GNU Rust toolchain** (from PowerShell, or in the MINGW64 shell if

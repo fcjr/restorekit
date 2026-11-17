@@ -75,6 +75,13 @@ fn main() {
     // idevicerestore talks to for the restore-mode phase.
     let target_os = env::var("CARGO_CFG_TARGET_OS");
     if matches!(target_os.as_deref(), Ok("linux") | Ok("windows")) {
+        // Linux links the system libusb. MSYS2 no longer packages libusb for
+        // MINGW64, so on Windows build it from the vendored source; only the
+        // embedded usbmuxd uses it there (libirecovery talks to Windows
+        // directly), so it goes after the libimobiledevice family.
+        if deps.windows {
+            build_autotools(&vendor.join("libusb"), "libusb", "1.0.30", &deps);
+        }
         compile_usbmuxd(&vendor.join("usbmuxd"), &deps);
     }
 
@@ -661,8 +668,11 @@ fn compile_usbmuxd(src: &Path, deps: &Deps) {
             .define("HAVE_LOCALTIME_R", None);
     }
 
-    // libusb-1.0 headers (usbmuxd includes <libusb.h> directly).
-    if let Ok(output) = std::process::Command::new("pkg-config")
+    // libusb-1.0 headers (usbmuxd includes <libusb.h> directly): our own build
+    // on Windows, the system's elsewhere.
+    if deps.windows {
+        build.include(deps.prefix.join("include/libusb-1.0"));
+    } else if let Ok(output) = std::process::Command::new("pkg-config")
         .args(["--cflags-only-I", "libusb-1.0"])
         .output()
     {
@@ -725,12 +735,8 @@ fn emit_link_directives(prefix: &Path) {
             println!("cargo:rustc-link-lib=framework={fw}");
         }
     } else if target_os.as_deref() == Ok("windows") {
-        // libusb (static, from MSYS2) plus the Win32 libraries it, libcurl, and
-        // OpenSSL pull in. libusb-1.0.a lives in the MinGW prefix, not our
-        // staging dir, so point rustc's linker at that libdir (via pkg-config).
-        if let Some(libdir) = mingw_libusb_libdir() {
-            println!("cargo:rustc-link-search=native={libdir}");
-        }
+        // libusb (static, built into our staging prefix) plus the Win32
+        // libraries it, libcurl, and OpenSSL pull in.
         println!("cargo:rustc-link-lib=static=usb-1.0");
         for lib in [
             "setupapi", "ole32", "ws2_32", "crypt32", "secur32", "bcrypt", "iphlpapi", "userenv",
@@ -742,20 +748,6 @@ fn emit_link_directives(prefix: &Path) {
         println!("cargo:rustc-link-lib=dylib=usb-1.0");
         println!("cargo:rustc-link-lib=dylib=pthread");
     }
-}
-
-/// Ask pkg-config where MSYS2's static libusb (`libusb-1.0.a`) lives, so the
-/// final rustc link can find it. Returns a native path rustc's linker accepts.
-fn mingw_libusb_libdir() -> Option<String> {
-    let out = Command::new("pkg-config")
-        .args(["--variable=libdir", "libusb-1.0"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!dir.is_empty()).then_some(dir)
 }
 
 /// A Command that runs `script` — directly on Unix, or via MSYS2's `sh` on
