@@ -100,6 +100,13 @@ pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
 }
 
 fn read(info: &nusb::DeviceInfo) -> Read {
+    #[cfg(target_os = "windows")]
+    if info
+        .driver()
+        .is_some_and(|d| d.eq_ignore_ascii_case("AppleKIS"))
+    {
+        return apple_kis::read(info);
+    }
     match get_info(info) {
         Ok(reply) => classify(&reply),
         Err(_) => Read::Failed,
@@ -206,6 +213,155 @@ fn hexdump(out: &mut String, bytes: &[u8]) {
             })
             .collect();
         let _ = writeln!(out, "    {:04x}: {:<47}  {text}", i * 16, hex.join(" "));
+    }
+}
+
+/// Windows with Apple's own AppleKIS driver bound (Windows Update installs it
+/// with the first Apple device). AppleKIS enables the device itself and exposes
+/// it as a `KIS\VID_05AC&PID_0001` child that answers a GET_INFO ioctl with the
+/// identity string, the way libirecovery's Windows backend reads it. A device
+/// that AppleKIS failed to enable has no such child until it re-enters DFU.
+#[cfg(target_os = "windows")]
+mod apple_kis {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::{null, null_mut};
+
+    use windows_sys::core::GUID;
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        CM_Get_Child, CM_Get_Device_IDW, CM_Get_Device_Interface_ListW,
+        CM_Get_Device_Interface_List_SizeW, CM_Locate_DevNodeW,
+        CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_LOCATE_DEVNODE_NORMAL, CR_SUCCESS,
+    };
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_IO_PENDING, GENERIC_READ, GENERIC_WRITE,
+        INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+    use windows_sys::Win32::System::IO::{
+        CancelIo, DeviceIoControl, GetOverlappedResult, OVERLAPPED,
+    };
+
+    use super::Read;
+
+    const GUID_DEVINTERFACE_KIS: GUID = GUID::from_u128(0xb36f4137_f4ef_4bfc_a25a_c2410768ee37);
+    const IOCTL_GET_INFO: u32 = 0x220004;
+    /// The reply: vid, pid, a word, then four 255-byte strings (nonces, serial,
+    /// manufacturer, product).
+    const FIELD: usize = 255;
+    const SERIAL_OFFSET: usize = 8 + FIELD;
+    const INFO_SIZE: usize = 8 + 4 * FIELD;
+
+    pub(super) fn read(info: &nusb::DeviceInfo) -> Read {
+        match get_info(info) {
+            Some(reply) => classify(&reply),
+            None => Read::Failed,
+        }
+    }
+
+    fn classify(reply: &[u8]) -> Read {
+        let field = &reply[SERIAL_OFFSET..SERIAL_OFFSET + FIELD];
+        let end = field.iter().position(|&b| b == 0).unwrap_or(FIELD);
+        let serial = String::from_utf8_lossy(&field[..end]).trim().to_string();
+        if serial.is_empty() {
+            Read::NotInDfu
+        } else {
+            Read::Serial(serial)
+        }
+    }
+
+    /// The KIS interface path of the AppleKIS child under `info`.
+    fn interface_path(info: &nusb::DeviceInfo) -> Option<Vec<u16>> {
+        let id: Vec<u16> = info.instance_id().encode_wide().chain([0]).collect();
+        unsafe {
+            let mut dev = 0;
+            if CM_Locate_DevNodeW(&mut dev, id.as_ptr(), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS {
+                return None;
+            }
+            let mut child = 0;
+            if CM_Get_Child(&mut child, dev, 0) != CR_SUCCESS {
+                return None;
+            }
+            let mut child_id = [0u16; 512];
+            if CM_Get_Device_IDW(child, child_id.as_mut_ptr(), child_id.len() as u32, 0)
+                != CR_SUCCESS
+            {
+                return None;
+            }
+            let mut len = 0;
+            if CM_Get_Device_Interface_List_SizeW(
+                &mut len,
+                &GUID_DEVINTERFACE_KIS,
+                child_id.as_ptr(),
+                CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+            ) != CR_SUCCESS
+            {
+                return None;
+            }
+            let mut list = vec![0u16; len as usize];
+            if CM_Get_Device_Interface_ListW(
+                &GUID_DEVINTERFACE_KIS,
+                child_id.as_ptr(),
+                list.as_mut_ptr(),
+                len,
+                CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+            ) != CR_SUCCESS
+            {
+                return None;
+            }
+            let end = list.iter().position(|&c| c == 0).filter(|&e| e > 0)?;
+            list.truncate(end + 1);
+            Some(list)
+        }
+    }
+
+    fn get_info(info: &nusb::DeviceInfo) -> Option<Vec<u8>> {
+        let path = interface_path(info)?;
+        let timeout_ms = super::TIMEOUT.as_millis() as u32;
+        unsafe {
+            let handle = CreateFileW(
+                path.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                null(),
+                OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED,
+                null_mut(),
+            );
+            if handle == INVALID_HANDLE_VALUE {
+                return None;
+            }
+            let mut reply = vec![0u8; INFO_SIZE];
+            let mut ov: OVERLAPPED = std::mem::zeroed();
+            ov.hEvent = CreateEventW(null(), 1, 0, null());
+            let mut got = 0u32;
+            let mut ok = !ov.hEvent.is_null()
+                && DeviceIoControl(
+                    handle,
+                    IOCTL_GET_INFO,
+                    null(),
+                    0,
+                    reply.as_mut_ptr().cast(),
+                    INFO_SIZE as u32,
+                    null_mut(),
+                    &mut ov,
+                ) != 0;
+            if !ok && !ov.hEvent.is_null() && GetLastError() == ERROR_IO_PENDING {
+                if WaitForSingleObject(ov.hEvent, timeout_ms) != WAIT_OBJECT_0 {
+                    CancelIo(handle);
+                }
+                ok = GetOverlappedResult(handle, &ov, &mut got, 1) != 0;
+            } else if ok {
+                GetOverlappedResult(handle, &ov, &mut got, 0);
+            }
+            if !ov.hEvent.is_null() {
+                CloseHandle(ov.hEvent);
+            }
+            CloseHandle(handle);
+            (ok && got as usize >= SERIAL_OFFSET + FIELD).then_some(reply)
+        }
     }
 }
 

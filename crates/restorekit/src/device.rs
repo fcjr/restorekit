@@ -1003,13 +1003,17 @@ pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
     }
 }
 
-/// Whether the OS driver lets restorekit open this device. Only the
-/// restore-family modes need WinUSB on Windows; never poke a normal device.
+/// Whether the OS driver lets restorekit reach this device: WinUSB, or Apple's
+/// own DFU (`WUDFRd`) and KIS drivers, which libirecovery's Windows backend
+/// talks to directly. Never poke a normal device.
 #[cfg(target_os = "windows")]
 fn driver_ready(info: &nusb::DeviceInfo, mode: UsbMode) -> bool {
+    let apple = info
+        .driver()
+        .is_some_and(|d| d.eq_ignore_ascii_case("WUDFRd") || d.eq_ignore_ascii_case("AppleKIS"));
     match mode {
         UsbMode::Other => true,
-        _ => info.open().wait().is_ok(),
+        _ => apple || info.open().wait().is_ok(),
     }
 }
 #[cfg(not(target_os = "windows"))]

@@ -190,11 +190,14 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
     say(json, "Starting restore. Do not disconnect the target.");
     // The restore-mode USB interface needs our WinUSB forced onto it, which is
     // done by an elevated watcher the restore spawns — warn about the UAC prompt.
+    // Apple's usbmuxd, when running, handles restore mode itself.
     #[cfg(target_os = "windows")]
-    say(
-        json,
-        "  A Windows (UAC) prompt will appear to set up restore-mode USB access — approve it.",
-    );
+    if !restorekit::usbmuxd::apple_usbmuxd_running() {
+        say(
+            json,
+            "  A Windows (UAC) prompt will appear to set up restore-mode USB access — approve it.",
+        );
+    }
     // In verbose mode idevicerestore's log streams to the terminal, so hide the
     // progress bar to avoid interleaving with it.
     let bar = if json || opts.verbose {

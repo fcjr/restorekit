@@ -254,8 +254,18 @@ pub fn restore(
     // can reach USB devices (restore mode) without an external daemon — unless a
     // parent process already started a shared one (parallel restores), which we
     // then reuse via the inherited USBMUXD_SOCKET_ADDRESS.
+    //
+    // On Windows, Apple's own usbmuxd (Apple Mobile Device Service, installed
+    // with iTunes or Apple Devices) may already hold that port. It drives the
+    // restore-mode interface through Apple's driver, so use it as-is: no
+    // embedded server and no WinUSB watcher.
+    #[cfg(target_os = "windows")]
+    let apple_usbmuxd = std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_none()
+        && crate::usbmuxd::apple_usbmuxd_running();
+    #[cfg(target_os = "linux")]
+    let apple_usbmuxd = false;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    let _usbmuxd = if std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
+    let _usbmuxd = if apple_usbmuxd || std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
         None
     } else {
         Some(crate::usbmuxd::UsbmuxdGuard::start(progress)?)
@@ -267,14 +277,18 @@ pub fn restore(
     // Without it the restore would run for minutes and then stall waiting for
     // restore mode, so stop now instead.
     #[cfg(target_os = "windows")]
-    let _restore_watcher = crate::driver::spawn_restore_mode_watcher().ok_or_else(|| {
-        Error::DriverInstall(
-            "couldn't start the restore-mode USB helper (was the Windows UAC prompt \
-             declined?). Without it the restore stalls once the Mac enters restore mode; \
-             retry and approve the prompt"
-                .into(),
-        )
-    })?;
+    let _restore_watcher = if apple_usbmuxd {
+        None
+    } else {
+        Some(crate::driver::spawn_restore_mode_watcher().ok_or_else(|| {
+            Error::DriverInstall(
+                "couldn't start the restore-mode USB helper (was the Windows UAC prompt \
+                 declined?). Without it the restore stalls once the Mac enters restore mode; \
+                 retry and approve the prompt"
+                    .into(),
+            )
+        })?)
+    };
 
     let mut attempt = 1;
     loop {

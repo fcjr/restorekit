@@ -12,6 +12,14 @@ use std::thread::{self, JoinHandle};
 use crate::error::{Error, Result};
 use crate::progress::{Event, ProgressFn};
 
+/// Whether Apple's usbmuxd (Apple Mobile Device Service) is listening on
+/// `127.0.0.1:27015`, the port the embedded server would take.
+#[cfg(target_os = "windows")]
+pub fn apple_usbmuxd_running() -> bool {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 27015));
+    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok()
+}
+
 /// RAII guard that starts the embedded usbmuxd server and tears it down on drop.
 pub struct UsbmuxdGuard {
     /// The Unix socket file to clean up (Linux only).

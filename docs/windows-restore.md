@@ -80,13 +80,26 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
   streams `Cryptex1,systemOS` at ~35 MB/s (near USB-2.0 line rate) — the embedded
   usbmuxd + WinUSB bulk path is not a bottleneck.
 
+- **Driverless with Apple's stack.** Windows Update installs Apple's drivers
+  for DFU (`WUDFRd`), recovery and KIS (`AppleKIS`) on first plug-in, and
+  libirecovery's native Windows backend talks to them directly. When Apple
+  Mobile Device Service (iTunes or Apple Devices) is also running, it already
+  holds `127.0.0.1:27015` and muxes the restore-mode interface through Apple's
+  driver, so restorekit uses it instead of starting the embedded usbmuxd and the
+  WinUSB watcher. restorekit reads a KIS Mac's identity through AppleKIS's
+  GET_INFO ioctl, and counts Apple's drivers as ready. Hardware-tested: a full
+  revive of an M4 mac mini (KIS DFU via a dongle) on Windows 11 ARM64 with no
+  RestoreKit driver package installed, no UAC prompt, and no test signing.
+  AppleKIS only enables a device it saw arrive fresh in DFU; one that WinUSB or
+  a restart touched first needs to re-enter DFU.
+
 ### Known issues
 
 - **Windows on ARM.** Code Integrity rejects our self-signed catalog there
   ("Driver package signer is not trusted by system, and Code Integrity is
   enforced"), so `setup-driver` can't stage the package unless test signing is
-  on (`bcdedit /set testsigning on`). Everything else, including the x64 build
-  under emulation, works once it's staged.
+  on (`bcdedit /set testsigning on`). With Apple Mobile Device Service installed
+  no package is needed (see above).
 
 - **Desktop app throughput.** The same restore that runs at ~35 MB/s from the CLI
   is much slower in the desktop app (the muxer gets fed at only tens of
