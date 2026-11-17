@@ -209,7 +209,10 @@ cables are actually USB 2 and won't carry SBU) before moving to M1 schematic.
 Besides the human CDC console, the firmware exposes a **vendor-specific USB
 interface** (`bInterfaceClass = 0xFF`) that the `restorekit` SDK drives over
 `nusb` control transfers — no serial port, no OS driver, works the same on
-macOS/Linux/Windows (Windows needs the interface bound to WinUSB). The device
+macOS/Linux/Windows. On Windows the MS OS 2.0 descriptors bind WinUSB and give
+the interface its device interface GUID (`WINUSB_INTERFACE_GUID` in
+`restorekit-dongle-proto`); firmware through 0.1.3 left the GUID out, so Windows
+never exposed the interface, and `restorekit setup-driver` adds it for those. The device
 also enumerates with a **unique USB serial** derived from the RP2350 chip ID
 (e.g. `DL-1A2B3C4D`), so multiple dongles are individually addressable.
 
