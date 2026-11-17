@@ -53,6 +53,43 @@ pub fn is_target_pid(pid: u16) -> bool {
     DRIVER_PIDS.contains(&pid)
 }
 
+/// What to tell Windows on ARM users, where restorekit's own driver package
+/// can't be installed.
+pub const ARM64_HINT: &str = "Windows on ARM only loads Microsoft-signed driver packages, so \
+     restorekit can't install its own USB driver here. Install Apple Devices from the Microsoft \
+     Store (or iTunes) instead and retry: restorekit then uses Apple's drivers and Apple Mobile \
+     Device Service, and needs no driver of its own";
+
+/// Whether Windows itself runs on ARM64, including when this x64 build runs
+/// under emulation there.
+#[cfg(target_os = "windows")]
+pub fn native_arm64() -> bool {
+    use windows_sys::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_ARM64;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2};
+    let (mut process, mut native) = (0u16, 0u16);
+    let ok = unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, &mut native) != 0 };
+    ok && native == IMAGE_FILE_MACHINE_ARM64
+}
+
+/// Whether our WinUSB package is in the driver store (the restore-mode watcher
+/// binds the newest one).
+#[cfg(target_os = "windows")]
+pub fn winusb_package_staged() -> bool {
+    let Some(windir) = std::env::var_os("windir") else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(std::path::Path::new(&windir).join("INF")) else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+        name.starts_with("oem")
+            && name.ends_with(".inf")
+            && std::fs::read_to_string(e.path())
+                .is_ok_and(|c| c.contains("RestoreKit") && c.contains("RESTORE_MODE"))
+    })
+}
+
 /// A connected Apple device that needs WinUSB bound before restorekit can use it.
 #[derive(Debug, Clone)]
 pub struct Target {
@@ -178,7 +215,12 @@ pub fn install_winusb(progress: ProgressFn) -> Result<usize> {
     }
 
     progress(Event::DriverSetupStarting);
-    run_setup_script(false)?;
+    run_setup_script(false).map_err(|e| match e {
+        Error::DriverInstall(detail) if native_arm64() => {
+            Error::DriverInstall(format!("{ARM64_HINT}\n\n{detail}"))
+        }
+        e => e,
+    })?;
 
     for t in &targets {
         progress(Event::DriverBound {
@@ -474,9 +516,17 @@ public static class RkNewDev {
 $staged = Join-Path $env:windir "INF\$leaf"
 $devices = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
     Where-Object { $_.InstanceId -match $DeviceRegex }
+# Apple's own drivers (Windows Update, iTunes, Apple Devices) already work with
+# restorekit, and moving a KIS Mac off AppleKIS strands it until it re-enters
+# DFU, so only bind devices on no driver or someone else's.
+function Test-AppleDriver($id) {
+    $provider = (Get-PnpDeviceProperty -InstanceId $id -KeyName DEVPKEY_Device_DriverProvider -ErrorAction SilentlyContinue).Data
+    return ($provider -match '^Apple')
+}
 foreach ($dev in $devices) {
     $infNow = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName DEVPKEY_Device_DriverInfPath -ErrorAction SilentlyContinue).Data
     if ($infNow -eq $leaf) { continue }
+    if (Test-AppleDriver $dev.InstanceId) { continue }
     # INSTALLFLAG_FORCE (0x1) | INSTALLFLAG_NONINTERACTIVE (0x4).
     $hwid = $dev.InstanceId -replace '\\[^\\]+$', ''
     $reboot = $false
@@ -485,10 +535,13 @@ foreach ($dev in $devices) {
         Write-Output ("could not bind {0} (was {1}): error 0x{2:X8}" -f $dev.InstanceId, $infNow, $code)
     }
 }
-$svcs = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+$ready = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
     Where-Object { $_.InstanceId -match $DeviceRegex } |
-    ForEach-Object { (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_Service' -ErrorAction SilentlyContinue).Data }
-if ($svcs -contains 'WINUSB' -or $svcs -contains 'winusb') { exit 0 }
+    Where-Object {
+        (Test-AppleDriver $_.InstanceId) -or
+        (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_Service' -ErrorAction SilentlyContinue).Data -eq 'WINUSB'
+    }
+if ($ready) { exit 0 }
 Write-Error 'WinUSB was not bound to any connected device'
 exit 1
 "#;

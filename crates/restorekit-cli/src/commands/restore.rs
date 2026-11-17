@@ -192,7 +192,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
     // done by an elevated watcher the restore spawns — warn about the UAC prompt.
     // Apple's usbmuxd, when running, handles restore mode itself.
     #[cfg(target_os = "windows")]
-    if !restorekit::usbmuxd::apple_usbmuxd_running() {
+    if matches!(restorekit::restore::windows_mux_check(), Ok(false)) {
         say(
             json,
             "  A Windows (UAC) prompt will appear to set up restore-mode USB access — approve it.",

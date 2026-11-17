@@ -67,15 +67,28 @@ pub(crate) enum Read {
 /// arrival, so the first request can land before it's ready.
 const ARRIVAL_GRACE: Duration = Duration::from_secs(3);
 
+/// When each KIS device was first seen, and its identity once read.
+type Seen = HashMap<nusb::DeviceId, (Instant, Option<String>)>;
+
+fn seen() -> &'static Mutex<Seen> {
+    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
+    SEEN.get_or_init(Default::default)
+}
+
+/// Drop what [`identify`] remembers about devices no longer on the bus. Device
+/// ids can come back for the same port (Windows reuses the device instance), and
+/// a Mac re-entering DFU there is a new arrival that needs its own grace period
+/// and its own read.
+pub(crate) fn forget_absent(present: &[nusb::DeviceId]) {
+    seen().lock().unwrap().retain(|id, _| present.contains(id));
+}
+
 /// Read the KIS device behind `info`. A good identity is cached per
 /// enumeration, so polling `list()` asks each device once; anything else is
 /// asked again on the next call, so a device that finishes coming up (or a
 /// daemon that finishes attaching) isn't stuck with its first answer.
 pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
-    // When each device was first seen, and its identity once read.
-    type Seen = HashMap<nusb::DeviceId, (Instant, Option<String>)>;
-    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
-    let seen = SEEN.get_or_init(Default::default);
+    let seen = seen();
     let first_seen = {
         let mut seen = seen.lock().unwrap();
         let entry = seen.entry(info.id()).or_insert((Instant::now(), None));
@@ -216,6 +229,33 @@ fn hexdump(out: &mut String, bytes: &[u8]) {
     }
 }
 
+/// AppleKIS's GET_INFO reply: vid, pid, a word, then four 255-byte strings
+/// (nonces, serial, manufacturer, product), as libirecovery declares it.
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_FIELD: usize = 255;
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_SERIAL_OFFSET: usize = 8 + APPLE_KIS_FIELD;
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_SERIAL_END: usize = APPLE_KIS_SERIAL_OFFSET + APPLE_KIS_FIELD;
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_INFO_SIZE: usize = 8 + 4 * APPLE_KIS_FIELD;
+
+/// The identity string out of an AppleKIS GET_INFO reply. An empty serial
+/// means the chip behind the port isn't in DFU.
+#[cfg(any(target_os = "windows", test))]
+fn classify_apple_kis(reply: &[u8]) -> Read {
+    let Some(field) = reply.get(APPLE_KIS_SERIAL_OFFSET..APPLE_KIS_SERIAL_END) else {
+        return Read::Failed;
+    };
+    let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
+    let serial = String::from_utf8_lossy(&field[..end]).trim().to_string();
+    if serial.is_empty() {
+        Read::NotInDfu
+    } else {
+        Read::Serial(serial)
+    }
+}
+
 /// Windows with Apple's own AppleKIS driver bound (Windows Update installs it
 /// with the first Apple device). AppleKIS enables the device itself and exposes
 /// it as a `KIS\VID_05AC&PID_0001` child that answers a GET_INFO ioctl with the
@@ -246,29 +286,15 @@ mod apple_kis {
 
     use super::Read;
 
+    use super::{classify_apple_kis, APPLE_KIS_INFO_SIZE as INFO_SIZE, APPLE_KIS_SERIAL_END};
+
     const GUID_DEVINTERFACE_KIS: GUID = GUID::from_u128(0xb36f4137_f4ef_4bfc_a25a_c2410768ee37);
     const IOCTL_GET_INFO: u32 = 0x220004;
-    /// The reply: vid, pid, a word, then four 255-byte strings (nonces, serial,
-    /// manufacturer, product).
-    const FIELD: usize = 255;
-    const SERIAL_OFFSET: usize = 8 + FIELD;
-    const INFO_SIZE: usize = 8 + 4 * FIELD;
 
     pub(super) fn read(info: &nusb::DeviceInfo) -> Read {
         match get_info(info) {
-            Some(reply) => classify(&reply),
+            Some(reply) => classify_apple_kis(&reply),
             None => Read::Failed,
-        }
-    }
-
-    fn classify(reply: &[u8]) -> Read {
-        let field = &reply[SERIAL_OFFSET..SERIAL_OFFSET + FIELD];
-        let end = field.iter().position(|&b| b == 0).unwrap_or(FIELD);
-        let serial = String::from_utf8_lossy(&field[..end]).trim().to_string();
-        if serial.is_empty() {
-            Read::NotInDfu
-        } else {
-            Read::Serial(serial)
         }
     }
 
@@ -360,7 +386,7 @@ mod apple_kis {
                 CloseHandle(ov.hEvent);
             }
             CloseHandle(handle);
-            (ok && got as usize >= SERIAL_OFFSET + FIELD).then_some(reply)
+            (ok && got as usize >= APPLE_KIS_SERIAL_END).then_some(reply)
         }
     }
 }
@@ -698,6 +724,30 @@ mod dic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn apple_kis_reply(serial: &str) -> Vec<u8> {
+        let mut reply = vec![0u8; APPLE_KIS_INFO_SIZE];
+        reply[..4].copy_from_slice(&[0xac, 0x05, 0x27, 0x12]);
+        reply[8..8 + 5].copy_from_slice(b"NONC:");
+        reply[APPLE_KIS_SERIAL_OFFSET..APPLE_KIS_SERIAL_OFFSET + serial.len()]
+            .copy_from_slice(serial.as_bytes());
+        reply
+    }
+
+    #[test]
+    fn reads_serial_from_apple_kis_reply() {
+        let serial = "SDOM:01 CPID:8132 BDID:2A ECID:000A78D20A06401C SRTG:[iBoot-9082.0.0.300.1]";
+        assert_eq!(
+            classify_apple_kis(&apple_kis_reply(serial)),
+            Read::Serial(serial.to_string())
+        );
+    }
+
+    #[test]
+    fn empty_apple_kis_serial_means_not_in_dfu() {
+        assert_eq!(classify_apple_kis(&apple_kis_reply("")), Read::NotInDfu);
+        assert_eq!(classify_apple_kis(&[0u8; 16]), Read::Failed);
+    }
 
     #[test]
     fn header_matches_libirecovery() {
