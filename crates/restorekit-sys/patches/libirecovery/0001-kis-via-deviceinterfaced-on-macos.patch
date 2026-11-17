@@ -1,0 +1,389 @@
+--- a/src/libirecovery.c
++++ b/src/libirecovery.c
+@@ -46,6 +46,10 @@
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <IOKit/usb/IOUSBLib.h>
+ #include <IOKit/IOCFPlugIn.h>
++#include <dlfcn.h>
++#include <pthread.h>
++#include <stdbool.h>
++#include <dispatch/dispatch.h>
+ #endif
+ #else
+ #define WIN32_LEAN_AND_MEAN
+@@ -128,6 +132,8 @@
+ 	IOUSBDeviceInterface320 **handle;
+ 	IOUSBInterfaceInterface300 **usbInterface;
+ 	CFRunLoopSourceRef async_event_source;
++	int kis_dic;
++	uint64_t kis_dic_id;
+ #endif
+ #else
+ 	HANDLE handle;
+@@ -762,6 +768,10 @@
+ #ifdef HAVE_IOKIT
+ static int iokit_get_string_descriptor_ascii(irecv_client_t client, uint8_t desc_index, unsigned char * buffer, int size)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
++		return IRECV_E_UNSUPPORTED;
++	}
+ 	IOReturn result;
+ 	IOUSBDevRequest request;
+ 	unsigned char descriptor[256];
+@@ -1063,10 +1073,187 @@
+ 	hdr->reqSize          = (uint32_t) reqSize;
+ 
+ 	return IRECV_E_SUCCESS;
++}
++
++#ifdef HAVE_IOKIT
++/*
++ * macOS only lets processes holding com.apple.private.debug-usb.access open a
++ * Debug USB (KIS) device, and only Apple's deviceinterfaced has it. The daemon
++ * does expose a generic KIS transport to any client through
++ * DeviceInterfaceClient.framework, so route KIS requests through that instead
++ * of opening the device ourselves. The framework is private, so it's loaded at
++ * runtime and every failure falls back to the plain IOKit path.
++ */
++#define DIC_FRAMEWORK "/Library/Apple/System/Library/PrivateFrameworks/DeviceInterfaceClient.framework/DeviceInterfaceClient"
++#define DIC_MAX_SCALARS 16
++
++static struct {
++	void *client;
++	bool (*list_devices)(void *client, uint64_t *ids, size_t *count);
++	bool (*transfer_data)(void *client, uint64_t id, const uint64_t *scalars, uint32_t scalar_count, const void *in, size_t in_size, void *out, size_t *out_size);
++} dic;
++static pthread_once_t dic_once = PTHREAD_ONCE_INIT;
++static uint32_t dic_sequence;
++
++static void dic_load_once(void)
++{
++	if (getenv("IRECV_KIS_NO_DIC")) {
++		return;
++	}
++	void *h = dlopen(DIC_FRAMEWORK, RTLD_NOW | RTLD_LOCAL);
++	if (!h) {
++		debug("%s: DeviceInterfaceClient unavailable: %s\n", __func__, dlerror());
++		return;
++	}
++	void *(*create)(dispatch_queue_t) = dlsym(h, "device_interface_client_server_xpc_client_create");
++	dic.list_devices = dlsym(h, "device_interface_client_server_xpc_client_list_devices");
++	dic.transfer_data = dlsym(h, "device_interface_client_server_xpc_client_transfer_data");
++	if (!create || !dic.list_devices || !dic.transfer_data) {
++		debug("%s: DeviceInterfaceClient is missing expected symbols\n", __func__);
++		return;
++	}
++	dic.client = create(dispatch_queue_create("libirecovery.kis", DISPATCH_QUEUE_SERIAL));
++	if (!dic.client) {
++		debug("%s: could not connect to deviceinterfaced\n", __func__);
++	}
+ }
+ 
++static int dic_available(void)
++{
++	pthread_once(&dic_once, dic_load_once);
++	return dic.client != NULL;
++}
++
++static uint16_t iokit_registry_pid(io_service_t service)
++{
++	uint16_t pid = 0;
++	CFNumberRef num = (CFNumberRef)IORegistryEntryCreateCFProperty(service, CFSTR(kUSBProductID), kCFAllocatorDefault, 0);
++	if (num) {
++		CFNumberGetValue(num, kCFNumberSInt16Type, &pid);
++		CFRelease(num);
++	}
++	return pid;
++}
++
++/* deviceinterfaced names interfaces by an opaque 64-bit id. Match it against
++ * the registry entry ids of the device and its interfaces; failing that, a lone
++ * interface can only be this device. */
++static uint64_t dic_find_interface(io_service_t service)
++{
++	uint64_t ids[16];
++	size_t count = sizeof(ids) / sizeof(ids[0]);
++	if (!dic.list_devices(dic.client, ids, &count) || count == 0) {
++		debug("%s: deviceinterfaced lists no KIS interfaces\n", __func__);
++		return 0;
++	}
++	if (count > sizeof(ids) / sizeof(ids[0])) {
++		count = sizeof(ids) / sizeof(ids[0]);
++	}
++
++	uint64_t entry = 0;
++	if (IORegistryEntryGetRegistryEntryID(service, &entry) == KERN_SUCCESS) {
++		for (size_t i = 0; i < count; i++) {
++			if (ids[i] == entry) {
++				return ids[i];
++			}
++		}
++	}
++	io_iterator_t children = IO_OBJECT_NULL;
++	if (IORegistryEntryGetChildIterator(service, kIOServicePlane, &children) == KERN_SUCCESS) {
++		io_registry_entry_t child;
++		uint64_t found = 0;
++		while (!found && (child = IOIteratorNext(children))) {
++			if (IORegistryEntryGetRegistryEntryID(child, &entry) == KERN_SUCCESS) {
++				for (size_t i = 0; i < count; i++) {
++					if (ids[i] == entry) {
++						found = ids[i];
++						break;
++					}
++				}
++			}
++			IOObjectRelease(child);
++		}
++		IOObjectRelease(children);
++		if (found) {
++			return found;
++		}
++	}
++	if (count == 1) {
++		return ids[0];
++	}
++	debug("%s: %zu KIS interfaces and none match this device\n", __func__, count);
++	return 0;
++}
++
++/* Takes ownership of `service`, like iokit_usb_open_service. */
++static irecv_error_t dic_open_service(irecv_client_t *pclient, io_service_t service)
++{
++	uint64_t id = dic_find_interface(service);
++	IOObjectRelease(service);
++	if (!id) {
++		return IRECV_E_UNABLE_TO_CONNECT;
++	}
++	irecv_client_t client = (irecv_client_t)calloc(1, sizeof(struct irecv_client_private));
++	if (!client) {
++		return IRECV_E_OUT_OF_MEMORY;
++	}
++	client->mode = KIS_PRODUCT_ID;
++	client->kis_dic = 1;
++	client->kis_dic_id = id;
++	debug("opening KIS device via deviceinterfaced (interface %#" PRIx64 ")...\n", id);
++	*pclient = client;
++	return IRECV_E_SUCCESS;
++}
++
++static irecv_error_t dic_kis_request(irecv_client_t client, KIS_req_header *req, size_t reqSize, KIS_req_header *rpl, size_t *rplSize)
++{
++	if (reqSize < sizeof(KIS_req_header)) {
++		return IRECV_E_INVALID_INPUT;
++	}
++
++	/* The daemon matches replies to requests by their first header word and
++	 * uses 0xFFxx sequence numbers for its own requests. Stay in 1..0x7FFF;
++	 * restorekit's own identity reads use 0x8000 and up. */
++	req->sequence = (uint16_t)(__atomic_add_fetch(&dic_sequence, 1, __ATOMIC_RELAXED) % 0x7FFF + 1);
++
++	/* The daemon writes scalars[1..] out as little-endian 32-bit words followed
++	 * by the input bytes, so the header and arguments go in as scalars and any
++	 * payload as input. scalars[0] is the timeout in milliseconds. */
++	const uint8_t *bytes = (const uint8_t *)req;
++	size_t words = 3 + req->argCount;
++	if (words > DIC_MAX_SCALARS - 1) {
++		words = DIC_MAX_SCALARS - 1;
++	}
++	if (words * 4 > reqSize) {
++		words = reqSize / 4;
++	}
++	uint64_t scalars[DIC_MAX_SCALARS];
++	scalars[0] = USB_TIMEOUT;
++	for (size_t i = 0; i < words; i++) {
++		uint32_t w;
++		memcpy(&w, bytes + i * 4, 4);
++		scalars[1 + i] = w;
++	}
++	const void *in = (reqSize > words * 4) ? bytes + words * 4 : NULL;
++	size_t in_size = reqSize - words * 4;
++
++	size_t out_size = *rplSize;
++	if (!dic.transfer_data(dic.client, client->kis_dic_id, scalars, (uint32_t)(1 + words), in, in_size, rpl, &out_size)) {
++		debug("%s: deviceinterfaced transfer failed (portal %#x)\n", __func__, req->portal);
++		return IRECV_E_USB_UPLOAD;
++	}
++	*rplSize = out_size;
++	return IRECV_E_SUCCESS;
++}
++#endif
++
+ static irecv_error_t irecv_kis_request(irecv_client_t client, KIS_req_header *req, size_t reqSize, KIS_req_header *rpl, size_t *rplSize)
+ {
++#ifdef HAVE_IOKIT
++	if (client->kis_dic) {
++		return dic_kis_request(client, req, reqSize, rpl, rplSize);
++	}
++#endif
+ 	int endpoint = 0;
+ 	switch (req->portal) {
+ 		case KIS_PORTAL_CONFIG:
+@@ -1203,6 +1390,13 @@
+ 
+ static irecv_error_t irecv_kis_init(irecv_client_t client)
+ {
++#ifdef HAVE_IOKIT
++	/* deviceinterfaced enables the device itself when it attaches. */
++	if (client->kis_dic) {
++		client->isKIS = 1;
++		return IRECV_E_SUCCESS;
++	}
++#endif
+ #ifndef _WIN32
+ 	irecv_error_t err = irecv_kis_config_write32(client, KIS_PORTAL_CONFIG, KIS_INDEX_ENABLE_A, KIS_ENABLE_A_VAL);
+ 	if (err != IRECV_E_SUCCESS) {
+@@ -1479,9 +1673,17 @@
+ 
+ static int check_context(irecv_client_t client)
+ {
+-	if (client == NULL || client->handle == NULL) {
++	if (client == NULL) {
+ 		return IRECV_E_NO_DEVICE;
+ 	}
++#ifdef HAVE_IOKIT
++	if (client->kis_dic) {
++		return IRECV_E_SUCCESS;
++	}
++#endif
++	if (client->handle == NULL) {
++		return IRECV_E_NO_DEVICE;
++	}
+ 
+ 	return IRECV_E_SUCCESS;
+ }
+@@ -1491,6 +1693,10 @@
+ #ifdef HAVE_IOKIT
+ static int iokit_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index, unsigned char *data, uint16_t w_length, unsigned int timeout)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
++		return IRECV_E_UNSUPPORTED;
++	}
+ 	IOReturn result;
+ 	IOUSBDevRequestTO req;
+ 
+@@ -1593,6 +1799,10 @@
+ 
+ static int iokit_async_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index, unsigned char *data, uint16_t w_length, struct irecv_async_transfer* transfer)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
++		return IRECV_E_UNSUPPORTED;
++	}
+ 	IOReturn result;
+ 	IOUSBDevRequest req;
+ 
+@@ -1740,6 +1950,10 @@
+ 						int *transferred,
+ 						unsigned int timeout)
+ {
++	if (client->kis_dic) {
++		/* No USB handle: deviceinterfaced owns the device. */
++		return IRECV_E_UNSUPPORTED;
++	}
+ 	IOReturn result;
+ 	IOUSBInterfaceInterface300 **intf = client->usbInterface;
+ 	UInt32 size = length;
+@@ -1952,6 +2166,10 @@
+ 	IOCFPlugInInterface **plug = NULL;
+ 	CFStringRef serialString;
+ 
++	if (iokit_registry_pid(service) == KIS_PRODUCT_ID && dic_available()) {
++		return dic_open_service(pclient, service);
++	}
++
+ 	client = (irecv_client_t) calloc( 1, sizeof(struct irecv_client_private));
+ 
+ 	// Create the plug-in
+@@ -2245,13 +2463,15 @@
+ 	}
+ 
+ #ifdef HAVE_IOKIT
+-	error = (*client->handle)->CreateDeviceAsyncEventSource(client->handle, &client->async_event_source);
+-	if (error != IRECV_E_SUCCESS) {
+-		free(client);
+-		*pclient = NULL;
+-		return error;
++	if (!client->kis_dic) {
++		error = (*client->handle)->CreateDeviceAsyncEventSource(client->handle, &client->async_event_source);
++		if (error != IRECV_E_SUCCESS) {
++			free(client);
++			*pclient = NULL;
++			return error;
++		}
++		CFRunLoopAddSource(CFRunLoopGetCurrent(), client->async_event_source, kCFRunLoopDefaultMode);
+ 	}
+-	CFRunLoopAddSource(CFRunLoopGetCurrent(), client->async_event_source, kCFRunLoopDefaultMode);
+ #endif
+ 
+ 	if (client->mode == IRECV_K_DFU_MODE || client->mode == IRECV_K_PORT_DFU_MODE || client->mode == IRECV_K_WTF_MODE || client->mode == KIS_PRODUCT_ID) {
+@@ -2323,6 +2543,10 @@
+ 	debug("Setting to configuration %d\n", configuration);
+ 
+ #ifdef HAVE_IOKIT
++	if (client->kis_dic) {
++		client->usb_config = configuration;
++		return IRECV_E_SUCCESS;
++	}
+ 	IOReturn result;
+ 
+ 	result = (*client->handle)->SetConfiguration(client->handle, configuration);
+@@ -2440,6 +2664,11 @@
+ 	debug("Setting to interface %d:%d\n", usb_interface, usb_alt_interface);
+ #ifndef _WIN32
+ #ifdef HAVE_IOKIT
++	if (client->kis_dic) {
++		client->usb_interface = usb_interface;
++		client->usb_alt_interface = usb_alt_interface;
++		return IRECV_E_SUCCESS;
++	}
+ 	if (iokit_usb_set_interface(client, usb_interface, usb_alt_interface) < 0) {
+ 		return IRECV_E_USB_INTERFACE;
+ 	}
+@@ -2478,6 +2707,9 @@
+ 
+ #ifndef _WIN32
+ #ifdef HAVE_IOKIT
++	if (client->kis_dic) {
++		return IRECV_E_SUCCESS;
++	}
+ 	IOReturn result;
+ 
+ 	result = (*client->handle)->ResetDevice(client->handle);
+@@ -2770,12 +3002,12 @@
+ 		debug("%s: ERROR: no device?!\n", __func__);
+ 		return NULL;
+ 	}
+-	if (!dev) {
+-		debug("%s: ERROR: no device interface?!\n", __func__);
+-		return NULL;
++	if (dev) {
++		(*dev)->GetDeviceProduct(dev, &product_id);
++	} else {
++		/* KIS devices reach here without one; see iokit_device_added. */
++		product_id = iokit_registry_pid(device);
+ 	}
+-
+-	(*dev)->GetDeviceProduct(dev, &product_id);
+ 	if (!product_id) {
+ 		debug("%s: ERROR: could not get product id?!\n", __func__);
+ 		return NULL;
+@@ -3011,6 +3243,17 @@
+ 	SInt32 score;
+ 
+ 	while ((device = IOIteratorNext(iterator))) {
++		/* A KIS device's user client is entitlement-gated, so creating the
++		 * plug-in fails and it would be dropped here. It's opened through
++		 * deviceinterfaced instead. */
++		if (iokit_registry_pid(device) == KIS_PRODUCT_ID && dic_available()) {
++			struct irecv_iokit_dev_ctx idev;
++			idev.device = device;
++			idev.dev = NULL;
++			_irecv_handle_device_add(&idev);
++			IOObjectRelease(device);
++			continue;
++		}
+ 		kr = IOCreatePlugInInterfaceForService(device, kIOUSBDeviceUserClientTypeID, kIOCFPlugInInterfaceID, &plugInInterface, &score);
+ 		if ((kIOReturnSuccess != kr) || !plugInInterface) {
+ 			debug("%s: ERROR: Unable to create a plug-in (%08x)\n", __func__, kr);

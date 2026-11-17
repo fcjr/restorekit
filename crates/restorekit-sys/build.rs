@@ -56,7 +56,12 @@ fn main() {
         ("libtatsu", "1.0.5"),
         ("libimobiledevice", "1.4.0"),
     ] {
-        build_autotools(&vendor.join(lib), lib, version, &deps);
+        let src = if lib == "libirecovery" {
+            patch_libirecovery_sources(&manifest, &vendor.join(lib), &out, &deps)
+        } else {
+            vendor.join(lib)
+        };
+        build_autotools(&src, lib, version, &deps);
     }
 
     // idevicerestore: compile its sources directly (no library upstream),
@@ -276,7 +281,8 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         // adds -lsetupapi for host_os mingw32*, but under the MSYS2 shell the
         // host detects as msys, so irecovery.exe fails to link SetupDi*). The
         // static libraries we ultimately link are archives and unaffected.
-        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32 -lsetupapi");
+        // winusb: libirecovery's KIS-over-WinUSB patch (irecovery.exe links it).
+        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32 -lsetupapi -lwinusb");
     }
     run(&mut configure, &format!("{name} configure"));
     if deps.windows {
@@ -418,6 +424,101 @@ fn patch_idevicerestore_sources(manifest: &Path, vendor_src: &Path, out: &Path) 
         );
     }
     root
+}
+
+/// Copy libirecovery into OUT_DIR and apply `patches/libirecovery/` to it, for
+/// the same reason as [`patch_idevicerestore_sources`]. libirecovery is built
+/// with autotools, so it's only re-copied and rebuilt when the patches change.
+/// The stamp lives in the staging prefix next to build_autotools' marker, so a
+/// CI cache that restores only the prefix still skips the rebuild.
+fn patch_libirecovery_sources(
+    manifest: &Path,
+    vendor_src: &Path,
+    out: &Path,
+    deps: &Deps,
+) -> PathBuf {
+    use std::hash::{Hash, Hasher};
+
+    let patch_dir = manifest.join("patches/libirecovery");
+    println!("cargo:rerun-if-changed={}", patch_dir.display());
+    let mut patches: Vec<PathBuf> = std::fs::read_dir(&patch_dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("patch"))
+        .collect();
+    patches.sort();
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for patch in &patches {
+        println!("cargo:rerun-if-changed={}", patch.display());
+        std::fs::read(patch).unwrap().hash(&mut hasher);
+    }
+    let stamp = format!("{:016x}", hasher.finish());
+
+    let root = out.join("libirecovery-patched");
+    let stamp_file = deps.prefix.join(".libirecovery-patches");
+    let marker = deps.prefix.join(".built-libirecovery");
+    if marker.exists() && std::fs::read_to_string(&stamp_file).is_ok_and(|s| s == stamp) {
+        return root;
+    }
+
+    if root.exists() {
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    copy_tree(vendor_src, &root);
+    for patch in &patches {
+        // POSIX `patch`, not `git apply`; see patch_idevicerestore_sources.
+        run(
+            Command::new("patch")
+                .args(["-p1", "--no-backup-if-mismatch", "-i"])
+                .arg(patch)
+                .current_dir(&root),
+            &format!("apply {}", patch.file_name().unwrap().to_string_lossy()),
+        );
+    }
+    // Force a fresh configure + build of the patched sources.
+    let _ = std::fs::remove_file(&marker);
+    let _ = std::fs::remove_dir_all(deps.prefix.parent().unwrap().join("build/libirecovery"));
+    std::fs::write(&stamp_file, stamp).unwrap();
+    root
+}
+
+/// Recursively copy `src` to `dst`, skipping `.git` (a submodule's `.git` is a
+/// file pointing back into the superproject, which a copy can't follow) and
+/// autotools output left by an earlier in-tree autogen. A copy gets fresh
+/// mtimes, so stale generated files could look out of date and make `make`
+/// re-run automake; leaving them out makes build_autotools regenerate them.
+/// Symlinks are skipped too: the upstream trees track none, but autogen on
+/// macOS links its aux files (`ltmain.sh`, `config.guess`, …) into Homebrew.
+fn copy_tree(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if matches!(
+            name.to_str(),
+            Some(
+                ".git"
+                    | "autom4te.cache"
+                    | "configure"
+                    | "aclocal.m4"
+                    | "Makefile.in"
+                    | "config.h.in"
+            )
+        ) {
+            continue;
+        }
+        let path = entry.path();
+        let kind = entry.file_type().unwrap();
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            copy_tree(&path, &dst.join(&name));
+        } else {
+            std::fs::copy(&path, dst.join(&name)).unwrap();
+        }
+    }
 }
 
 /// Compile idevicerestore's own C sources into a static archive and link it.
@@ -633,7 +734,7 @@ fn emit_link_directives(prefix: &Path) {
         println!("cargo:rustc-link-lib=static=usb-1.0");
         for lib in [
             "setupapi", "ole32", "ws2_32", "crypt32", "secur32", "bcrypt", "iphlpapi", "userenv",
-            "advapi32",
+            "advapi32", "winusb",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }

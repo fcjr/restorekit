@@ -264,7 +264,12 @@ fn wait_entered(
     want_ecid: Option<u64>,
     timeout: Duration,
 ) -> Result<Device> {
-    let matches = |d: &Device| d.in_dfu() && want_ecid.is_none_or(|e| d.ecid == Some(e));
+    // An unidentified KIS Mac has no ECID to match on; one showing up right
+    // after we triggered is the target, and re-firing the trigger at a Mac
+    // already in DFU only fails.
+    let matches = |d: &Device| {
+        d.in_dfu() && (d.kis_unreadable() || want_ecid.is_none_or(|e| d.ecid == Some(e)))
+    };
 
     if let Some(d) = device::list()?.into_iter().find(&matches) {
         return Ok(d);

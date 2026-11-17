@@ -114,9 +114,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: rust-ci-${{ matrix.os }}-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs') }}-${{ hashFiles('Cargo.lock') }}
+          key: rust-ci-${{ matrix.os }}-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs', 'crates/restorekit-sys/patches/**') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            rust-ci-${{ matrix.os }}-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs') }}-
+            rust-ci-${{ matrix.os }}-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs', 'crates/restorekit-sys/patches/**') }}-
 
       - name: Format
         run: cargo fmt --all --check
@@ -218,9 +218,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: rust-ci-windows-gnu-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs') }}-${{ hashFiles('Cargo.lock') }}
+          key: rust-ci-windows-gnu-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs', 'crates/restorekit-sys/patches/**') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            rust-ci-windows-gnu-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs') }}-
+            rust-ci-windows-gnu-${{ steps.toolchain.outputs.version }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('crates/restorekit-sys/build.rs', 'crates/restorekit-sys/patches/**') }}-
 
       # The target cache above carries the staging prefix too, but it's
       # multi-GB and first in line for LRU eviction under the repo's 10 GB
@@ -235,7 +235,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target/x86_64-pc-windows-gnu/debug/build/restorekit-sys-*/out/staging
-          key: windows-c-stack-${{ steps.pins.outputs.hash }}-${{ steps.toolchain.outputs.version }}-${{ hashFiles('crates/restorekit-sys/build.rs', 'Cargo.lock') }}
+          key: windows-c-stack-${{ steps.pins.outputs.hash }}-${{ steps.toolchain.outputs.version }}-${{ hashFiles('crates/restorekit-sys/build.rs', 'crates/restorekit-sys/patches/**', 'Cargo.lock') }}
 
       # With both caches hot, nothing runs autotools (staging markers skip the
       # C stack) or rebuilds openssl-src (the target cache has it), so the full

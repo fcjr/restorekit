@@ -248,6 +248,13 @@ impl Hpm {
     /// transport failure or a missing reply; an ACK/NAK distinction is left to
     /// the caller (an Apple action VDM ACKs with `command | 0x40`).
     fn send_vdm(&self, vdm: &[u32]) -> Result<u32> {
+        let reply = self.send_vdm_raw(vdm)?;
+        // Reply layout: [status_byte, vdm_header (u32 LE), ...].
+        Ok(u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]]))
+    }
+
+    /// Send a VDM and return the whole RX VDM register the reply landed in.
+    fn send_vdm_raw(&self, vdm: &[u32]) -> Result<[u8; 64]> {
         let start = self.read_register(0x4d)?;
         let rxst = start[0];
 
@@ -272,9 +279,7 @@ impl Hpm {
         if !got {
             return Err(Error::Vdm("did not get a reply to VDM".into()));
         }
-
-        // Reply layout: [status_byte, vdm_header (u32 LE), ...].
-        Ok(u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]]))
+        Ok(reply)
     }
 
     /// Send an Apple action VDM and confirm the target ACKed it (reply
@@ -648,6 +653,14 @@ pub fn reboot(target: &DfuTarget, progress: ProgressFn) -> Result<()> {
         return Err(Error::Vdm("target rejected the reboot action".into()));
     }
     Ok(())
+}
+
+/// Send one raw VDM to the partner and return the RX VDM register holding its
+/// reply. Diagnostic: the caller picks the words, so this can do anything the
+/// partner accepts.
+pub fn raw(target: &DfuTarget, vdm: &[u32], progress: ProgressFn) -> Result<[u8; 64]> {
+    let hpm = connect(target, progress)?;
+    hpm.send_vdm_raw(vdm)
 }
 
 /// Put the cabled target Mac *and* the host's port controller into serial-console

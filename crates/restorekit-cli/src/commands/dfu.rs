@@ -93,6 +93,9 @@ pub fn enter(
         Ok(DfuOutcome::Entered(device)) => {
             if json {
                 emit_stage(true, Event::DeviceDetected { device });
+            } else if device.kis_unreadable() {
+                println!("\nTarget is now in DFU mode over Debug USB (05ac:1881).");
+                println!("  Note: {}", Error::KisUnreadable);
             } else {
                 println!("\nTarget is now in DFU mode: {}", device.display_name());
                 println!("  ECID: {}", device.ecid_hex().unwrap_or_default());
@@ -305,6 +308,43 @@ pub fn probe_ports(json: bool) -> Result<()> {
     Ok(())
 }
 
+/// `restorekit vdm` — send one raw VDM and dump the reply register.
+pub fn raw_vdm(json: bool, words: &[u32], port: Option<i32>) -> Result<()> {
+    let target = port
+        .map(restorekit::dfu::DfuTarget::Port)
+        .unwrap_or_default();
+    let reply = restorekit::dfu::raw_vdm(&target, words, &mut |e| emit_stage(json, e))?;
+    let status = reply[0];
+    let count = (status & 0x07) as usize;
+    let all: Vec<u32> = reply[1..61]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "event": "vdm_reply", "status": status, "words": all })
+        );
+        return Ok(());
+    }
+    let kind = match all[0] & 0xc0 {
+        0x40 => "ACK",
+        0x80 => "NAK",
+        0xc0 => "BUSY",
+        _ => "REQ",
+    };
+    println!("status 0x{status:02x}, header 0x{:08x} ({kind})", all[0]);
+    for (i, w) in all.iter().enumerate().skip(1) {
+        let mark = if i < count { "" } else { "  (past count)" };
+        if i < count || *w != 0 {
+            println!("  [{i}] 0x{w:08x}{mark}");
+        }
+    }
+    Ok(())
+}
+
 /// Ensure a Mac is in DFU mode: return it if already there (with the interactive
 /// picker when several are present and no ECID pins one), otherwise trigger
 /// entry via a dongle or the host and wait. Shared by `restore`.
@@ -338,6 +378,11 @@ pub(crate) fn ensure_present(
         if !present.is_empty() {
             return select_from(present, json);
         }
+        // Already in DFU over Debug USB but unreadable here: triggering again
+        // can't help.
+        if device::list()?.iter().any(Device::kis_unreadable) {
+            return Err(Error::KisUnreadable);
+        }
         // Name a target visible in another mode so the user knows the trigger
         // has something to act on.
         if !json {
@@ -361,6 +406,7 @@ pub(crate) fn ensure_present(
 /// cabled here, or a wait for a manual DFU entry when nothing can trigger.
 fn finish_trigger(json: bool, via: DfuVia, timeout: Duration, ecid: Option<u64>) -> Result<Device> {
     match restorekit::trigger_dfu(via, timeout, &mut |e| emit_stage(json, e)) {
+        Ok(DfuOutcome::Entered(dev)) if dev.kis_unreadable() => Err(Error::KisUnreadable),
         Ok(DfuOutcome::Entered(dev)) => Ok(dev),
         Ok(DfuOutcome::Sent) => Err(Error::Dongle(
             "triggered via dongle, but the target's USB data isn't cabled to this host; \

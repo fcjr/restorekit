@@ -30,6 +30,27 @@ compiles the patched copy.
   "Unable to discover device mode" while the Mac was still on its way back.
   Loop until the mode is known or the minute is up.
 
+## libirecovery
+
+- `0001-kis-via-deviceinterfaced-on-macos.patch` — macOS only lets processes
+  holding `com.apple.private.debug-usb.access` open a Debug USB (KIS,
+  `05ac:1881`) device, and only Apple's `deviceinterfaced` has it. On macOS,
+  open KIS devices through the daemon's private `DeviceInterfaceClient`
+  framework and send KIS requests with its `transfer_data`, instead of failing
+  to open the device (or dropping its device-add event). Loaded at runtime;
+  `IRECV_KIS_NO_DIC=1` forces the plain IOKit path. Unlike idevicerestore,
+  libirecovery is built with autotools from a patched copy of the whole tree,
+  rebuilt only when the patches change.
+- `0002-kis-over-winusb-on-windows.patch` — libirecovery's Windows KIS code
+  talks to Apple's AppleKIS driver, which does the KIS framing itself behind
+  its own ioctls. restorekit binds plain WinUSB to `05ac:1881` instead, so a
+  KIS device was never found. When the KIS interface turns out to be a WinUSB
+  device, speak raw KIS on its bulk pipes through `WinUsb_*` (the same requests
+  the libusb and IOKit backends send). The SetupAPI device checks (open, add
+  and the hotplug poller) accept pid `1881` next to AppleKIS's pid 1, so
+  idevicerestore gets the device-add event it reads the mode from. The AppleKIS
+  path is untouched.
+
 ## Updating a patch
 
 1. Apply the existing patches to the submodule:

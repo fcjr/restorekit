@@ -201,6 +201,9 @@
   // or manual instructions.
   function deviceMode(d: Device): "restore" | "usb" | "dfu" | "manual" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
+    // Already in DFU over Debug USB, just unreadable here:
+    // re-triggering can't help.
+    if (d.mode === "kis") return d.driver_ready ? "manual" : "usb";
     // A Mac behind a dongle can be put into DFU over the dongle from any host,
     // even when this host can't trigger electronically.
     return canTrigger || d.via_dongle ? "dfu" : "manual";
@@ -233,6 +236,7 @@
   const MODE_TAG: Record<Mode, string> = {
     dfu: "DFU",
     "port-dfu": "Port DFU",
+    kis: "Debug USB DFU",
     recovery: "Recovery",
     restore: "Restore",
     wtf: "WTF",
@@ -243,6 +247,7 @@
   const MODE_COLOR: Record<Mode, string> = {
     dfu: "var(--acc)",
     "port-dfu": "var(--acc)",
+    kis: "var(--acc)",
     recovery: "var(--alt)",
     restore: "var(--ok)",
     wtf: "var(--danger)",
@@ -1284,6 +1289,17 @@
               {/if}
               <div class="actions">
                 <button class="btn primary" onclick={enterDfu} disabled={!!busy}>{busy ? (selected.via_dongle ? "Triggering…" : "Authorizing…") : "Enter DFU mode"}</button>
+                <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
+              </div>
+            </div>
+          {:else if selected.mode === "kis"}
+            <div class="block">
+              {#if isMac}
+                <p class="lede">This Mac is in DFU over Debug USB, but restorekit couldn't read its identity. Usually another app has the device open (Chrome, Apple Configurator). Quit it, then reboot the Mac and put it back into DFU.</p>
+              {:else}
+                <p class="lede">This Mac is in DFU over Debug USB, but restorekit couldn't read its identity. Check USB access, then reboot the Mac and put it back into DFU.</p>
+              {/if}
+              <div class="actions">
                 <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
               </div>
             </div>
