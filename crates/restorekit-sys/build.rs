@@ -277,6 +277,14 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
     // A stale-timestamp maintainer-mode rebuild can re-invoke aclocal from
     // configure/make, so keep the sanitized aclocal path in scope on Windows.
     if deps.windows {
+        // Pin the host type. config.guess reports x86_64-w64-mingw32 inside the
+        // MSYS2 MINGW64 shell but x86_64-pc-mingw64 from a plain Windows shell
+        // (the desktop release builds from PowerShell), and libirecovery only
+        // picks its native Windows backend for `mingw32*`; otherwise it wants
+        // libusb, which MSYS2 no longer packages for MINGW64.
+        configure
+            .arg("--build=x86_64-w64-mingw32")
+            .arg("--host=x86_64-w64-mingw32");
         configure.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
         // Several of these projects also build command-line tools whose
         // Makefiles don't link the Windows system libraries they need, so they
