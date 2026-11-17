@@ -264,8 +264,17 @@ pub fn restore(
     // On Windows the Mac's restore-mode interface is claimed by Apple's driver,
     // which libusb can't open; spawn an elevated watcher (one UAC) that forces
     // our WinUSB onto it when it appears. Held for the duration of the restore.
+    // Without it the restore would run for minutes and then stall waiting for
+    // restore mode, so stop now instead.
     #[cfg(target_os = "windows")]
-    let _restore_watcher = crate::driver::spawn_restore_mode_watcher();
+    let _restore_watcher = crate::driver::spawn_restore_mode_watcher().ok_or_else(|| {
+        Error::DriverInstall(
+            "couldn't start the restore-mode USB helper (was the Windows UAC prompt \
+             declined?). Without it the restore stalls once the Mac enters restore mode; \
+             retry and approve the prompt"
+                .into(),
+        )
+    })?;
 
     let mut attempt = 1;
     loop {

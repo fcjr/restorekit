@@ -54,11 +54,39 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
   elevated watcher (one UAC, branded restorekit, skipped when already admin) that
   force-binds our WinUSB to the restore-mode device when it appears — per-restore,
   since Apple's driver reclaims it each time. `appleusb.inf` stays in the store.
+- **The watcher stages the driver package itself.** With Apple's own driver
+  installed (iTunes, Apple Devices, or Windows Update), DFU and recovery work
+  without `setup-driver`, so a restore could reach restore mode with no
+  RestoreKit package in the store; the watcher then had nothing to bind and the
+  restore stalled at "waiting for device to enter restore mode" (#56). The
+  elevated watcher now stages the package before it starts watching, logs what
+  it did to `%TEMP%\restorekit-restore-watch.log`, and the restore stops up
+  front if the watcher can't start (UAC declined) instead of stalling later.
+- **`setup-driver` forces WinUSB over Apple's drivers.** Windows Update
+  installs Apple's WHQL-signed `applekis.inf` for a KIS Mac (05ac:1881), which
+  outranks our self-signed package, so `pnputil /install` left it in place and
+  restorekit couldn't read the Mac. `setup-driver` now force-binds every present
+  target like the restore-mode watcher does. A KIS Mac that Apple's driver has
+  already opened only answers again after re-entering DFU.
+- **Dongles work on Windows.** The dongle firmware asked for WinUSB but gave no
+  device interface GUID, so Windows never exposed the vendor interface to
+  nusb ("Could not find DeviceInterfaceGUIDs in registry"). The next firmware adds
+  it; `setup-driver` binds the interface with the GUID for older firmware, and
+  runs with only a dongle connected.
+- **Certificate trust.** `Import-Certificate` into
+  `LocalMachine\TrustedPublisher` is refused on current Windows 11 even when
+  elevated; the setup script uses `X509Store` instead.
 - **Throughput confirmed.** With the 0ms-while-connected event loop, the CLI
   streams `Cryptex1,systemOS` at ~35 MB/s (near USB-2.0 line rate) — the embedded
   usbmuxd + WinUSB bulk path is not a bottleneck.
 
 ### Known issues
+
+- **Windows on ARM.** Code Integrity rejects our self-signed catalog there
+  ("Driver package signer is not trusted by system, and Code Integrity is
+  enforced"), so `setup-driver` can't stage the package unless test signing is
+  on (`bcdedit /set testsigning on`). Everything else, including the x64 build
+  under emulation, works once it's staged.
 
 - **Desktop app throughput.** The same restore that runs at ~35 MB/s from the CLI
   is much slower in the desktop app (the muxer gets fed at only tens of
