@@ -508,7 +508,15 @@ impl Dongle {
         let iface = dev
             .claim_interface(self.vendor_iface)
             .wait()
-            .map_err(Error::from)?;
+            .map_err(|e| {
+                // On Windows the interface can't be opened until WinUSB is
+                // bound with an interface GUID, which `setup-driver` does.
+                if cfg!(target_os = "windows") && e.kind() == nusb::ErrorKind::Unsupported {
+                    Error::UsbPermission(e.to_string())
+                } else {
+                    Error::from(e)
+                }
+            })?;
         Ok(DongleHandle {
             iface,
             iface_num: self.vendor_iface,
