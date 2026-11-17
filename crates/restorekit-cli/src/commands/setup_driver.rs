@@ -92,7 +92,7 @@ fn install(json: bool) -> Result<usize> {
         if json {
             render::emit_json(&e);
         } else if let Event::DriverBound { name } = &e {
-            println!("  bound WinUSB to {name}");
+            println!("  USB access ready for {name}");
         }
     };
     driver::install_winusb(&mut on_event)

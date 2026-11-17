@@ -379,8 +379,12 @@ pub(crate) fn ensure_present(
             return select_from(present, json);
         }
         // Already in DFU over Debug USB but unreadable here: triggering again
-        // can't help.
-        if device::list()?.iter().any(Device::kis_unreadable) {
+        // can't help, except on Windows with a dongle, which puts it back into
+        // DFU so Windows' driver picks it up.
+        if device::list()?.iter().any(Device::kis_unreadable)
+            && !(cfg!(target_os = "windows")
+                && restorekit::dongle::list().is_ok_and(|d| d.len() == 1))
+        {
             return Err(Error::KisUnreadable);
         }
         // Name a target visible in another mode so the user knows the trigger

@@ -44,6 +44,15 @@ pub const SERIAL_PREFIX_PRO: &str = "DP-";
 /// Class of the vendor-specific interface the SDK drives.
 pub const VENDOR_CLASS: u8 = 0xFF;
 
+/// Interface number of the vendor interface (after the two CDC ACM functions).
+pub const VENDOR_IFACE: u8 = 4;
+
+/// WinUSB device interface GUID for the vendor interface. Windows only exposes a
+/// WinUSB interface of a composite device to apps (nusb, libusb) when it has one,
+/// so the firmware hands it out in its MS OS 2.0 descriptors and the host's
+/// driver setup writes it for dongles whose firmware predates that.
+pub const WINUSB_INTERFACE_GUID: &str = "{82A7EB70-6C66-43B6-BDCB-D957FCC49307}";
+
 // bRequest values on the vendor interface (vendor type, interface recipient).
 /// Control OUT: execute a command; wValue = `VCMD_*`.
 pub const VREQ_CMD: u8 = 0x01;

@@ -44,9 +44,9 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
    `appleusb.inf`, whose WinUSB variant libusb **can't open** (`winusbx_open` →
    `[50] ERROR_NOT_SUPPORTED`). Apple's INF lists that exact hardware id and is
    WHQL-signed, so we can't win by ranking. The fix that keeps `appleusb.inf` in
-   the store (iPhones unaffected): **force** our plain `winusb.sys` onto that one
-   device instance with `UpdateDriverForPlugAndPlayDevices(..., INSTALLFLAG_FORCE)`
-   — verified live, after which libusb opens it and the restore proceeds.
+   the store (iPhones unaffected): install Windows' own `winusb.inf` "WinUsb
+   Device" onto that one device instance (see "No driver package" below),
+   after which libusb opens it and the restore proceeds.
 
 ### Done since
 
@@ -54,11 +54,77 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
   elevated watcher (one UAC, branded restorekit, skipped when already admin) that
   force-binds our WinUSB to the restore-mode device when it appears — per-restore,
   since Apple's driver reclaims it each time. `appleusb.inf` stays in the store.
+- **No driver package, so nothing to sign.** restorekit used to generate a
+  WinUSB INF, sign its catalog with a self-signed certificate it added to the
+  machine's trusted roots, and stage it with `pnputil`. Windows on ARM refuses
+  such packages outright (Code Integrity only loads Microsoft-signed ones), and
+  a restore could reach restore mode with no package staged (#56). Now it binds
+  Windows' own Microsoft-signed `winusb.inf` instead: `SetupDiBuildDriverInfoList`
+  over just that INF with `DI_FLAGSEX_ALLOWEXCLUDEDDRVS` (its "WinUsb Device"
+  entry matches `USB\MS_COMP_WINUSB`, not the Mac, which is what Device
+  Manager's "Have Disk" route allows too), then `DiInstallDevice` on the one
+  device instance, after writing the mode's interface GUID to the device's
+  `DeviceInterfaceGUIDs` the way an INF's `AddReg` would. A device already on
+  WinUSB without a GUID (a dongle on firmware 0.1.2 or older) just gets the
+  GUID and a restart. No certificate, no catalog, no `pnputil`, and it works
+  the same on x64 and ARM64. Hardware-tested on Windows 11 ARM64 with test
+  signing off, no Apple Mobile Device Service and no RestoreKit package or
+  certificate: a full revive of the M4 mini (KIS DFU via the dongle, the
+  watcher binding the restore-mode interface) ran to Restore Finished.
+- **Device waits on Windows.** libimobiledevice-glue's Windows `cond_t` was a
+  semaphore, so a device event nobody was waiting for made the next wait
+  return at once, and idevicerestore gave up on the device; it's a real
+  condition variable now. `dfu_enter_recovery` also gives iBEC 60 seconds to
+  boot instead of 10 (see `crates/restorekit-sys/patches/README.md`).
+- **The watcher binds whatever the restore needs.** The elevated watcher (log:
+  `%TEMP%\restorekit-restore-watch.log`) binds the restore-mode interface when
+  it appears, and any DFU, recovery or KIS device that has had no driver for a
+  few seconds (a machine without Apple's drivers), since each mode the Mac
+  passes through is a new device. The restore stops up front if the watcher
+  can't start (UAC declined) instead of stalling later.
+- **`setup-driver` leaves Apple's drivers alone.** Windows Update installs
+  Apple's WHQL-signed drivers (`appleusb.inf`, `applekis.inf`) on first
+  plug-in, and they work with restorekit (see "Driverless" below). Moving a KIS
+  Mac off AppleKIS strands it until it re-enters DFU, so `setup-driver` only
+  binds WinUSB to devices on no driver or a non-Apple one, and counts devices on
+  Apple's drivers as set up.
+- **Dongles work on Windows.** The dongle firmware asked for WinUSB but gave no
+  device interface GUID, so Windows never exposed the vendor interface to
+  nusb ("Could not find DeviceInterfaceGUIDs in registry"). The next firmware adds
+  it; `setup-driver` binds the interface with the GUID for older firmware, and
+  runs with only a dongle connected.
 - **Throughput confirmed.** With the 0ms-while-connected event loop, the CLI
   streams `Cryptex1,systemOS` at ~35 MB/s (near USB-2.0 line rate) — the embedded
   usbmuxd + WinUSB bulk path is not a bottleneck.
 
+- **Driverless with Apple's stack.** Windows Update installs Apple's drivers
+  for DFU (`WUDFRd`), recovery and KIS (`AppleKIS`) on first plug-in, and
+  libirecovery's native Windows backend talks to them directly. When Apple
+  Mobile Device Service (iTunes or Apple Devices) is running, it holds
+  `127.0.0.1:27015` and muxes the restore-mode interface through Apple's
+  driver, so restorekit uses it instead of starting the embedded usbmuxd and the
+  WinUSB watcher. It's recognized by matching the port's listener pid against the
+  service's pid from the service manager; any other listener on the port fails
+  the restore up front with its name. restorekit reads a KIS Mac's identity
+  through AppleKIS's GET_INFO ioctl and counts Apple's drivers as ready.
+  Hardware-tested: a full revive of an M4 mac mini (KIS DFU via a dongle) on
+  Windows 11 ARM64 with no RestoreKit driver package, no UAC prompt and no test
+  signing.
+- **A KIS Mac sometimes comes up unreadable.** Entering KIS DFU from a fully
+  booted Mac, about half the time the Mac doesn't answer the driver's first
+  requests: AppleKIS leaves its interface disabled (no `KIS\VID_05AC&PID_0001`
+  child), and over WinUSB the config write fails. It stays that way until it
+  re-enters DFU; restarting the device doesn't help. With a dongle, restorekit
+  reboots the Mac out of DFU and triggers again (up to twice) when it lands
+  unreadable. Measured on the M4 mini over AppleKIS and WinUSB: every
+  unreadable entry read fine after one or two re-entries.
+
 ### Known issues
+
+- **Classic DFU (`05ac:1227`) through Apple's driver is untested here.** The
+  rig's M4 only enters KIS DFU over the dongle. #56's log shows Port DFU, DFU
+  and recovery going through libirecovery on Windows, but not which driver was
+  bound.
 
 - **Desktop app throughput.** The same restore that runs at ~35 MB/s from the CLI
   is much slower in the desktop app (the muxer gets fed at only tens of

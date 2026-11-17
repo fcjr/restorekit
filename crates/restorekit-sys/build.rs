@@ -56,8 +56,8 @@ fn main() {
         ("libtatsu", "1.0.5"),
         ("libimobiledevice", "1.4.0"),
     ] {
-        let src = if lib == "libirecovery" {
-            patch_libirecovery_sources(&manifest, &vendor.join(lib), &out, &deps)
+        let src = if manifest.join("patches").join(lib).is_dir() {
+            patch_autotools_sources(&manifest, lib, &vendor.join(lib), &out, &deps)
         } else {
             vendor.join(lib)
         };
@@ -75,6 +75,13 @@ fn main() {
     // idevicerestore talks to for the restore-mode phase.
     let target_os = env::var("CARGO_CFG_TARGET_OS");
     if matches!(target_os.as_deref(), Ok("linux") | Ok("windows")) {
+        // Linux links the system libusb. MSYS2 no longer packages libusb for
+        // MINGW64, so on Windows build it from the vendored source; only the
+        // embedded usbmuxd uses it there (libirecovery talks to Windows
+        // directly), so it goes after the libimobiledevice family.
+        if deps.windows {
+            build_autotools(&vendor.join("libusb"), "libusb", "1.0.30", &deps);
+        }
         compile_usbmuxd(&vendor.join("usbmuxd"), &deps);
     }
 
@@ -426,20 +433,21 @@ fn patch_idevicerestore_sources(manifest: &Path, vendor_src: &Path, out: &Path) 
     root
 }
 
-/// Copy libirecovery into OUT_DIR and apply `patches/libirecovery/` to it, for
-/// the same reason as [`patch_idevicerestore_sources`]. libirecovery is built
-/// with autotools, so it's only re-copied and rebuilt when the patches change.
+/// Copy an autotools library into OUT_DIR and apply `patches/<name>/` to it,
+/// for the same reason as [`patch_idevicerestore_sources`]. It's only re-copied
+/// and rebuilt when the patches change.
 /// The stamp lives in the staging prefix next to build_autotools' marker, so a
 /// CI cache that restores only the prefix still skips the rebuild.
-fn patch_libirecovery_sources(
+fn patch_autotools_sources(
     manifest: &Path,
+    name: &str,
     vendor_src: &Path,
     out: &Path,
     deps: &Deps,
 ) -> PathBuf {
     use std::hash::{Hash, Hasher};
 
-    let patch_dir = manifest.join("patches/libirecovery");
+    let patch_dir = manifest.join("patches").join(name);
     println!("cargo:rerun-if-changed={}", patch_dir.display());
     let mut patches: Vec<PathBuf> = std::fs::read_dir(&patch_dir)
         .unwrap()
@@ -455,9 +463,9 @@ fn patch_libirecovery_sources(
     }
     let stamp = format!("{:016x}", hasher.finish());
 
-    let root = out.join("libirecovery-patched");
-    let stamp_file = deps.prefix.join(".libirecovery-patches");
-    let marker = deps.prefix.join(".built-libirecovery");
+    let root = out.join(format!("{name}-patched"));
+    let stamp_file = deps.prefix.join(format!(".{name}-patches"));
+    let marker = deps.prefix.join(format!(".built-{name}"));
     if marker.exists() && std::fs::read_to_string(&stamp_file).is_ok_and(|s| s == stamp) {
         return root;
     }
@@ -478,7 +486,7 @@ fn patch_libirecovery_sources(
     }
     // Force a fresh configure + build of the patched sources.
     let _ = std::fs::remove_file(&marker);
-    let _ = std::fs::remove_dir_all(deps.prefix.parent().unwrap().join("build/libirecovery"));
+    let _ = std::fs::remove_dir_all(deps.prefix.parent().unwrap().join("build").join(name));
     std::fs::write(&stamp_file, stamp).unwrap();
     root
 }
@@ -661,8 +669,11 @@ fn compile_usbmuxd(src: &Path, deps: &Deps) {
             .define("HAVE_LOCALTIME_R", None);
     }
 
-    // libusb-1.0 headers (usbmuxd includes <libusb.h> directly).
-    if let Ok(output) = std::process::Command::new("pkg-config")
+    // libusb-1.0 headers (usbmuxd includes <libusb.h> directly): our own build
+    // on Windows, the system's elsewhere.
+    if deps.windows {
+        build.include(deps.prefix.join("include/libusb-1.0"));
+    } else if let Ok(output) = std::process::Command::new("pkg-config")
         .args(["--cflags-only-I", "libusb-1.0"])
         .output()
     {
@@ -725,12 +736,8 @@ fn emit_link_directives(prefix: &Path) {
             println!("cargo:rustc-link-lib=framework={fw}");
         }
     } else if target_os.as_deref() == Ok("windows") {
-        // libusb (static, from MSYS2) plus the Win32 libraries it, libcurl, and
-        // OpenSSL pull in. libusb-1.0.a lives in the MinGW prefix, not our
-        // staging dir, so point rustc's linker at that libdir (via pkg-config).
-        if let Some(libdir) = mingw_libusb_libdir() {
-            println!("cargo:rustc-link-search=native={libdir}");
-        }
+        // libusb (static, built into our staging prefix) plus the Win32
+        // libraries it, libcurl, and OpenSSL pull in.
         println!("cargo:rustc-link-lib=static=usb-1.0");
         for lib in [
             "setupapi", "ole32", "ws2_32", "crypt32", "secur32", "bcrypt", "iphlpapi", "userenv",
@@ -742,20 +749,6 @@ fn emit_link_directives(prefix: &Path) {
         println!("cargo:rustc-link-lib=dylib=usb-1.0");
         println!("cargo:rustc-link-lib=dylib=pthread");
     }
-}
-
-/// Ask pkg-config where MSYS2's static libusb (`libusb-1.0.a`) lives, so the
-/// final rustc link can find it. Returns a native path rustc's linker accepts.
-fn mingw_libusb_libdir() -> Option<String> {
-    let out = Command::new("pkg-config")
-        .args(["--variable=libdir", "libusb-1.0"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!dir.is_empty()).then_some(dir)
 }
 
 /// A Command that runs `script` — directly on Unix, or via MSYS2's `sh` on

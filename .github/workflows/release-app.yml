@@ -71,7 +71,7 @@ jobs:
             base-devel git make autoconf automake libtool autoconf-archive
             gettext-devel pkgconf perl mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkgconf mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-libusb mingw-w64-x86_64-nasm
+            mingw-w64-x86_64-nasm
 
       - name: Put the MSYS2 toolchain on PATH
         # tauri-action runs cargo in the default shell, so the C stack's autotools
@@ -79,7 +79,7 @@ jobs:
         # GITHUB_PATH lines are prepended with the LAST-written line taking
         # precedence, so write usr\bin first: mingw64\bin must end up ahead of it
         # so `pkg-config` is the MinGW-prefix pkgconf — the one that searches
-        # /mingw64/lib/pkgconfig (libusb-1.0) and reports native library paths.
+        # /mingw64/lib/pkgconfig and reports native library paths.
         if: runner.os == 'Windows'
         shell: pwsh
         run: |

@@ -67,15 +67,28 @@ pub(crate) enum Read {
 /// arrival, so the first request can land before it's ready.
 const ARRIVAL_GRACE: Duration = Duration::from_secs(3);
 
+/// When each KIS device was first seen, and its identity once read.
+type Seen = HashMap<nusb::DeviceId, (Instant, Option<String>)>;
+
+fn seen() -> &'static Mutex<Seen> {
+    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
+    SEEN.get_or_init(Default::default)
+}
+
+/// Drop what [`identify`] remembers about devices no longer on the bus. Device
+/// ids can come back for the same port (Windows reuses the device instance), and
+/// a Mac re-entering DFU there is a new arrival that needs its own grace period
+/// and its own read.
+pub(crate) fn forget_absent(present: &[nusb::DeviceId]) {
+    seen().lock().unwrap().retain(|id, _| present.contains(id));
+}
+
 /// Read the KIS device behind `info`. A good identity is cached per
 /// enumeration, so polling `list()` asks each device once; anything else is
 /// asked again on the next call, so a device that finishes coming up (or a
 /// daemon that finishes attaching) isn't stuck with its first answer.
 pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
-    // When each device was first seen, and its identity once read.
-    type Seen = HashMap<nusb::DeviceId, (Instant, Option<String>)>;
-    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
-    let seen = SEEN.get_or_init(Default::default);
+    let seen = seen();
     let first_seen = {
         let mut seen = seen.lock().unwrap();
         let entry = seen.entry(info.id()).or_insert((Instant::now(), None));
@@ -100,6 +113,13 @@ pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
 }
 
 fn read(info: &nusb::DeviceInfo) -> Read {
+    #[cfg(target_os = "windows")]
+    if info
+        .driver()
+        .is_some_and(|d| d.eq_ignore_ascii_case("AppleKIS"))
+    {
+        return apple_kis::read(info);
+    }
     match get_info(info) {
         Ok(reply) => classify(&reply),
         Err(_) => Read::Failed,
@@ -206,6 +226,168 @@ fn hexdump(out: &mut String, bytes: &[u8]) {
             })
             .collect();
         let _ = writeln!(out, "    {:04x}: {:<47}  {text}", i * 16, hex.join(" "));
+    }
+}
+
+/// AppleKIS's GET_INFO reply: vid, pid, a word, then four 255-byte strings
+/// (nonces, serial, manufacturer, product), as libirecovery declares it.
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_FIELD: usize = 255;
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_SERIAL_OFFSET: usize = 8 + APPLE_KIS_FIELD;
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_SERIAL_END: usize = APPLE_KIS_SERIAL_OFFSET + APPLE_KIS_FIELD;
+#[cfg(any(target_os = "windows", test))]
+const APPLE_KIS_INFO_SIZE: usize = 8 + 4 * APPLE_KIS_FIELD;
+
+/// The identity string out of an AppleKIS GET_INFO reply. An empty serial
+/// means the chip behind the port isn't in DFU.
+#[cfg(any(target_os = "windows", test))]
+fn classify_apple_kis(reply: &[u8]) -> Read {
+    let Some(field) = reply.get(APPLE_KIS_SERIAL_OFFSET..APPLE_KIS_SERIAL_END) else {
+        return Read::Failed;
+    };
+    let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
+    let serial = String::from_utf8_lossy(&field[..end]).trim().to_string();
+    if serial.is_empty() {
+        Read::NotInDfu
+    } else {
+        Read::Serial(serial)
+    }
+}
+
+/// Windows with Apple's own AppleKIS driver bound (Windows Update installs it
+/// with the first Apple device). AppleKIS enables the device itself and exposes
+/// it as a `KIS\VID_05AC&PID_0001` child that answers a GET_INFO ioctl with the
+/// identity string, the way libirecovery's Windows backend reads it. A device
+/// that AppleKIS failed to enable has no such child until it re-enters DFU.
+#[cfg(target_os = "windows")]
+mod apple_kis {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::{null, null_mut};
+
+    use windows_sys::core::GUID;
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        CM_Get_Child, CM_Get_Device_IDW, CM_Get_Device_Interface_ListW,
+        CM_Get_Device_Interface_List_SizeW, CM_Locate_DevNodeW,
+        CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_LOCATE_DEVNODE_NORMAL, CR_SUCCESS,
+    };
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_IO_PENDING, GENERIC_READ, GENERIC_WRITE,
+        INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+    use windows_sys::Win32::System::IO::{
+        CancelIo, DeviceIoControl, GetOverlappedResult, OVERLAPPED,
+    };
+
+    use super::Read;
+
+    use super::{classify_apple_kis, APPLE_KIS_INFO_SIZE as INFO_SIZE, APPLE_KIS_SERIAL_END};
+
+    const GUID_DEVINTERFACE_KIS: GUID = GUID::from_u128(0xb36f4137_f4ef_4bfc_a25a_c2410768ee37);
+    const IOCTL_GET_INFO: u32 = 0x220004;
+
+    pub(super) fn read(info: &nusb::DeviceInfo) -> Read {
+        match get_info(info) {
+            Some(reply) => classify_apple_kis(&reply),
+            None => Read::Failed,
+        }
+    }
+
+    /// The KIS interface path of the AppleKIS child under `info`.
+    fn interface_path(info: &nusb::DeviceInfo) -> Option<Vec<u16>> {
+        let id: Vec<u16> = info.instance_id().encode_wide().chain([0]).collect();
+        unsafe {
+            let mut dev = 0;
+            if CM_Locate_DevNodeW(&mut dev, id.as_ptr(), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS {
+                return None;
+            }
+            let mut child = 0;
+            if CM_Get_Child(&mut child, dev, 0) != CR_SUCCESS {
+                return None;
+            }
+            let mut child_id = [0u16; 512];
+            if CM_Get_Device_IDW(child, child_id.as_mut_ptr(), child_id.len() as u32, 0)
+                != CR_SUCCESS
+            {
+                return None;
+            }
+            let mut len = 0;
+            if CM_Get_Device_Interface_List_SizeW(
+                &mut len,
+                &GUID_DEVINTERFACE_KIS,
+                child_id.as_ptr(),
+                CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+            ) != CR_SUCCESS
+            {
+                return None;
+            }
+            let mut list = vec![0u16; len as usize];
+            if CM_Get_Device_Interface_ListW(
+                &GUID_DEVINTERFACE_KIS,
+                child_id.as_ptr(),
+                list.as_mut_ptr(),
+                len,
+                CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+            ) != CR_SUCCESS
+            {
+                return None;
+            }
+            let end = list.iter().position(|&c| c == 0).filter(|&e| e > 0)?;
+            list.truncate(end + 1);
+            Some(list)
+        }
+    }
+
+    fn get_info(info: &nusb::DeviceInfo) -> Option<Vec<u8>> {
+        let path = interface_path(info)?;
+        let timeout_ms = super::TIMEOUT.as_millis() as u32;
+        unsafe {
+            let handle = CreateFileW(
+                path.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                null(),
+                OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED,
+                null_mut(),
+            );
+            if handle == INVALID_HANDLE_VALUE {
+                return None;
+            }
+            let mut reply = vec![0u8; INFO_SIZE];
+            let mut ov: OVERLAPPED = std::mem::zeroed();
+            ov.hEvent = CreateEventW(null(), 1, 0, null());
+            let mut got = 0u32;
+            let mut ok = !ov.hEvent.is_null()
+                && DeviceIoControl(
+                    handle,
+                    IOCTL_GET_INFO,
+                    null(),
+                    0,
+                    reply.as_mut_ptr().cast(),
+                    INFO_SIZE as u32,
+                    null_mut(),
+                    &mut ov,
+                ) != 0;
+            if !ok && !ov.hEvent.is_null() && GetLastError() == ERROR_IO_PENDING {
+                if WaitForSingleObject(ov.hEvent, timeout_ms) != WAIT_OBJECT_0 {
+                    CancelIo(handle);
+                }
+                ok = GetOverlappedResult(handle, &ov, &mut got, 1) != 0;
+            } else if ok {
+                GetOverlappedResult(handle, &ov, &mut got, 0);
+            }
+            if !ov.hEvent.is_null() {
+                CloseHandle(ov.hEvent);
+            }
+            CloseHandle(handle);
+            (ok && got as usize >= APPLE_KIS_SERIAL_END).then_some(reply)
+        }
     }
 }
 
@@ -542,6 +724,30 @@ mod dic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn apple_kis_reply(serial: &str) -> Vec<u8> {
+        let mut reply = vec![0u8; APPLE_KIS_INFO_SIZE];
+        reply[..4].copy_from_slice(&[0xac, 0x05, 0x27, 0x12]);
+        reply[8..8 + 5].copy_from_slice(b"NONC:");
+        reply[APPLE_KIS_SERIAL_OFFSET..APPLE_KIS_SERIAL_OFFSET + serial.len()]
+            .copy_from_slice(serial.as_bytes());
+        reply
+    }
+
+    #[test]
+    fn reads_serial_from_apple_kis_reply() {
+        let serial = "SDOM:01 CPID:8132 BDID:2A ECID:000A78D20A06401C SRTG:[iBoot-9082.0.0.300.1]";
+        assert_eq!(
+            classify_apple_kis(&apple_kis_reply(serial)),
+            Read::Serial(serial.to_string())
+        );
+    }
+
+    #[test]
+    fn empty_apple_kis_serial_means_not_in_dfu() {
+        assert_eq!(classify_apple_kis(&apple_kis_reply("")), Read::NotInDfu);
+        assert_eq!(classify_apple_kis(&[0u8; 16]), Read::Failed);
+    }
 
     #[test]
     fn header_matches_libirecovery() {

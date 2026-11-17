@@ -84,6 +84,13 @@ const TRIGGER_ATTEMPTS: u32 = 3;
 /// How long to wait for DFU enumeration before concluding the target booted
 /// normally and re-sending the trigger.
 const RETRY_AFTER: Duration = Duration::from_secs(10);
+/// Pause between rebooting a Mac out of an unreadable DFU and triggering DFU
+/// again (Windows).
+#[cfg(target_os = "windows")]
+const REDFU_SETTLE: Duration = Duration::from_secs(3);
+/// How many times to put an unreadable Mac back into DFU (Windows).
+#[cfg(target_os = "windows")]
+const REDFU_ATTEMPTS: u32 = 2;
 
 /// Trigger DFU on the selected target, routing through a dongle or the host,
 /// retrying, and (when observable) waiting for the Mac to enter DFU.
@@ -212,6 +219,47 @@ fn trigger_via_host(
 }
 
 fn trigger_via_dongle(
+    d: &Dongle,
+    want_ecid: Option<u64>,
+    timeout: Duration,
+    progress: ProgressFn,
+) -> Result<DfuOutcome> {
+    // Windows' Debug USB driver (AppleKIS) only picks up a Mac that arrives in
+    // DFU. One it missed (already in DFU when Windows Update installed the
+    // driver, or after a driver change) reads again after one more DFU entry,
+    // which the dongle can do: reboot it out of DFU, then trigger again.
+    #[cfg(target_os = "windows")]
+    {
+        fn redfu(d: &Dongle, progress: ProgressFn) -> Result<()> {
+            progress(Event::DfuTriggerStage {
+                stage: "Windows didn't pick up the Mac in DFU; putting it back into DFU".into(),
+            });
+            reboot_via_dongle(d, progress)?;
+            // Triggering straight after the reboot lands it back in DFU but
+            // unreadable again; give the port a moment to settle first.
+            std::thread::sleep(REDFU_SETTLE);
+            Ok(())
+        }
+        let mut redfus = 0;
+        if device::list()?.iter().any(Device::kis_unreadable) {
+            redfu(d, progress)?;
+            redfus += 1;
+        }
+        loop {
+            match trigger_via_dongle_once(d, want_ecid, timeout, progress)? {
+                DfuOutcome::Entered(dev) if dev.kis_unreadable() && redfus < REDFU_ATTEMPTS => {
+                    redfu(d, progress)?;
+                    redfus += 1;
+                }
+                outcome => return Ok(outcome),
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    trigger_via_dongle_once(d, want_ecid, timeout, progress)
+}
+
+fn trigger_via_dongle_once(
     d: &Dongle,
     want_ecid: Option<u64>,
     timeout: Duration,

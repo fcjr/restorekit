@@ -492,10 +492,18 @@ async fn main(_spawner: Spawner) {
     static VHANDLER: StaticCell<VendorHandler> = StaticCell::new();
     let vendor_iface = {
         let mut func = builder.function(0xFF, 0x00, 0x00);
-        // Tell Windows this function speaks WinUSB.
+        // Tell Windows this function speaks WinUSB, and give it an interface
+        // GUID: without one Windows never exposes the interface of a composite
+        // device to apps, so the SDK can't open it.
         func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+        func.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+            "DeviceInterfaceGUIDs",
+            msos::PropertyData::RegMultiSz(&[proto::WINUSB_INTERFACE_GUID]),
+        ));
         let mut iface = func.interface();
         let n = iface.interface_number();
+        // The host's Windows driver setup binds this interface by number.
+        assert_eq!(u8::from(n), proto::VENDOR_IFACE);
         let _alt = iface.alt_setting(0xFF, 0x00, 0x00, None);
         n
     };

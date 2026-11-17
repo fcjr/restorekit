@@ -235,6 +235,24 @@ fn with_failure_hint(err: Error) -> Error {
     }
 }
 
+/// Decide who serves restore mode on Windows before the restore starts, so a
+/// setup that can't reach it fails now rather than after the uploads. Returns
+/// whether Apple's usbmuxd is the one to use (no UAC prompt then).
+#[cfg(target_os = "windows")]
+pub fn windows_mux_check() -> Result<bool> {
+    use crate::usbmuxd::MuxPort;
+    match crate::usbmuxd::mux_port() {
+        MuxPort::Apple => Ok(true),
+        MuxPort::Other { pid, name } => Err(Error::UsbmuxdFailed(format!(
+            "another program ({}) is listening on 127.0.0.1:27015, the port restorekit's \
+             USB mux uses. If it's another restorekit restore, wait for it to finish; \
+             otherwise close it and retry",
+            name.unwrap_or_else(|| format!("pid {pid}"))
+        ))),
+        MuxPort::Free => Ok(false),
+    }
+}
+
 /// Run a restore against the DFU device with the given ECID, streaming progress.
 ///
 /// This links libidevicerestore statically; there is no external binary.
@@ -254,8 +272,18 @@ pub fn restore(
     // can reach USB devices (restore mode) without an external daemon — unless a
     // parent process already started a shared one (parallel restores), which we
     // then reuse via the inherited USBMUXD_SOCKET_ADDRESS.
+    //
+    // On Windows, Apple's own usbmuxd (Apple Mobile Device Service, installed
+    // with iTunes or Apple Devices) may already hold that port. It drives the
+    // restore-mode interface through Apple's driver, so use it as-is: no
+    // embedded server and no WinUSB watcher.
+    #[cfg(target_os = "windows")]
+    let apple_usbmuxd =
+        std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_none() && windows_mux_check()?;
+    #[cfg(target_os = "linux")]
+    let apple_usbmuxd = false;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    let _usbmuxd = if std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
+    let _usbmuxd = if apple_usbmuxd || std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
         None
     } else {
         Some(crate::usbmuxd::UsbmuxdGuard::start(progress)?)
@@ -264,8 +292,21 @@ pub fn restore(
     // On Windows the Mac's restore-mode interface is claimed by Apple's driver,
     // which libusb can't open; spawn an elevated watcher (one UAC) that forces
     // our WinUSB onto it when it appears. Held for the duration of the restore.
+    // Without it the restore would run for minutes and then stall waiting for
+    // restore mode, so stop now instead.
     #[cfg(target_os = "windows")]
-    let _restore_watcher = crate::driver::spawn_restore_mode_watcher();
+    let _restore_watcher = if apple_usbmuxd {
+        None
+    } else {
+        Some(crate::driver::spawn_restore_mode_watcher().ok_or_else(|| {
+            Error::DriverInstall(
+                "couldn't start the restore-mode USB helper (was the Windows UAC prompt \
+                 declined?). Without it the restore stalls once the Mac enters restore mode; \
+                 retry and approve the prompt"
+                    .into(),
+            )
+        })?)
+    };
 
     let mut attempt = 1;
     loop {

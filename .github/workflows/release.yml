@@ -122,7 +122,6 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-libusb
             mingw-w64-x86_64-nasm
 
       # GNU host toolchain: build scripts link with ld, not MSVC's link.exe

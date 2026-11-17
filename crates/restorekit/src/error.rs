@@ -125,7 +125,11 @@ fn kis_unreadable_message() -> &'static str {
          shows up, so retrying without re-entering DFU won't help"
     } else if cfg!(target_os = "windows") {
         "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), but restorekit couldn't \
-         read its identity. Run `restorekit setup-driver` so WinUSB is bound to it, then retry"
+         read its identity. Windows' driver for it only picks up a Mac that arrives in DFU, so \
+         one that was already there when the driver was installed or changed stays unreadable. \
+         Put the Mac back into DFU (`restorekit reboot`, then `restorekit dfu`; with a dongle \
+         restorekit does this itself) and retry. If it still can't be read, run \
+         `restorekit setup-driver`"
     } else {
         "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), but restorekit couldn't \
          read its identity. Check USB permissions (the udev rule covers 05ac:1881) and retry"
@@ -159,7 +163,9 @@ on its own, so pass the full path:
   sudo {exe} ..."
         )
     } else if cfg!(target_os = "windows") {
-        "Run `restorekit setup-driver` to bind the WinUSB driver to the cabled Mac.".into()
+        "Run `restorekit setup-driver` to bind the WinUSB driver to the cabled Mac and the \
+         RecoverKit dongle."
+            .into()
     } else {
         format!("Re-run as root: sudo {exe} ...")
     }
