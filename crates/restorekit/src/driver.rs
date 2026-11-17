@@ -1,22 +1,19 @@
-//! WinUSB driver setup for Apple DFU/recovery devices (Windows only).
+//! WinUSB setup for Apple DFU/recovery/restore devices and RecoverKit dongles
+//! (Windows only).
 //!
-//! On Windows, libusb (and `nusb`) can only *open* a device that has a
-//! libusb-class driver bound to it. A Mac in DFU/recovery enumerates under
-//! Apple's vendor id but Windows binds no usable driver, so restorekit can't
-//! talk to it until **WinUSB** is bound. (Detection still works without a
-//! driver — that's plain enumeration — only the restore needs WinUSB.)
+//! On Windows, libusb (and `nusb`) can only *open* a device that has WinUSB
+//! bound to it and a device interface GUID registered for it. Apple's own
+//! drivers (Windows Update installs them on first plug-in) serve DFU, recovery
+//! and KIS directly through libirecovery, but not restore mode, where Apple's
+//! WinUSB variant can't be opened by libusb; and a machine without them has no
+//! driver for those modes at all.
 //!
-//! Windows won't install a driver package from an unsigned INF, so we do what
-//! Zadig/libwdi do: generate a self-signed code-signing certificate, build and
-//! sign a catalog for a WinUSB INF, trust the certificate, then bind the driver
-//! with `pnputil`. That whole dance is scripted through PowerShell (present on
-//! every supported Windows) rather than reimplementing the crypto here.
-//!
-//! Installing a driver and trusting a certificate need administrator rights;
-//! the caller (the CLI's `setup-driver` command) elevates first.
-
-use std::io::Write;
-use std::process::Command;
+//! Rather than shipping a driver package (which Windows only loads when signed,
+//! and on ARM only when Microsoft signed it), restorekit binds Windows' own
+//! `winusb.inf` "WinUsb Device" driver to the device instance, the way Device
+//! Manager's "Have Disk / show all devices" route does, and writes the
+//! interface GUID into the device's registry key the way an INF's `AddReg`
+//! would. Both need administrator rights; the callers elevate first.
 
 use restorekit_dongle_proto as proto;
 
@@ -32,8 +29,7 @@ pub const APPLE_VID: u16 = 0x05ac;
 /// Deliberately NOT Apple's normal-mode range (0x129x): on Windows, binding
 /// WinUSB *replaces* a device's driver, so covering normal mode would hijack a
 /// plugged-in iPhone/iPad from Apple's own driver. Every id here is only ever an
-/// Apple device in recovery/DFU, never a normal one — so staging them all up
-/// front is safe and lets a restore hop DFU -> recovery without a re-run.
+/// Apple device in recovery/DFU, never a normal one.
 pub const DRIVER_PIDS: &[u16] = &[
     0x1222, // WTF
     0x1227, // DFU
@@ -44,50 +40,22 @@ pub const DRIVER_PIDS: &[u16] = &[
 
 /// Apple's normal-mode product-id range (0x1290–0x12af). A Mac in **restore
 /// mode** enumerates as a composite device with one of these ids plus a
-/// `RESTORE_MODE` qualifier; we bind WinUSB to that qualified interface only (see
-/// [`winusb_inf`]), never the bare id — so a normal iPhone/iPad is untouched.
+/// `RESTORE_MODE` qualifier; we bind WinUSB to that qualified interface only,
+/// never the bare id, so a normal iPhone/iPad is untouched.
 const RESTORE_MODE_PIDS: std::ops::RangeInclusive<u16> = 0x1290..=0x12af;
+
+/// Device interface GUIDs, per mode. The DFU, recovery, port DFU and KIS ones
+/// are what Apple's drivers register, which libirecovery's Windows backend
+/// enumerates; the restore-mode one is ours, for libusb.
+const GUID_DFU: &str = "{B8085869-FEB9-404B-8CB1-1E5C14FA8C54}";
+const GUID_IBOOT: &str = "{ED82A167-D61A-4AF6-9AB6-11E52236C576}";
+const GUID_PORTDFU: &str = "{AF633FF1-1170-4CA6-AE9E-08D001421EAA}";
+const GUID_KIS: &str = "{B36F4137-F4EF-4BFC-A25A-C2410768EE37}";
+const GUID_RESTORE: &str = "{3F966BD9-FA04-4EC5-991C-D326973B5128}";
 
 /// Does `pid` name a mode restorekit binds WinUSB for?
 pub fn is_target_pid(pid: u16) -> bool {
     DRIVER_PIDS.contains(&pid)
-}
-
-/// What to tell Windows on ARM users, where restorekit's own driver package
-/// can't be installed.
-pub const ARM64_HINT: &str = "Windows on ARM only loads Microsoft-signed driver packages, so \
-     restorekit can't install its own USB driver here. Install Apple Devices from the Microsoft \
-     Store (or iTunes) instead and retry: restorekit then uses Apple's drivers and Apple Mobile \
-     Device Service, and needs no driver of its own";
-
-/// Whether Windows itself runs on ARM64, including when this x64 build runs
-/// under emulation there.
-#[cfg(target_os = "windows")]
-pub fn native_arm64() -> bool {
-    use windows_sys::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_ARM64;
-    use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2};
-    let (mut process, mut native) = (0u16, 0u16);
-    let ok = unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, &mut native) != 0 };
-    ok && native == IMAGE_FILE_MACHINE_ARM64
-}
-
-/// Whether our WinUSB package is in the driver store (the restore-mode watcher
-/// binds the newest one).
-#[cfg(target_os = "windows")]
-pub fn winusb_package_staged() -> bool {
-    let Some(windir) = std::env::var_os("windir") else {
-        return false;
-    };
-    let Ok(entries) = std::fs::read_dir(std::path::Path::new(&windir).join("INF")) else {
-        return false;
-    };
-    entries.flatten().any(|e| {
-        let name = e.file_name().to_string_lossy().to_ascii_lowercase();
-        name.starts_with("oem")
-            && name.ends_with(".inf")
-            && std::fs::read_to_string(e.path())
-                .is_ok_and(|c| c.contains("RestoreKit") && c.contains("RESTORE_MODE"))
-    })
 }
 
 /// A connected Apple device that needs WinUSB bound before restorekit can use it.
@@ -108,14 +76,6 @@ pub fn connected_targets() -> Result<Vec<Target>> {
             name: format!("Apple device (mode {pid:#06x})"),
         })
         .collect())
-}
-
-/// How many RecoverKit dongles are connected (by their vendor interface).
-fn connected_dongles() -> Result<usize> {
-    Ok(present_instance_ids()?
-        .iter()
-        .filter(|id| is_dongle_interface(id))
-        .count())
 }
 
 /// The PnP hardware id of a dongle's vendor interface.
@@ -198,15 +158,46 @@ fn target_pid_from_instance_id(instance_id: &str) -> Option<u16> {
     is_target_pid(pid).then_some(pid)
 }
 
-/// Bind the WinUSB driver to every connected Apple DFU/recovery/restore device
-/// and RecoverKit dongle, so libusb and nusb can open them. Returns the number
-/// of devices set up.
+/// The interface GUID restorekit binds `instance_id` with, if it's a device
+/// restorekit drives: a DFU-family or recovery device itself (not one of its
+/// interfaces), a restore-mode data interface, or a dongle's vendor interface.
+fn bind_guid(instance_id: &str) -> Option<&'static str> {
+    if is_dongle_interface(instance_id) {
+        return Some(proto::WINUSB_INTERFACE_GUID);
+    }
+    let upper = instance_id.to_ascii_uppercase();
+    let rest = upper.strip_prefix(&format!("USB\\VID_{APPLE_VID:04X}&PID_"))?;
+    let pid = u16::from_str_radix(rest.get(..4)?, 16).ok()?;
+    let qualifier = rest.get(4..)?;
+    if qualifier.starts_with("&RESTORE_MODE&MI_00\\") {
+        return RESTORE_MODE_PIDS.contains(&pid).then_some(GUID_RESTORE);
+    }
+    if !qualifier.starts_with('\\') {
+        return None;
+    }
+    match pid {
+        0x1222 | 0x1227 => Some(GUID_DFU),
+        0x1280..=0x1283 => Some(GUID_IBOOT),
+        0xf014 => Some(GUID_PORTDFU),
+        0x1881 => Some(GUID_KIS),
+        _ => None,
+    }
+}
+
+/// Make every connected Apple DFU/recovery device and RecoverKit dongle
+/// reachable, binding WinUSB where needed. Devices on Apple's own drivers are
+/// left alone: libirecovery talks to those directly, and moving a KIS Mac off
+/// AppleKIS strands it until it re-enters DFU. Returns the number of devices
+/// set up.
 ///
 /// Must run elevated (the CLI handles that).
 pub fn install_winusb(progress: ProgressFn) -> Result<usize> {
-    let targets = connected_targets()?;
-    let dongles = connected_dongles()?;
-    if targets.is_empty() && dongles == 0 {
+    let devices: Vec<(String, &str)> = present_instance_ids()?
+        .into_iter()
+        .filter_map(|id| bind_guid(&id).map(|g| (id, g)))
+        .filter(|(id, _)| !id.to_ascii_uppercase().contains("&RESTORE_MODE&"))
+        .collect();
+    if devices.is_empty() {
         return Err(Error::DriverInstall(
             "no Apple device in DFU or recovery mode and no RecoverKit dongle is connected — \
              plug in the dongle or put the target into DFU (see `restorekit status`) and re-run"
@@ -215,342 +206,353 @@ pub fn install_winusb(progress: ProgressFn) -> Result<usize> {
     }
 
     progress(Event::DriverSetupStarting);
-    run_setup_script(false).map_err(|e| match e {
-        Error::DriverInstall(detail) if native_arm64() => {
-            Error::DriverInstall(format!("{ARM64_HINT}\n\n{detail}"))
+    let mut failures = Vec::new();
+    for (id, guid) in &devices {
+        let dongle = is_dongle_interface(id);
+        let result = if !dongle && winusb::driver_of(id).is_some_and(|d| d.is_apple()) {
+            Ok(())
+        } else {
+            winusb::bind(id, guid)
+        };
+        match result {
+            Ok(()) => progress(Event::DriverBound {
+                name: if dongle {
+                    "RecoverKit dongle".into()
+                } else {
+                    target_pid_from_instance_id(id)
+                        .map(|pid| format!("Apple device (mode {pid:#06x})"))
+                        .unwrap_or_else(|| id.clone())
+                },
+            }),
+            Err(e) => failures.push(format!("{id}: {e}")),
         }
-        e => e,
-    })?;
-
-    for t in &targets {
-        progress(Event::DriverBound {
-            name: t.name.clone(),
-        });
     }
-    for _ in 0..dongles {
-        progress(Event::DriverBound {
-            name: "RecoverKit dongle".into(),
-        });
-    }
-    Ok(targets.len() + dongles)
-}
-
-/// Sign and stage our WinUSB package, then (unless `stage_only`) force it onto
-/// every connected device it covers. Must run elevated.
-fn run_setup_script(stage_only: bool) -> Result<()> {
-    // A private work dir holding only the INF(s) — the catalog hashes this
-    // directory, so nothing else may live in it. The script goes alongside.
-    let base = std::env::temp_dir();
-    let stamp = std::process::id();
-    let work = base.join(format!("restorekit-winusb-{stamp}"));
-    let script = base.join(format!("restorekit-winusb-{stamp}.ps1"));
-    let _ = std::fs::remove_dir_all(&work);
-    std::fs::create_dir_all(&work).map_err(|e| Error::DriverInstall(e.to_string()))?;
-
-    // One INF covering every DFU/recovery mode, staged in a single pnputil run,
-    // so a restore that hops DFU -> recovery is covered without re-running.
-    let inf_path = work.join("restorekit_winusb.inf");
-    write_file(&inf_path, winusb_inf(DRIVER_PIDS).as_bytes())?;
-    write_file(&script, WINUSB_SETUP_PS1.as_bytes())?;
-
-    // CREATE_NO_WINDOW: don't flash a PowerShell console (matters for the GUI).
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut cmd = Command::new("powershell");
-    cmd.creation_flags(CREATE_NO_WINDOW)
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script)
-        .arg("-WorkDir")
-        .arg(&work)
-        .arg("-DeviceRegex")
-        .arg(bind_regex());
-    if stage_only {
-        cmd.arg("-StageOnly");
-    }
-    let output = cmd
-        .output()
-        .map_err(|e| Error::DriverInstall(format!("failed to run PowerShell: {e}")));
-
-    let _ = std::fs::remove_dir_all(&work);
-    let _ = std::fs::remove_file(&script);
-
-    let output = output?;
-    if !output.status.success() {
-        // pnputil's own output (on stdout) usually says why; keep both.
-        let detail = [&output.stderr, &output.stdout]
-            .iter()
-            .map(|b| String::from_utf8_lossy(b).trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
+    if !failures.is_empty() {
         return Err(Error::DriverInstall(format!(
-            "WinUSB setup did not complete: {detail}"
+            "WinUSB setup did not complete: {}",
+            failures.join("; ")
         )));
     }
-    Ok(())
+    Ok(devices.len())
 }
 
-/// PowerShell regex matching the instance ids the setup script binds: the
-/// Apple modes in [`DRIVER_PIDS`] and the dongle's vendor interface.
-fn bind_regex() -> String {
-    let pids: Vec<String> = DRIVER_PIDS.iter().map(|p| format!("{p:04X}")).collect();
-    format!(
-        "^USB\\\\VID_{APPLE_VID:04X}&PID_({})\\\\|^{}\\\\",
-        pids.join("|"),
-        dongle_interface_hwid().replace('\\', "\\\\")
-    )
-}
+/// Binding Windows' own WinUSB to one device instance.
+mod winusb {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::{null, null_mut};
 
-/// A WinUSB device INF binding the inbox `winusb.sys` to every Apple product id
-/// in `pids`.
-///
-/// Uses the documented `Include=winusb.inf` / `Needs=WINUSB.NT` form, which
-/// relies on the in-box WinUSB driver (Windows 10+), so no redistributable
-/// driver binaries ship with restorekit. `CatalogFile` names the signed catalog
-/// the setup script produces.
-fn winusb_inf(pids: &[u16]) -> String {
-    let mut models = String::new();
-    for pid in pids {
-        let install = match *pid {
-            0x1222 | 0x1227 => "WINUSB_DFU_Install",
-            0x1280..=0x1283 => "WINUSB_IBOOT_Install",
-            0xf014 => "WINUSB_PORTDFU_Install",
-            0x1881 => "WINUSB_KIS_Install",
-            _ => unreachable!("unsupported Apple mode PID"),
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        DiInstallDevice, SetupDiBuildDriverInfoList, SetupDiCallClassInstaller,
+        SetupDiCreateDevRegKeyW, SetupDiCreateDeviceInfoList, SetupDiDestroyDeviceInfoList,
+        SetupDiEnumDriverInfoW, SetupDiGetDeviceInstallParamsW, SetupDiGetDriverInfoDetailW,
+        SetupDiOpenDevRegKey, SetupDiOpenDeviceInfoW, SetupDiSetClassInstallParamsW,
+        SetupDiSetDeviceInstallParamsW, DICS_FLAG_GLOBAL, DICS_PROPCHANGE, DIF_PROPERTYCHANGE,
+        DIREG_DEV, DIREG_DRV, DI_ENUMSINGLEINF, DI_FLAGSEX_ALLOWEXCLUDEDDRVS, HDEVINFO,
+        SPDIT_CLASSDRIVER, SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA, SP_DEVINSTALL_PARAMS_W,
+        SP_DRVINFO_DATA_V2_W, SP_DRVINFO_DETAIL_DATA_W, SP_PROPCHANGE_PARAMS,
+    };
+    use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegQueryValueExW, RegSetValueExW, HKEY, KEY_READ, REG_MULTI_SZ,
+    };
+    use windows_sys::Win32::System::SystemInformation::GetWindowsDirectoryW;
+
+    use crate::error::{Error, Result};
+
+    /// `{88BAE032-5A81-49F0-BC3D-A4FF138216D6}`, the USBDevice setup class of
+    /// `winusb.inf`.
+    const USBDEVICE_CLASS: windows_sys::core::GUID =
+        windows_sys::core::GUID::from_u128(0x88bae032_5a81_49f0_bc3d_a4ff138216d6);
+    const WINUSB_HWID: &str = "USB\\MS_COMP_WINUSB";
+
+    fn wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s).encode_wide().chain([0]).collect()
+    }
+
+    fn err(what: &str) -> Error {
+        Error::DriverInstall(format!("{what} failed: {:#x}", unsafe { GetLastError() }))
+    }
+
+    /// The driver currently installed on a device.
+    pub(super) struct Driver {
+        inf: String,
+        provider: String,
+    }
+
+    impl Driver {
+        pub(super) fn is_apple(&self) -> bool {
+            self.provider.starts_with("Apple")
+        }
+
+        /// Plain WinUSB: Windows' own `winusb.inf`, or an older restorekit's
+        /// package. (Apple's restore-mode driver is WinUSB too, but a variant
+        /// libusb can't open.)
+        fn is_plain_winusb(&self) -> bool {
+            self.inf.eq_ignore_ascii_case("winusb.inf") || self.provider == "RestoreKit"
+        }
+    }
+
+    /// An open device-info set holding one device.
+    struct Device {
+        set: HDEVINFO,
+        data: SP_DEVINFO_DATA,
+    }
+
+    impl Drop for Device {
+        fn drop(&mut self) {
+            unsafe { SetupDiDestroyDeviceInfoList(self.set) };
+        }
+    }
+
+    impl Device {
+        fn open(instance_id: &str) -> Result<Device> {
+            unsafe {
+                let set = SetupDiCreateDeviceInfoList(null(), null_mut());
+                if set == INVALID_HANDLE_VALUE as HDEVINFO {
+                    return Err(err("SetupDiCreateDeviceInfoList"));
+                }
+                let mut dev = Device {
+                    set,
+                    data: SP_DEVINFO_DATA {
+                        cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
+                        ..Default::default()
+                    },
+                };
+                if SetupDiOpenDeviceInfoW(
+                    set,
+                    wide(instance_id).as_ptr(),
+                    null_mut(),
+                    0,
+                    &mut dev.data,
+                ) == 0
+                {
+                    return Err(err("SetupDiOpenDeviceInfo"));
+                }
+                Ok(dev)
+            }
+        }
+
+        fn reg_key(&self, which: u32) -> Option<HKEY> {
+            let key = unsafe {
+                SetupDiOpenDevRegKey(self.set, &self.data, DICS_FLAG_GLOBAL, 0, which, KEY_READ)
+            };
+            (key != INVALID_HANDLE_VALUE as HKEY).then_some(key)
+        }
+
+        fn driver(&self) -> Option<Driver> {
+            let key = self.reg_key(DIREG_DRV)?;
+            let inf = read_string(key, "InfPath");
+            let provider = read_string(key, "ProviderName");
+            unsafe { RegCloseKey(key) };
+            Some(Driver {
+                inf: inf.unwrap_or_default(),
+                provider: provider.unwrap_or_default(),
+            })
+        }
+
+        fn interface_guids(&self) -> Option<String> {
+            let key = self.reg_key(DIREG_DEV)?;
+            let guids = read_string(key, "DeviceInterfaceGUIDs");
+            unsafe { RegCloseKey(key) };
+            guids
+        }
+
+        fn set_interface_guid(&self, guid: &str) -> Result<()> {
+            unsafe {
+                let key = SetupDiCreateDevRegKeyW(
+                    self.set,
+                    &self.data,
+                    DICS_FLAG_GLOBAL,
+                    0,
+                    DIREG_DEV,
+                    null_mut(),
+                    null(),
+                );
+                if key == INVALID_HANDLE_VALUE as HKEY {
+                    return Err(err("opening the device's registry key"));
+                }
+                // REG_MULTI_SZ: the string, its NUL, and the list's closing NUL.
+                let mut value = wide(guid);
+                value.push(0);
+                let rc = RegSetValueExW(
+                    key,
+                    wide("DeviceInterfaceGUIDs").as_ptr(),
+                    0,
+                    REG_MULTI_SZ,
+                    value.as_ptr().cast(),
+                    (value.len() * 2) as u32,
+                );
+                RegCloseKey(key);
+                if rc != 0 {
+                    return Err(Error::DriverInstall(format!(
+                        "writing DeviceInterfaceGUIDs failed: {rc:#x}"
+                    )));
+                }
+                Ok(())
+            }
+        }
+
+        /// Restart the device so its driver re-reads its settings.
+        fn restart(&self) -> Result<()> {
+            unsafe {
+                let params = SP_PROPCHANGE_PARAMS {
+                    ClassInstallHeader: SP_CLASSINSTALL_HEADER {
+                        cbSize: std::mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
+                        InstallFunction: DIF_PROPERTYCHANGE,
+                    },
+                    StateChange: DICS_PROPCHANGE,
+                    Scope: DICS_FLAG_GLOBAL,
+                    HwProfile: 0,
+                };
+                if SetupDiSetClassInstallParamsW(
+                    self.set,
+                    &self.data,
+                    &params.ClassInstallHeader,
+                    std::mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
+                ) == 0
+                    || SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, self.set, &self.data) == 0
+                {
+                    return Err(err("restarting the device"));
+                }
+                Ok(())
+            }
+        }
+
+        /// Install `winusb.inf`'s "WinUsb Device" on this device. Its hardware
+        /// id (`USB\MS_COMP_WINUSB`) doesn't match the device, so allow
+        /// non-matching drivers and offer only that one INF.
+        fn install_winusb(&mut self) -> Result<()> {
+            unsafe {
+                let mut params = SP_DEVINSTALL_PARAMS_W {
+                    cbSize: std::mem::size_of::<SP_DEVINSTALL_PARAMS_W>() as u32,
+                    ..std::mem::zeroed()
+                };
+                if SetupDiGetDeviceInstallParamsW(self.set, &self.data, &mut params) == 0 {
+                    return Err(err("SetupDiGetDeviceInstallParams"));
+                }
+                let n = GetWindowsDirectoryW(params.DriverPath.as_mut_ptr(), 200) as usize;
+                if n == 0 || n >= 200 {
+                    return Err(err("GetWindowsDirectory"));
+                }
+                for (i, c) in "\\INF\\winusb.inf".encode_utf16().chain([0]).enumerate() {
+                    params.DriverPath[n + i] = c;
+                }
+                params.Flags |= DI_ENUMSINGLEINF;
+                params.FlagsEx |= DI_FLAGSEX_ALLOWEXCLUDEDDRVS;
+                if SetupDiSetDeviceInstallParamsW(self.set, &self.data, &params) == 0 {
+                    return Err(err("SetupDiSetDeviceInstallParams"));
+                }
+                self.data.ClassGuid = USBDEVICE_CLASS;
+                if SetupDiBuildDriverInfoList(self.set, &mut self.data, SPDIT_CLASSDRIVER) == 0 {
+                    return Err(err("SetupDiBuildDriverInfoList"));
+                }
+                let mut node = SP_DRVINFO_DATA_V2_W {
+                    cbSize: std::mem::size_of::<SP_DRVINFO_DATA_V2_W>() as u32,
+                    ..std::mem::zeroed()
+                };
+                let mut found = false;
+                let mut index = 0;
+                while SetupDiEnumDriverInfoW(
+                    self.set,
+                    &self.data,
+                    SPDIT_CLASSDRIVER,
+                    index,
+                    &mut node,
+                ) != 0
+                {
+                    index += 1;
+                    // The detail struct ends in a variable-length hardware id.
+                    let mut buf = [0u64; 512];
+                    let detail = buf.as_mut_ptr().cast::<SP_DRVINFO_DETAIL_DATA_W>();
+                    (*detail).cbSize = std::mem::size_of::<SP_DRVINFO_DETAIL_DATA_W>() as u32;
+                    if SetupDiGetDriverInfoDetailW(
+                        self.set,
+                        &self.data,
+                        &node,
+                        detail,
+                        std::mem::size_of_val(&buf) as u32,
+                        null_mut(),
+                    ) == 0
+                    {
+                        continue;
+                    }
+                    let hwid = (*detail).HardwareID.as_ptr();
+                    let len = (0..).take_while(|&i| *hwid.add(i) != 0).count();
+                    let hwid = String::from_utf16_lossy(std::slice::from_raw_parts(hwid, len));
+                    if hwid.eq_ignore_ascii_case(WINUSB_HWID) {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Err(Error::DriverInstall(
+                        "Windows' winusb.inf has no WinUsb Device entry".into(),
+                    ));
+                }
+                let mut reboot = 0;
+                if DiInstallDevice(null_mut(), self.set, &self.data, &node, 0, &mut reboot) == 0 {
+                    return Err(err("installing WinUSB"));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn read_string(key: HKEY, name: &str) -> Option<String> {
+        let name = wide(name);
+        let mut buf = [0u16; 512];
+        let mut size = std::mem::size_of_val(&buf) as u32;
+        let rc = unsafe {
+            RegQueryValueExW(
+                key,
+                name.as_ptr(),
+                null(),
+                null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut size,
+            )
         };
-        models.push_str(&format!(
-            "%DeviceName% = {install}, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}\n"
-        ));
+        if rc != 0 {
+            return None;
+        }
+        let chars = &buf[..(size as usize / 2).min(buf.len())];
+        let end = chars.iter().position(|&c| c == 0).unwrap_or(chars.len());
+        Some(String::from_utf16_lossy(&chars[..end]))
     }
-    // Restore mode (Apple Silicon): the device becomes a USB *composite* whose
-    // data interface enumerates as `VID&PID&RESTORE_MODE&MI_00`. Apple's
-    // `appleusb.inf` binds a WinUSB *variant* that libusb can't open
-    // (`winusbx_open` → ERROR_NOT_SUPPORTED), so bind our plain `winusb.sys`
-    // there too — a more specific, trusted match that wins on re-enumeration.
-    // The `RESTORE_MODE` qualifier is restore-only, so this never hijacks a
-    // normal-mode iPhone/iPad sharing a 0x129x product id.
-    for pid in RESTORE_MODE_PIDS {
-        models.push_str(&format!(
-            "%DeviceName% = WINUSB_RESTORE_Install, USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}&RESTORE_MODE&MI_00\n"
-        ));
+
+    /// The driver installed on `instance_id`, if any.
+    pub(super) fn driver_of(instance_id: &str) -> Option<Driver> {
+        Device::open(instance_id).ok()?.driver()
     }
-    // The dongle's vendor interface. Its firmware asks Windows for WinUSB but,
-    // through 0.1.3, gave no interface GUID, without which Windows never exposes
-    // that interface to apps; binding it here supplies the GUID. More specific
-    // than the generic WinUSB compatible-id match, so it wins that ranking.
-    models.push_str(&format!(
-        "%DongleName% = WINUSB_DONGLE_Install, {}\n",
-        dongle_interface_hwid()
-    ));
-    format!(
-        r#"; Generated by RestoreKit - binds WinUSB to an Apple device so libusb can access it.
-[Version]
-Signature   = "$Windows NT$"
-Class       = USBDevice
-ClassGuid   = {{88BAE032-5A81-49f0-BC3D-A4FF138216D6}}
-Provider    = %ProviderName%
-CatalogFile = restorekit_winusb.cat
-DriverVer   = 01/01/2024,1.0.0.2
 
-[Manufacturer]
-%ProviderName% = Standard,NTamd64,NTarm64
-
-[Standard.NTamd64]
-{models}
-[Standard.NTarm64]
-{models}
-[WINUSB_DFU_Install.NT]
-Include = winusb.inf
-Needs   = WINUSB.NT
-
-[WINUSB_DFU_Install.NT.Services]
-Include = winusb.inf
-Needs   = WINUSB.NT.Services
-
-[WINUSB_DFU_Install.NT.HW]
-AddReg = WINUSB_DFU_AddReg
-
-[WINUSB_DFU_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{{B8085869-FEB9-404B-8CB1-1E5C14FA8C54}}"
-
-[WINUSB_IBOOT_Install.NT]
-Include = winusb.inf
-Needs   = WINUSB.NT
-
-[WINUSB_IBOOT_Install.NT.Services]
-Include = winusb.inf
-Needs   = WINUSB.NT.Services
-
-[WINUSB_IBOOT_Install.NT.HW]
-AddReg = WINUSB_IBOOT_AddReg
-
-[WINUSB_IBOOT_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{{ED82A167-D61A-4AF6-9AB6-11E52236C576}}"
-
-[WINUSB_PORTDFU_Install.NT]
-Include = winusb.inf
-Needs   = WINUSB.NT
-
-[WINUSB_PORTDFU_Install.NT.Services]
-Include = winusb.inf
-Needs   = WINUSB.NT.Services
-
-[WINUSB_PORTDFU_Install.NT.HW]
-AddReg = WINUSB_PORTDFU_AddReg
-
-[WINUSB_PORTDFU_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{{AF633FF1-1170-4CA6-AE9E-08D001421EAA}}"
-
-[WINUSB_KIS_Install.NT]
-Include = winusb.inf
-Needs   = WINUSB.NT
-
-[WINUSB_KIS_Install.NT.Services]
-Include = winusb.inf
-Needs   = WINUSB.NT.Services
-
-[WINUSB_KIS_Install.NT.HW]
-AddReg = WINUSB_KIS_AddReg
-
-[WINUSB_KIS_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{{B36F4137-F4EF-4BFC-A25A-C2410768EE37}}"
-
-[WINUSB_RESTORE_Install.NT]
-Include = winusb.inf
-Needs   = WINUSB.NT
-
-[WINUSB_RESTORE_Install.NT.Services]
-Include = winusb.inf
-Needs   = WINUSB.NT.Services
-
-[WINUSB_RESTORE_Install.NT.HW]
-AddReg = WINUSB_RESTORE_AddReg
-
-[WINUSB_RESTORE_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{{3F966BD9-FA04-4EC5-991C-D326973B5128}}"
-
-[WINUSB_DONGLE_Install.NT]
-Include = winusb.inf
-Needs   = WINUSB.NT
-
-[WINUSB_DONGLE_Install.NT.Services]
-Include = winusb.inf
-Needs   = WINUSB.NT.Services
-
-[WINUSB_DONGLE_Install.NT.HW]
-AddReg = WINUSB_DONGLE_AddReg
-
-[WINUSB_DONGLE_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{dongle_guid}"
-
-[Strings]
-ProviderName = "RestoreKit"
-DeviceName   = "Apple Mobile Device (RestoreKit WinUSB)"
-DongleName   = "RecoverKit Dongle (RestoreKit WinUSB)"
-"#,
-        dongle_guid = proto::WINUSB_INTERFACE_GUID
-    )
-}
-
-/// PowerShell that signs and installs the WinUSB package for `$WorkDir`.
-///
-/// Reuses a stable `CN=RestoreKit WinUSB` code-signing cert (creating it once),
-/// builds + signs a catalog over the INF(s), trusts the cert and stages the
-/// package. Unless `-StageOnly`, it then forces the package onto every present
-/// device matching `-DeviceRegex` and verifies WinUSB attached, exiting
-/// non-zero if not.
-///
-/// Forcing is needed because Windows Update installs Apple's own WHQL-signed
-/// drivers (e.g. `applekis.inf` for 05ac:1881), which outrank our self-signed
-/// package, so a plain `pnputil /install` leaves them in place.
-const WINUSB_SETUP_PS1: &str = r#"param(
-    [Parameter(Mandatory=$true)][string]$WorkDir,
-    [string]$DeviceRegex = '^$',
-    [switch]$StageOnly
-)
-$ErrorActionPreference = 'Stop'
-$cat = Join-Path $WorkDir 'restorekit_winusb.cat'
-$subject = 'CN=RestoreKit WinUSB'
-$cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
-    Where-Object { $_.Subject -eq $subject } | Select-Object -First 1
-if (-not $cert) {
-    $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject `
-        -CertStoreLocation Cert:\CurrentUser\My -KeyUsage DigitalSignature `
-        -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3')
-}
-New-FileCatalog -Path $WorkDir -CatalogFilePath $cat -CatalogVersion 2 | Out-Null
-Set-AuthenticodeSignature -FilePath $cat -Certificate $cert | Out-Null
-# Trust the cert machine-wide through X509Store: current Windows 11 refuses
-# Import-Certificate into LocalMachine\TrustedPublisher, even elevated.
-$pub = [Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
-foreach ($name in 'Root', 'TrustedPublisher') {
-    $store = [Security.Cryptography.X509Certificates.X509Store]::new($name, 'LocalMachine')
-    $store.Open('ReadWrite')
-    $store.Add($pub)
-    $store.Close()
-}
-$infFile = Get-ChildItem $WorkDir -Filter '*.inf' | Select-Object -First 1
-$log = pnputil /add-driver $infFile.FullName /install | Out-String
-Write-Output $log
-if ($log -match 'Failed to add driver package') {
-    Write-Error "pnputil could not stage the driver package"
-    exit 1
-}
-# The staged copy (oemNN.inf) pnputil just published.
-$leaf = if ($log -match 'Published Name:\s+(oem\d+\.inf)') { $Matches[1] } else { $null }
-if (-not $leaf) {
-    Write-Error 'pnputil did not report a published driver package'
-    exit 1
-}
-if ($StageOnly) { exit 0 }
-
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class RkNewDev {
-  [DllImport("newdev.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-  public static extern bool UpdateDriverForPlugAndPlayDevices(
-      IntPtr hwnd, string HardwareId, string FullInfPath, uint InstallFlags, out bool bReboot);
-}
-"@
-$staged = Join-Path $env:windir "INF\$leaf"
-$devices = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-    Where-Object { $_.InstanceId -match $DeviceRegex }
-# Apple's own drivers (Windows Update, iTunes, Apple Devices) already work with
-# restorekit, and moving a KIS Mac off AppleKIS strands it until it re-enters
-# DFU, so only bind devices on no driver or someone else's.
-function Test-AppleDriver($id) {
-    $provider = (Get-PnpDeviceProperty -InstanceId $id -KeyName DEVPKEY_Device_DriverProvider -ErrorAction SilentlyContinue).Data
-    return ($provider -match '^Apple')
-}
-foreach ($dev in $devices) {
-    $infNow = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName DEVPKEY_Device_DriverInfPath -ErrorAction SilentlyContinue).Data
-    if ($infNow -eq $leaf) { continue }
-    if (Test-AppleDriver $dev.InstanceId) { continue }
-    # INSTALLFLAG_FORCE (0x1) | INSTALLFLAG_NONINTERACTIVE (0x4).
-    $hwid = $dev.InstanceId -replace '\\[^\\]+$', ''
-    $reboot = $false
-    if (-not [RkNewDev]::UpdateDriverForPlugAndPlayDevices([IntPtr]::Zero, $hwid, $staged, 0x5, [ref]$reboot)) {
-        $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        Write-Output ("could not bind {0} (was {1}): error 0x{2:X8}" -f $dev.InstanceId, $infNow, $code)
+    /// Whether `instance_id` already has plain WinUSB with `guid` registered.
+    pub(super) fn is_bound(instance_id: &str, guid: &str) -> bool {
+        Device::open(instance_id).is_ok_and(|d| {
+            d.driver().is_some_and(|drv| drv.is_plain_winusb())
+                && d.interface_guids()
+                    .is_some_and(|g| g.eq_ignore_ascii_case(guid))
+        })
     }
-}
-$ready = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-    Where-Object { $_.InstanceId -match $DeviceRegex } |
-    Where-Object {
-        (Test-AppleDriver $_.InstanceId) -or
-        (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_Service' -ErrorAction SilentlyContinue).Data -eq 'WINUSB'
-    }
-if ($ready) { exit 0 }
-Write-Error 'WinUSB was not bound to any connected device'
-exit 1
-"#;
 
-fn write_file(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
-    let mut f = std::fs::File::create(path).map_err(|e| Error::DriverInstall(e.to_string()))?;
-    f.write_all(bytes)
-        .map_err(|e| Error::DriverInstall(e.to_string()))?;
-    Ok(())
+    /// Give `instance_id` plain WinUSB with `guid` as its interface GUID:
+    /// write the GUID, then install Windows' WinUSB, or restart the device if
+    /// it already has it so WinUSB registers the GUID.
+    pub(super) fn bind(instance_id: &str, guid: &str) -> Result<()> {
+        let mut dev = Device::open(instance_id)?;
+        let plain = dev.driver().is_some_and(|d| d.is_plain_winusb());
+        let has_guid = dev
+            .interface_guids()
+            .is_some_and(|g| g.eq_ignore_ascii_case(guid));
+        if plain && has_guid {
+            return Ok(());
+        }
+        dev.set_interface_guid(guid)?;
+        if plain {
+            dev.restart()
+        } else {
+            dev.install_winusb()
+        }
+    }
 }
 
 // ── Restore-mode driver watcher ──────────────────────────────────────────────
@@ -574,23 +576,18 @@ impl Drop for RestoreWatcherGuard {
     }
 }
 
-/// Spawn an elevated background watcher that force-binds our WinUSB to the Mac's
+/// Spawn an elevated background watcher that binds WinUSB to the Mac's
 /// restore-mode interface the moment it appears.
 ///
 /// In restore mode the Mac becomes a USB composite whose data interface
 /// (`…&RESTORE_MODE&MI_00`) is claimed by Apple's `appleusb.inf`, whose WinUSB
-/// variant libusb can't open (`winusbx_open` → ERROR_NOT_SUPPORTED). Apple's INF
-/// lists that exact hardware id and is WHQL-signed, so we can't win by ranking;
-/// instead we *force* our plain `winusb.sys` onto that one device instance
-/// (`UpdateDriverForPlugAndPlayDevices` + `INSTALLFLAG_FORCE`), leaving
-/// `appleusb.inf` in the store for iPhones. That needs admin and can only happen
-/// while the device is in restore mode, so the restore relaunches this binary
-/// elevated (one UAC) to run [`run_restore_mode_watch_worker`], which binds when
-/// the device shows up.
+/// variant libusb can't open (`winusbx_open` → ERROR_NOT_SUPPORTED). Windows
+/// re-installs Apple's driver each time the Mac enters restore mode, so the
+/// binding has to happen then, which needs admin: the restore relaunches this
+/// binary elevated (one UAC) to run [`run_restore_mode_watch_worker`].
 ///
-/// Returns `None` if the watcher couldn't be launched (e.g. UAC declined) — the
-/// restore still runs but will stall at "waiting for device to enter restore
-/// mode". The returned guard ties the watcher's lifetime to the restore.
+/// Returns `None` if the watcher couldn't be launched (e.g. UAC declined). The
+/// returned guard ties the watcher's lifetime to the restore.
 pub fn spawn_restore_mode_watcher() -> Option<RestoreWatcherGuard> {
     let liveness = std::env::temp_dir().join(format!(
         "restorekit-restore-live-{}.tmp",
@@ -660,40 +657,73 @@ pub fn restore_watch_log() -> std::path::PathBuf {
 }
 
 /// The elevated watcher worker, invoked when this binary is rerun with
-/// [`RESTORE_WATCH_ARG`]. Stages our WinUSB package (a restore can reach this
-/// point without `setup-driver` ever having run: with Apple's own driver
-/// installed, DFU and recovery work without it), then runs the PowerShell
-/// force-bind helper as a child (inheriting this process's elevation) and
-/// returns when it exits — i.e. when the restore removes the liveness file or
-/// the device leaves after being bound.
+/// [`RESTORE_WATCH_ARG`]. Until the restore removes the liveness file (or a
+/// safety deadline passes), it binds WinUSB to:
+///
+/// - the restore-mode data interface whenever it appears, and
+/// - a DFU, recovery or KIS device that has had no driver for a few seconds
+///   (a machine without Apple's drivers, where Windows Update hasn't run):
+///   the Mac changes modes during a restore, and each mode is a new device.
+///
+/// It exits early once a bound restore-mode device has left. Logs what it did
+/// to [`restore_watch_log`].
 pub fn run_restore_mode_watch_worker(liveness: &std::path::Path) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use std::collections::HashMap;
+    use std::io::Write;
+    use std::time::{Duration, Instant};
 
-    let log = restore_watch_log();
-    let staged = match run_setup_script(true) {
-        Ok(()) => "staged the WinUSB package".to_string(),
-        Err(e) => format!("staging the WinUSB package failed: {e}"),
+    const DRIVERLESS_GRACE: Duration = Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(45 * 60);
+    let mut log = std::fs::File::create(restore_watch_log()).ok();
+    let mut note = |msg: String| {
+        if let Some(f) = log.as_mut() {
+            let _ = writeln!(f, "{msg}\r");
+        }
     };
-    let _ = std::fs::write(&log, format!("{staged}\r\n"));
+    note("watching for restore mode".into());
 
-    let script = std::env::temp_dir().join(format!(
-        "restorekit-restore-watch-{}.ps1",
-        std::process::id()
-    ));
-    if write_file(&script, RESTORE_WATCH_PS1.as_bytes()).is_err() {
-        return;
+    let mut driverless_since: HashMap<String, Instant> = HashMap::new();
+    let mut bound_restore = false;
+    while Instant::now() < deadline && liveness.exists() {
+        let ids = present_instance_ids().unwrap_or_default();
+        let restore_present = ids
+            .iter()
+            .any(|id| id.to_ascii_uppercase().contains("&RESTORE_MODE&MI_00\\"));
+        if bound_restore && !restore_present {
+            note("restore-mode device left".into());
+            break;
+        }
+        driverless_since.retain(|id, _| ids.contains(id));
+        for id in &ids {
+            let Some(guid) = bind_guid(id) else { continue };
+            if is_dongle_interface(id) || winusb::is_bound(id, guid) {
+                continue;
+            }
+            let restore_mode = guid == GUID_RESTORE;
+            if !restore_mode {
+                if winusb::driver_of(id).is_some() {
+                    continue;
+                }
+                let since = *driverless_since
+                    .entry(id.clone())
+                    .or_insert_with(Instant::now);
+                if since.elapsed() < DRIVERLESS_GRACE {
+                    continue;
+                }
+            }
+            match winusb::bind(id, guid) {
+                Ok(()) => {
+                    note(format!("bound WinUSB to {id}"));
+                    bound_restore |= restore_mode;
+                }
+                Err(e) => note(format!("binding {id} failed: {e}")),
+            }
+        }
+        std::thread::sleep(Duration::from_millis(350));
     }
-    let _ = Command::new("powershell")
-        .creation_flags(CREATE_NO_WINDOW)
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script)
-        .arg("-LivenessFile")
-        .arg(liveness)
-        .arg("-LogFile")
-        .arg(&log)
-        .status();
-    let _ = std::fs::remove_file(&script);
+    if !liveness.exists() {
+        note("restore ended".into());
+    }
 }
 
 /// Launch `exe params` elevated (UAC) with no visible window, and return without
@@ -730,62 +760,6 @@ fn launch_elevated_hidden(exe: &str, params: &str) -> Result<()> {
     Ok(())
 }
 
-/// PowerShell watcher: find our staged INF, then poll for the restore-mode
-/// device and force our WinUSB onto it (keeping `appleusb.inf` in the store).
-/// Exits when the restore signals completion (liveness file gone), when the
-/// device leaves after being bound, or after a safety deadline.
-const RESTORE_WATCH_PS1: &str = r#"param([string]$LivenessFile, [string]$LogFile)
-$ErrorActionPreference = 'SilentlyContinue'
-$script:last = ''
-function Log($msg) {
-    if ($LogFile -and $msg -ne $script:last) { Add-Content -Path $LogFile -Value ("{0:HH:mm:ss} {1}" -f (Get-Date), $msg) }
-    $script:last = $msg
-}
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class RkNewDev {
-  [DllImport("newdev.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-  public static extern bool UpdateDriverForPlugAndPlayDevices(
-      IntPtr hwnd, string HardwareId, string FullInfPath, uint InstallFlags, out bool bReboot);
-}
-"@
-# INSTALLFLAG_FORCE (0x1): install even though Apple's WHQL driver outranks ours.
-# INSTALLFLAG_NONINTERACTIVE (0x4): never prompt.
-$FLAGS = 0x1 -bor 0x4
-# Our newest staged WinUSB package (has the RESTORE_MODE interface entries).
-$inf = (Get-ChildItem (Join-Path $env:windir 'INF\oem*.inf') -ErrorAction SilentlyContinue | Where-Object {
-    $c = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
-    $c -match 'RestoreKit' -and $c -match 'RESTORE_MODE'
-} | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
-if (-not $inf) { Log 'no staged RestoreKit WinUSB package found'; exit 1 }
-Log "using $inf"
-$leaf = Split-Path $inf -Leaf
-$deadline = (Get-Date).AddMinutes(45)
-$bound = $false
-while ((Get-Date) -lt $deadline) {
-    if ($LivenessFile -and -not (Test-Path $LivenessFile)) { Log 'restore ended'; break }
-    $dev = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-        Where-Object { $_.InstanceId -match 'VID_05AC&PID_12[0-9A-Fa-f]{2}&RESTORE_MODE&MI_00' } |
-        Select-Object -First 1
-    if ($dev) {
-        $infNow = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName DEVPKEY_Device_DriverInfPath -ErrorAction SilentlyContinue).Data
-        if ($infNow -ne $leaf) {
-            $hwid = ($dev.InstanceId -replace '\\[^\\]+$', '')
-            $reboot = $false
-            $ok = [RkNewDev]::UpdateDriverForPlugAndPlayDevices([IntPtr]::Zero, $hwid, $inf, $FLAGS, [ref]$reboot)
-            $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            Log ("{0} was on {1}; bind -> ok={2} error=0x{3:X8}" -f $dev.InstanceId, $infNow, $ok, $code)
-        }
-        $bound = $true
-    } elseif ($bound) {
-        Log 'restore-mode device left'
-        break
-    }
-    Start-Sleep -Milliseconds 350
-}
-"#;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -807,18 +781,43 @@ mod tests {
     }
 
     #[test]
-    fn inf_supports_both_windows_architectures_and_apple_modes() {
-        let inf = winusb_inf(DRIVER_PIDS);
-        assert!(inf.contains("Standard,NTamd64,NTarm64"));
-        assert!(inf.contains("[Standard.NTarm64]"));
-        assert!(inf.contains("USB\\VID_05AC&PID_1227"));
-        assert!(inf.contains("USB\\VID_05AC&PID_12AC&RESTORE_MODE&MI_00"));
-        assert!(inf.contains("{B8085869-FEB9-404B-8CB1-1E5C14FA8C54}"));
-        assert!(inf.contains("{ED82A167-D61A-4AF6-9AB6-11E52236C576}"));
-        assert!(inf.contains("{AF633FF1-1170-4CA6-AE9E-08D001421EAA}"));
-        assert!(inf.contains("{B36F4137-F4EF-4BFC-A25A-C2410768EE37}"));
-        assert!(inf.contains("USB\\VID_16D0&PID_14F0&MI_04\n"));
-        assert!(inf.contains(proto::WINUSB_INTERFACE_GUID));
+    fn binds_each_mode_with_its_interface_guid() {
+        assert_eq!(
+            bind_guid("USB\\VID_05AC&PID_1227\\000445E11462001E"),
+            Some(GUID_DFU)
+        );
+        assert_eq!(
+            bind_guid("USB\\VID_05AC&PID_1281\\SDOM:01_CPID:8132"),
+            Some(GUID_IBOOT)
+        );
+        assert_eq!(
+            bind_guid("USB\\VID_05AC&PID_F014\\1234"),
+            Some(GUID_PORTDFU)
+        );
+        assert_eq!(
+            bind_guid("USB\\VID_05AC&PID_1881\\5&111DD99C&0&23"),
+            Some(GUID_KIS)
+        );
+        assert_eq!(
+            bind_guid("USB\\VID_05AC&PID_12AC&RESTORE_MODE&MI_00\\6&FC6EB5B&0&0000"),
+            Some(GUID_RESTORE)
+        );
+        assert_eq!(
+            bind_guid("USB\\VID_16D0&PID_14F0&MI_04\\6&2E2718E1&0&0004"),
+            Some(proto::WINUSB_INTERFACE_GUID)
+        );
+        // Interfaces of a recovery composite, the restore-mode NCM interface,
+        // and a normal-mode iPhone are never touched.
+        assert_eq!(
+            bind_guid("USB\\VID_05AC&PID_1281&MI_00\\6&109E202&0&0000"),
+            None
+        );
+        assert_eq!(
+            bind_guid("USB\\VID_05AC&PID_12AC&RESTORE_MODE&MI_01\\6&FC6EB5B&0&0001"),
+            None
+        );
+        assert_eq!(bind_guid("USB\\VID_05AC&PID_12A8\\00008101"), None);
+        assert_eq!(bind_guid("USB\\VID_1234&PID_1227\\OTHER"), None);
     }
 
     #[test]
@@ -830,14 +829,5 @@ mod tests {
             "USB\\VID_16D0&PID_14F0&MI_00\\6&2E2718E1&0&0000"
         ));
         assert!(!is_dongle_interface("USB\\VID_16D0&PID_14F0\\DL-6BAF14C4"));
-    }
-
-    #[test]
-    fn bind_regex_is_a_powershell_regex_over_instance_ids() {
-        assert_eq!(
-            bind_regex(),
-            "^USB\\\\VID_05AC&PID_(1222|1227|1280|1281|1282|1283|F014|1881)\\\\\
-             |^USB\\\\VID_16D0&PID_14F0&MI_04\\\\"
-        );
     }
 }

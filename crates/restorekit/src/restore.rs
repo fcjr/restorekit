@@ -249,11 +249,6 @@ pub fn windows_mux_check() -> Result<bool> {
              otherwise close it and retry",
             name.unwrap_or_else(|| format!("pid {pid}"))
         ))),
-        MuxPort::Free
-            if crate::driver::native_arm64() && !crate::driver::winusb_package_staged() =>
-        {
-            Err(Error::DriverInstall(crate::driver::ARM64_HINT.into()))
-        }
         MuxPort::Free => Ok(false),
     }
 }

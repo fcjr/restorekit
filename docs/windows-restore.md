@@ -44,9 +44,9 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
    `appleusb.inf`, whose WinUSB variant libusb **can't open** (`winusbx_open` →
    `[50] ERROR_NOT_SUPPORTED`). Apple's INF lists that exact hardware id and is
    WHQL-signed, so we can't win by ranking. The fix that keeps `appleusb.inf` in
-   the store (iPhones unaffected): **force** our plain `winusb.sys` onto that one
-   device instance with `UpdateDriverForPlugAndPlayDevices(..., INSTALLFLAG_FORCE)`
-   — verified live, after which libusb opens it and the restore proceeds.
+   the store (iPhones unaffected): install Windows' own `winusb.inf` "WinUsb
+   Device" onto that one device instance (see "No driver package" below),
+   after which libusb opens it and the restore proceeds.
 
 ### Done since
 
@@ -54,14 +54,34 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
   elevated watcher (one UAC, branded restorekit, skipped when already admin) that
   force-binds our WinUSB to the restore-mode device when it appears — per-restore,
   since Apple's driver reclaims it each time. `appleusb.inf` stays in the store.
-- **The watcher stages the driver package itself.** With Apple's own driver
-  installed (iTunes, Apple Devices, or Windows Update), DFU and recovery work
-  without `setup-driver`, so a restore could reach restore mode with no
-  RestoreKit package in the store; the watcher then had nothing to bind and the
-  restore stalled at "waiting for device to enter restore mode" (#56). The
-  elevated watcher now stages the package before it starts watching, logs what
-  it did to `%TEMP%\restorekit-restore-watch.log`, and the restore stops up
-  front if the watcher can't start (UAC declined) instead of stalling later.
+- **No driver package, so nothing to sign.** restorekit used to generate a
+  WinUSB INF, sign its catalog with a self-signed certificate it added to the
+  machine's trusted roots, and stage it with `pnputil`. Windows on ARM refuses
+  such packages outright (Code Integrity only loads Microsoft-signed ones), and
+  a restore could reach restore mode with no package staged (#56). Now it binds
+  Windows' own Microsoft-signed `winusb.inf` instead: `SetupDiBuildDriverInfoList`
+  over just that INF with `DI_FLAGSEX_ALLOWEXCLUDEDDRVS` (its "WinUsb Device"
+  entry matches `USB\MS_COMP_WINUSB`, not the Mac, which is what Device
+  Manager's "Have Disk" route allows too), then `DiInstallDevice` on the one
+  device instance, after writing the mode's interface GUID to the device's
+  `DeviceInterfaceGUIDs` the way an INF's `AddReg` would. A device already on
+  WinUSB without a GUID (a dongle on firmware 0.1.2 or older) just gets the
+  GUID and a restart. No certificate, no catalog, no `pnputil`, and it works
+  the same on x64 and ARM64. Hardware-tested on Windows 11 ARM64 with test
+  signing off, no Apple Mobile Device Service and no RestoreKit package or
+  certificate: a full revive of the M4 mini (KIS DFU via the dongle, the
+  watcher binding the restore-mode interface) ran to Restore Finished.
+- **Device waits on Windows.** libimobiledevice-glue's Windows `cond_t` was a
+  semaphore, so a device event nobody was waiting for made the next wait
+  return at once, and idevicerestore gave up on the device; it's a real
+  condition variable now. `dfu_enter_recovery` also gives iBEC 60 seconds to
+  boot instead of 10 (see `crates/restorekit-sys/patches/README.md`).
+- **The watcher binds whatever the restore needs.** The elevated watcher (log:
+  `%TEMP%\restorekit-restore-watch.log`) binds the restore-mode interface when
+  it appears, and any DFU, recovery or KIS device that has had no driver for a
+  few seconds (a machine without Apple's drivers), since each mode the Mac
+  passes through is a new device. The restore stops up front if the watcher
+  can't start (UAC declined) instead of stalling later.
 - **`setup-driver` leaves Apple's drivers alone.** Windows Update installs
   Apple's WHQL-signed drivers (`appleusb.inf`, `applekis.inf`) on first
   plug-in, and they work with restorekit (see "Driverless" below). Moving a KIS
@@ -73,9 +93,6 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
   nusb ("Could not find DeviceInterfaceGUIDs in registry"). The next firmware adds
   it; `setup-driver` binds the interface with the GUID for older firmware, and
   runs with only a dongle connected.
-- **Certificate trust.** `Import-Certificate` into
-  `LocalMachine\TrustedPublisher` is refused on current Windows 11 even when
-  elevated; the setup script uses `X509Store` instead.
 - **Throughput confirmed.** With the 0ms-while-connected event loop, the CLI
   streams `Cryptex1,systemOS` at ~35 MB/s (near USB-2.0 line rate) — the embedded
   usbmuxd + WinUSB bulk path is not a bottleneck.
@@ -93,28 +110,17 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
   Hardware-tested: a full revive of an M4 mac mini (KIS DFU via a dongle) on
   Windows 11 ARM64 with no RestoreKit driver package, no UAC prompt and no test
   signing.
-- **AppleKIS sometimes misses the Mac.** Entering KIS DFU from a fully booted
-  Mac, AppleKIS leaves its interface disabled about half the time (no
-  `KIS\VID_05AC&PID_0001` child), and the Mac stays unreadable until it
+- **A KIS Mac sometimes comes up unreadable.** Entering KIS DFU from a fully
+  booted Mac, about half the time the Mac doesn't answer the driver's first
+  requests: AppleKIS leaves its interface disabled (no `KIS\VID_05AC&PID_0001`
+  child), and over WinUSB the config write fails. It stays that way until it
   re-enters DFU; restarting the device doesn't help. With a dongle, restorekit
-  now reboots the Mac out of DFU and triggers again (up to twice) when it lands
-  unreadable. Measured on the M4 mini: every unreadable entry read fine after
-  one re-entry.
-- **Windows on ARM without Apple's service fails up front.** Our self-signed
-  package can't be staged there (see Known issues), so a restore with no Apple
-  Mobile Device Service and no staged package stops before uploading anything
-  and says to install Apple Devices or iTunes; `setup-driver` failures on ARM
-  say the same.
+  reboots the Mac out of DFU and triggers again (up to twice) when it lands
+  unreadable. Measured on the M4 mini over AppleKIS and WinUSB: every
+  unreadable entry read fine after one or two re-entries.
 
 ### Known issues
 
-- **Windows on ARM.** Code Integrity rejects our self-signed catalog there
-  ("Driver package signer is not trusted by system, and Code Integrity is
-  enforced"), so `setup-driver` can't stage the package unless test signing is
-  on (`bcdedit /set testsigning on`). With Apple Mobile Device Service installed
-  no package is needed (see above), but a dongle on firmware 0.1.2 or older
-  still needs `setup-driver` for its interface GUID; update it from macOS or
-  Linux.
 - **Classic DFU (`05ac:1227`) through Apple's driver is untested here.** The
   rig's M4 only enters KIS DFU over the dongle. #56's log shows Port DFU, DFU
   and recovery going through libirecovery on Windows, but not which driver was
