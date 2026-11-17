@@ -56,8 +56,8 @@ fn main() {
         ("libtatsu", "1.0.5"),
         ("libimobiledevice", "1.4.0"),
     ] {
-        let src = if lib == "libirecovery" {
-            patch_libirecovery_sources(&manifest, &vendor.join(lib), &out, &deps)
+        let src = if manifest.join("patches").join(lib).is_dir() {
+            patch_autotools_sources(&manifest, lib, &vendor.join(lib), &out, &deps)
         } else {
             vendor.join(lib)
         };
@@ -433,20 +433,21 @@ fn patch_idevicerestore_sources(manifest: &Path, vendor_src: &Path, out: &Path) 
     root
 }
 
-/// Copy libirecovery into OUT_DIR and apply `patches/libirecovery/` to it, for
-/// the same reason as [`patch_idevicerestore_sources`]. libirecovery is built
-/// with autotools, so it's only re-copied and rebuilt when the patches change.
+/// Copy an autotools library into OUT_DIR and apply `patches/<name>/` to it,
+/// for the same reason as [`patch_idevicerestore_sources`]. It's only re-copied
+/// and rebuilt when the patches change.
 /// The stamp lives in the staging prefix next to build_autotools' marker, so a
 /// CI cache that restores only the prefix still skips the rebuild.
-fn patch_libirecovery_sources(
+fn patch_autotools_sources(
     manifest: &Path,
+    name: &str,
     vendor_src: &Path,
     out: &Path,
     deps: &Deps,
 ) -> PathBuf {
     use std::hash::{Hash, Hasher};
 
-    let patch_dir = manifest.join("patches/libirecovery");
+    let patch_dir = manifest.join("patches").join(name);
     println!("cargo:rerun-if-changed={}", patch_dir.display());
     let mut patches: Vec<PathBuf> = std::fs::read_dir(&patch_dir)
         .unwrap()
@@ -462,9 +463,9 @@ fn patch_libirecovery_sources(
     }
     let stamp = format!("{:016x}", hasher.finish());
 
-    let root = out.join("libirecovery-patched");
-    let stamp_file = deps.prefix.join(".libirecovery-patches");
-    let marker = deps.prefix.join(".built-libirecovery");
+    let root = out.join(format!("{name}-patched"));
+    let stamp_file = deps.prefix.join(format!(".{name}-patches"));
+    let marker = deps.prefix.join(format!(".built-{name}"));
     if marker.exists() && std::fs::read_to_string(&stamp_file).is_ok_and(|s| s == stamp) {
         return root;
     }
@@ -485,7 +486,7 @@ fn patch_libirecovery_sources(
     }
     // Force a fresh configure + build of the patched sources.
     let _ = std::fs::remove_file(&marker);
-    let _ = std::fs::remove_dir_all(deps.prefix.parent().unwrap().join("build/libirecovery"));
+    let _ = std::fs::remove_dir_all(deps.prefix.parent().unwrap().join("build").join(name));
     std::fs::write(&stamp_file, stamp).unwrap();
     root
 }

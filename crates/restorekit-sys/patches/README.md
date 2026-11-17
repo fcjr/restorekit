@@ -36,6 +36,23 @@ compiles the patched copy.
   0x1332 ("failed to copy response for AppleTCON") while the restore carries
   on. When `ResponseTags` is missing, send the firmware like before, falling
   back to the ticket-only reply if it can't be extracted.
+- `0009-wait-longer-for-ibec-to-boot.patch` — after iBEC is sent from DFU,
+  `dfu_enter_recovery` gave the Mac 10 seconds to drop off the bus and another
+  10 to come back in recovery. An M4 mac mini whose earlier restore was cut
+  short took about 30 seconds to boot iBEC, so every retry failed with "Device
+  did not disconnect. Possibly invalid iBEC". Wait up to 60 seconds each, like
+  the same step in `idevicerestore.c` already does.
+
+## libimobiledevice-glue
+
+- `0001-real-condition-variables-on-windows.patch` — on Windows `cond_t` was a
+  semaphore: a signal with no waiter was counted instead of dropped, so a later
+  wait returned at once, and a wait never re-took the mutex, so callers then
+  released it twice. idevicerestore's device waits are written for pthreads, so
+  one stray device event made the next "wait for the device to disconnect"
+  return immediately and fail the restore. Use a `CONDITION_VARIABLE` with the
+  `CRITICAL_SECTION` mutex, which behaves like pthreads. Built with autotools
+  from a patched copy, like libirecovery.
 
 ## libirecovery
 

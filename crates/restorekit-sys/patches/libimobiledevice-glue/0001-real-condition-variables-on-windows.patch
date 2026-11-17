@@ -1,0 +1,76 @@
+--- a/src/thread.c
++++ b/src/thread.c
+@@ -145,10 +145,14 @@
+ #endif
+ }
+ 
++/* On Windows cond_t is a CONDITION_VARIABLE (pointer-sized, like the `sem`
++ * handle the public header declares) used with the CRITICAL_SECTION mutex, so
++ * it behaves like pthreads: a signal with no waiter is dropped rather than
++ * counted, and a wait returns with the mutex held again. */
+ void cond_init(cond_t* cond)
+ {
+ #ifdef _WIN32
+-	cond->sem = CreateSemaphore(NULL, 0, 32767, NULL);
++	InitializeConditionVariable((PCONDITION_VARIABLE)cond);
+ #else
+ 	pthread_cond_init(cond, NULL);
+ #endif
+@@ -157,7 +161,7 @@
+ void cond_destroy(cond_t* cond)
+ {
+ #ifdef _WIN32
+-	CloseHandle(cond->sem);
++	(void)cond;
+ #else
+ 	pthread_cond_destroy(cond);
+ #endif
+@@ -166,11 +170,8 @@
+ int cond_signal(cond_t* cond)
+ {
+ #ifdef _WIN32
+-	int result = 0;
+-	if (!ReleaseSemaphore(cond->sem, 1, NULL)) {
+-		result = -1;
+-	}
+-	return result;
++	WakeConditionVariable((PCONDITION_VARIABLE)cond);
++	return 0;
+ #else
+ 	return pthread_cond_signal(cond);
+ #endif
+@@ -179,14 +180,7 @@
+ int cond_wait(cond_t* cond, mutex_t* mutex)
+ {
+ #ifdef _WIN32
+-	mutex_unlock(mutex);
+-	DWORD res = WaitForSingleObject(cond->sem, INFINITE);
+-	switch (res) {
+-		case WAIT_OBJECT_0:
+-			return 0;
+-		default:
+-			return -1;
+-	}
++	return SleepConditionVariableCS((PCONDITION_VARIABLE)cond, (PCRITICAL_SECTION)mutex, INFINITE) ? 0 : -1;
+ #else
+ 	return pthread_cond_wait(cond, mutex);
+ #endif
+@@ -195,15 +189,10 @@
+ int cond_wait_timeout(cond_t* cond, mutex_t* mutex, unsigned int timeout_ms)
+ {
+ #ifdef _WIN32
+-	mutex_unlock(mutex);
+-	DWORD res = WaitForSingleObject(cond->sem, timeout_ms);
+-	switch (res) {
+-		case WAIT_OBJECT_0:
+-		case WAIT_TIMEOUT:
+-			return 0;
+-		default:
+-			return -1;
++	if (SleepConditionVariableCS((PCONDITION_VARIABLE)cond, (PCRITICAL_SECTION)mutex, timeout_ms)) {
++		return 0;
+ 	}
++	return GetLastError() == ERROR_TIMEOUT ? 0 : -1;
+ #else
+ 	struct timespec ts;
+ 	struct timeval now;
