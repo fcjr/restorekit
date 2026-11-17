@@ -49,7 +49,7 @@ pub fn mux_port() -> MuxPort {
 /// address and port in network byte order.
 #[cfg(any(target_os = "windows", test))]
 fn listener_in_rows(rows: &[u8], port: u16) -> Option<u32> {
-    rows.chunks_exact(24).find_map(|row| {
+    rows.as_chunks::<24>().0.iter().find_map(|row| {
         let addr = [row[4], row[5], row[6], row[7]];
         let row_port = u16::from_be_bytes([row[8], row[9]]);
         let pid = u32::from_le_bytes([row[20], row[21], row[22], row[23]]);
