@@ -1,0 +1,43 @@
+diff --git a/src/restore.c b/src/restore.c
+index 7ffe876..0fc2c08 100644
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -3343,14 +3343,26 @@ static plist_t restore_get_tcon_firmware_data(struct idevicerestore_client_t* cl
+ 		logger(LL_ERROR, "No 'Baobab,Ticket' in TSS response, this might not work\n");
+ 	}
+ 
+-	/* don't add FirmwareData if not requested via ResponseTags */
+-	if (!_wants_firmware_data(arguments)) {
++	/* don't add FirmwareData if not requested via ResponseTags. A request
++	 * with no ResponseTags at all (seen from a Mac16,5) doesn't say what it
++	 * wants, and a ticket-only reply fails the updater with "failed to copy
++	 * response for AppleTCON", so send the firmware there like we did before
++	 * ResponseTags were honored. */
++	int has_response_tags = plist_access_path(arguments, 2, "DeviceGeneratedTags", "ResponseTags") != NULL;
++	if (has_response_tags && !_wants_firmware_data(arguments)) {
+ 		logger(LL_DEBUG, "Not adding FirmwareData as it was not requested\n");
+ 		return response;
+ 	}
++	if (!has_response_tags) {
++		logger(LL_INFO, "AppleTCON: request has no ResponseTags, adding FirmwareData\n");
++	}
+ 
+ 	if (build_identity_get_component_path(client->restore->build_identity, comp_name, &comp_path) < 0) {
+ 		logger(LL_ERROR, "Unable to get path for '%s' component\n", comp_name);
++		if (!has_response_tags) {
++			/* Keep the previous ticket-only reply rather than fail the restore. */
++			return response;
++		}
+ 		plist_free(response);
+ 		return NULL;
+ 	}
+@@ -3361,6 +3373,9 @@ static plist_t restore_get_tcon_firmware_data(struct idevicerestore_client_t* cl
+ 	comp_path = NULL;
+ 	if (ret < 0) {
+ 		logger(LL_ERROR, "Unable to extract '%s' component\n", comp_name);
++		if (!has_response_tags) {
++			return response;
++		}
+ 		plist_free(response);
+ 		return NULL;
+ 	}
