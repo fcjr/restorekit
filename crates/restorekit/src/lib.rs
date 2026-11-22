@@ -89,6 +89,10 @@ pub use firmware::Firmware;
 pub use progress::Event;
 pub use restore::{Mode, Obliteration};
 
+/// Re-exported for [`device::from_usb`] and [`device::forget_absent`], which
+/// take its types.
+pub use nusb;
+
 /// A shared embedded usbmuxd the parent process holds while it spawns per-device
 /// restore workers. Child `restore` processes detect it (via the
 /// `RESTOREKIT_SHARED_USBMUXD` env var, inherited from the parent) and reuse it
