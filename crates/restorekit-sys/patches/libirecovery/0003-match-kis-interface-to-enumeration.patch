@@ -1,0 +1,22 @@
+--- a/src/libirecovery.c
++++ b/src/libirecovery.c
+@@ -1138,8 +1138,7 @@
+ }
+ 
+ /* deviceinterfaced names interfaces by an opaque 64-bit id. Match it against
+- * the registry entry ids of the device and its interfaces; failing that, a lone
+- * interface can only be this device. */
++ * the registry entry ids of the device and its interfaces. */
+ static uint64_t dic_find_interface(io_service_t service)
+ {
+ 	uint64_t ids[16];
+@@ -1179,9 +1178,6 @@
+ 		if (found) {
+ 			return found;
+ 		}
+-	}
+-	if (count == 1) {
+-		return ids[0];
+ 	}
+ 	debug("%s: %zu KIS interfaces and none match this device\n", __func__, count);
+ 	return 0;
