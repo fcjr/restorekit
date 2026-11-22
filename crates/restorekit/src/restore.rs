@@ -266,6 +266,42 @@ pub fn restore(
     verbose: bool,
     progress: ProgressFn,
 ) -> Result<Obliteration> {
+    run(
+        ipsw,
+        ecid,
+        cache_dir,
+        mode,
+        verbose,
+        progress,
+        RESTORE_ATTEMPTS,
+    )
+}
+
+/// [`restore`] without the retry: a failure is returned after one pass, for a
+/// caller that supervises its own restore processes and decides what a
+/// failure means.
+pub fn restore_attempt(
+    ipsw: &Path,
+    ecid: u64,
+    cache_dir: Option<&Path>,
+    mode: Mode,
+    verbose: bool,
+    progress: ProgressFn,
+) -> Result<Obliteration> {
+    run(ipsw, ecid, cache_dir, mode, verbose, progress, 1)
+}
+
+/// Hold the restore lock and what the platform needs around a restore, then
+/// make up to `attempts` passes.
+fn run(
+    ipsw: &Path,
+    ecid: u64,
+    cache_dir: Option<&Path>,
+    mode: Mode,
+    verbose: bool,
+    progress: ProgressFn,
+    attempts: u32,
+) -> Result<Obliteration> {
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     // On Linux and Windows, start the embedded usbmuxd server so idevicerestore
@@ -310,17 +346,17 @@ pub fn restore(
 
     let mut attempt = 1;
     loop {
-        match restore_attempt(ipsw, ecid, cache_dir, mode, verbose, progress) {
+        match run_once(ipsw, ecid, cache_dir, mode, verbose, progress) {
             Ok(obliteration) => {
                 // The worker already emitted the Obliteration event (it fires on
                 // failure too); just close out the successful run.
                 progress(Event::Done);
                 return Ok(obliteration);
             }
-            Err(e) if attempt < RESTORE_ATTEMPTS && is_transient_failure(&e) => {
+            Err(e) if attempt < attempts && is_transient_failure(&e) => {
                 progress(Event::RestoreRetrying {
                     attempt,
-                    max_attempts: RESTORE_ATTEMPTS,
+                    max_attempts: attempts,
                     message: e.to_string(),
                 });
                 std::thread::sleep(RESTORE_RETRY_DELAY);
@@ -332,7 +368,7 @@ pub fn restore(
 }
 
 /// One full pass of the restore: spawn the worker, pump progress, join.
-fn restore_attempt(
+fn run_once(
     ipsw: &Path,
     ecid: u64,
     cache_dir: Option<&Path>,
