@@ -945,7 +945,11 @@ fn ecid_from_usb_serial(serial: &str) -> Option<u64> {
     }
 }
 
-pub(crate) fn from_usb(info: &nusb::DeviceInfo) -> Device {
+/// Describe one USB device from the caller's own nusb enumeration, the way
+/// [`list`] describes every Apple device on the bus. For callers that track
+/// devices by where they are attached and need the identity of a particular
+/// one. A KIS identity is cached per enumeration; see [`forget_absent`].
+pub fn from_usb(info: &nusb::DeviceInfo) -> Device {
     let mut mode = UsbMode::from_pid(info.product_id());
     let serial = match mode {
         UsbMode::Kis => match crate::kis::identify(info) {
@@ -1021,6 +1025,14 @@ fn driver_ready(_info: &nusb::DeviceInfo, _mode: UsbMode) -> bool {
     true
 }
 
+/// Drop the identities [`from_usb`] cached for devices that have left the bus.
+/// Pass the id of every device attached now. [`list`] does this itself; a
+/// caller describing devices one at a time must, because a device id can be
+/// reused by a later arrival.
+pub fn forget_absent(present: &[nusb::DeviceId]) {
+    crate::kis::forget_absent(present);
+}
+
 /// List every connected Apple USB device, in any mode. Cheap enumeration only;
 /// call [`identify`] to fill in the richer fields (model, ECID, marketing name,
 /// DFU-port).
@@ -1031,7 +1043,7 @@ pub fn list() -> Result<Vec<Device>> {
         .filter(|i| i.vendor_id() == APPLE_VID)
         .collect();
     let ids: Vec<nusb::DeviceId> = infos.iter().map(nusb::DeviceInfo::id).collect();
-    crate::kis::forget_absent(&ids);
+    forget_absent(&ids);
     Ok(infos.iter().map(from_usb).collect())
 }
 
