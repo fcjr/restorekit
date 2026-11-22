@@ -80,6 +80,18 @@ compiles the patched copy.
   Mac's interface while another is being opened, and the request would go to
   the wrong Mac. Only use an interface that matches the device.
 
+## usbmuxd
+
+- `0001-use-the-active-configuration.patch` — on finding an Apple device,
+  usbmuxd searched every configuration for a mux interface, detached the
+  kernel drivers and switched the device to that configuration. Embedded in a
+  restore tool, that reconfigures every other Apple device on the host as soon
+  as the server starts. A Mac in restore mode already has its mux interface in
+  the active configuration, so only look there, matching class, subclass and
+  protocol together, and leave a device without one alone. Linux can activate
+  a new configuration at the same address without a hotplug event, so the
+  periodic discovery pass stays on next to hotplug there.
+
 ## Updating a patch
 
 1. Apply the existing patches to the submodule:

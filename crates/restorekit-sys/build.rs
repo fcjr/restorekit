@@ -82,7 +82,9 @@ fn main() {
         if deps.windows {
             build_autotools(&vendor.join("libusb"), "libusb", "1.0.30", &deps);
         }
-        compile_usbmuxd(&vendor.join("usbmuxd"), &deps);
+        let usbmuxd_src =
+            patch_autotools_sources(&manifest, "usbmuxd", &vendor.join("usbmuxd"), &out, &deps);
+        compile_usbmuxd(&usbmuxd_src, &deps);
     }
 
     emit_link_directives(&prefix);
