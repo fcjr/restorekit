@@ -595,15 +595,16 @@ mod dic {
 
     /// The daemon's interface id for the device with this registry entry id.
     /// The ids are registry entry ids of the device's `IOUSBHostInterface`
-    /// (seen on a live Debug USB device), so match on the parent; failing
-    /// that, a lone interface can only be this device.
+    /// (seen on a live Debug USB device), so match on the parent or the device itself.
     pub fn interface_for(registry_id: u64) -> Result<u64, String> {
         let ids = interfaces()?;
-        if let Some(id) = ids.iter().find(|&&id| parent_id(id) == Some(registry_id)) {
+        if let Some(id) = ids
+            .iter()
+            .find(|&&id| id == registry_id || parent_id(id) == Some(registry_id))
+        {
             return Ok(*id);
         }
         match ids.as_slice() {
-            [id] => Ok(*id),
             [] => Err("deviceinterfaced lists no KIS interfaces".into()),
             _ => Err(format!(
                 "{} KIS interfaces and none match this device",

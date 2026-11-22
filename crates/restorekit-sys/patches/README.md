@@ -74,6 +74,11 @@ compiles the patched copy.
   and the hotplug poller) accept pid `1881` next to AppleKIS's pid 1, so
   idevicerestore gets the device-add event it reads the mode from. The AppleKIS
   path is untouched.
+- `0003-match-kis-interface-to-enumeration.patch` — `dic_find_interface` took
+  a lone KIS interface as the device's own when none matched its registry entry
+  id. With more than one Mac attached that isn't safe: the daemon can list one
+  Mac's interface while another is being opened, and the request would go to
+  the wrong Mac. Only use an interface that matches the device.
 
 ## Updating a patch
 
