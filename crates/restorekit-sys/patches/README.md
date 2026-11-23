@@ -84,6 +84,12 @@ compiles the patched copy.
   id. With more than one Mac attached that isn't safe: the daemon can list one
   Mac's interface while another is being opened, and the request would go to
   the wrong Mac. Only use an interface that matches the device.
+- `0004-hold-the-device-while-a-hotplug-thread-adds-it.patch` — the libusb
+  hotplug callback handed its `libusb_device` to a detached thread without a
+  reference, though libusb only guarantees it during the callback. With
+  several Macs re-enumerating at once, the thread could read a freed device and
+  crash in `libusb_get_device_descriptor`. Reference the device for the thread
+  and release it when the thread is done.
 
 ## usbmuxd
 
