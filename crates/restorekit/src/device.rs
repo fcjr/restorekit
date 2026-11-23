@@ -1216,52 +1216,27 @@ fn parse_config_code_name(body: &str) -> Option<String> {
 }
 
 /// Apple's platform-capability UUID whose payload is the device's ECID.
-// Only reached via the BOS reader (skipped on Windows) and the parser test.
-#[cfg_attr(target_os = "windows", allow(dead_code))]
 const APPLE_ECID_UUID: [u8; 16] = [
     0x0a, 0x37, 0x4c, 0xe4, 0x76, 0x23, 0x47, 0xc9, 0x88, 0x0e, 0x1a, 0xc3, 0x15, 0x13, 0x47, 0x6f,
 ];
 
-/// Read the device's BOS descriptor and extract the ECID from Apple's platform
-/// capability, via a standard `GET_DESCRIPTOR(BOS)` control request.
-///
-/// `nusb` exposes device-level control transfers only on Linux and macOS; the
-/// Windows WinUSB backend routes them through a claimed interface. The
-/// booted-Mac ECID is a best-effort nicety — it's resolved for free the moment
-/// the Mac enters DFU — so on Windows we skip it rather than claim an interface
-/// just to read a descriptor.
-#[cfg(not(target_os = "windows"))]
+/// Read the device's BOS descriptor. Windows asks the parent hub for it, so no
+/// interface needs claiming there.
 fn read_bos(dev: &nusb::Device) -> Option<Vec<u8>> {
-    dev.control_in(
-        nusb::transfer::ControlIn {
-            control_type: nusb::transfer::ControlType::Standard,
-            recipient: nusb::transfer::Recipient::Device,
-            request: 0x06, // GET_DESCRIPTOR
-            value: 0x0f00, // descriptor type 0x0F (BOS), index 0
-            index: 0,
-            length: 256,
-        },
-        Duration::from_millis(500),
-    )
-    .wait()
-    .ok()
+    dev.get_descriptor(0x0f, 0, 0, Duration::from_millis(500))
+        .wait()
+        .ok()
 }
 
-#[cfg(not(target_os = "windows"))]
+/// The ECID from Apple's platform capability in the device's BOS descriptor.
 fn read_bos_ecid(dev: &nusb::Device) -> Option<u64> {
     ecid_from_bos(&read_bos(dev)?)
-}
-
-#[cfg(target_os = "windows")]
-fn read_bos_ecid(_dev: &nusb::Device) -> Option<u64> {
-    None
 }
 
 /// Fill in each billboard device's advertised alternate-mode SVID by opening it
 /// and reading its Billboard capability descriptor. Best-effort: a device we
 /// can't open (or one whose descriptor omits the capability) keeps
 /// `billboard_svid == None`.
-#[cfg(not(target_os = "windows"))]
 fn enrich_billboards(devices: &mut [Device]) {
     let needs = |d: &Device| d.mode == UsbMode::Billboard && d.billboard_svid.is_none();
     if !devices.iter().any(needs) {
@@ -1288,10 +1263,6 @@ fn enrich_billboards(devices: &mut [Device]) {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn enrich_billboards(_devices: &mut [Device]) {}
-
-#[cfg(not(target_os = "windows"))]
 fn read_bos_billboard_svid(dev: &nusb::Device) -> Option<u16> {
     billboard_svid_from_bos(&read_bos(dev)?)
 }
@@ -1299,8 +1270,6 @@ fn read_bos_billboard_svid(dev: &nusb::Device) -> Option<u16> {
 /// Parse a BOS descriptor and return the ECID from Apple's platform-capability
 /// descriptor (`bDevCapabilityType` = 5 PLATFORM, matching [`APPLE_ECID_UUID`],
 /// with an 8-byte little-endian ECID payload).
-// Only reached via the BOS reader (skipped on Windows) and the parser test.
-#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn ecid_from_bos(bos: &[u8]) -> Option<u64> {
     // 5-byte BOS header, then a sequence of capability descriptors.
     let mut i = 5;
@@ -1327,8 +1296,6 @@ fn ecid_from_bos(bos: &[u8]) -> Option<u64> {
 /// `bPreferredAlternateMode` index at offset 5 — followed by an array of 4-byte
 /// alternate-mode entries (`wSVID`, `bAlternateMode`, `iAlternateModeString`).
 /// We return the `wSVID` of the preferred entry.
-// Only reached via the billboard reader (skipped on Windows) and the parser test.
-#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn billboard_svid_from_bos(bos: &[u8]) -> Option<u16> {
     let mut i = 5;
     while i + 3 <= bos.len() {
