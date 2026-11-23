@@ -96,6 +96,11 @@ pub use nusb;
 /// `RESTOREKIT_SHARED_USBMUXD` env var, inherited from the parent) and reuse it
 /// rather than each starting their own conflicting instance.
 ///
+/// On Windows it also binds WinUSB to each Mac in restore mode, once for all
+/// of those restores. A process that serves usbmuxd itself and sets
+/// `RESTOREKIT_SHARED_USBMUXD` for its restores does the same with
+/// `driver::spawn_restore_mode_watcher`.
+///
 /// A no-op on macOS, where the system usbmuxd is always available.
 pub struct SharedUsbmuxd {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
