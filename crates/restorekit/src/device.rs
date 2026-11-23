@@ -1156,9 +1156,8 @@ pub fn identify(devices: &mut [Device]) {
         // Exact Apple marketing name from the serial's config code (network,
         // cached per serial); display falls back to the model name without it.
         d.marketing_name = apple_marketing_name(&d.serial);
-        // ECID needs to open the device and read its BOS descriptor.
         if d.ecid.is_none() {
-            d.ecid = info.open().wait().ok().and_then(|dev| read_bos_ecid(&dev));
+            d.ecid = read_ecid(info);
         }
     }
 }
@@ -1228,9 +1227,11 @@ fn read_bos(dev: &nusb::Device) -> Option<Vec<u8>> {
         .ok()
 }
 
-/// The ECID from Apple's platform capability in the device's BOS descriptor.
-fn read_bos_ecid(dev: &nusb::Device) -> Option<u64> {
-    ecid_from_bos(&read_bos(dev)?)
+/// The ECID a booted Mac advertises in a platform capability of its BOS
+/// descriptor. Opens the device; `None` when it can't be opened or advertises
+/// none.
+pub fn read_ecid(info: &nusb::DeviceInfo) -> Option<u64> {
+    ecid_from_bos(&read_bos(&info.open().wait().ok()?)?)
 }
 
 /// Fill in each billboard device's advertised alternate-mode SVID by opening it
