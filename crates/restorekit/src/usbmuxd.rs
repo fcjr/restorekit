@@ -165,12 +165,30 @@ pub struct UsbmuxdGuard {
     #[cfg(target_os = "linux")]
     socket_path: std::path::PathBuf,
     thread: Option<JoinHandle<()>>,
+    /// Binds WinUSB to each restore-mode Mac while the server runs. Apple's
+    /// driver claims that interface otherwise, and libusb can't open it.
+    #[cfg(target_os = "windows")]
+    _restore_mode: crate::driver::RestoreWatcherGuard,
 }
 
 impl UsbmuxdGuard {
-    /// Start the embedded usbmuxd server and point libusbmuxd at it.
+    /// Start the embedded usbmuxd server and point libusbmuxd at it. On
+    /// Windows this also starts the restore-mode driver watcher, which asks
+    /// for elevation once unless the process already has it.
     pub fn start(progress: ProgressFn) -> Result<Self> {
         progress(Event::UsbmuxdStarting);
+
+        // Without the watcher a restore runs for minutes and then stalls
+        // waiting for restore mode, so stop now instead.
+        #[cfg(target_os = "windows")]
+        let restore_mode = crate::driver::spawn_restore_mode_watcher().ok_or_else(|| {
+            Error::DriverInstall(
+                "couldn't start the restore-mode USB helper (was the Windows UAC prompt \
+                 declined?). Without it the restore stalls once the Mac enters restore mode; \
+                 retry and approve the prompt"
+                    .into(),
+            )
+        })?;
 
         // What we hand the C server (Linux: the socket path; Windows: ignored —
         // it binds a fixed loopback port).
@@ -226,6 +244,8 @@ impl UsbmuxdGuard {
             #[cfg(target_os = "linux")]
             socket_path,
             thread: Some(thread),
+            #[cfg(target_os = "windows")]
+            _restore_mode: restore_mode,
         })
     }
 }
