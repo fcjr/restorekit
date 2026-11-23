@@ -1,0 +1,30 @@
+--- a/src/libirecovery.c
++++ b/src/libirecovery.c
+@@ -3539,6 +3539,15 @@
+ }
+ #else /* !HAVE_IOKIT */
+ #ifdef HAVE_LIBUSB_HOTPLUG_API
++/* libusb only guarantees the device during the hotplug callback. */
++static void* _irecv_handle_device_add_referenced(void *userdata)
++{
++	libusb_device *device = (libusb_device*)userdata;
++	_irecv_handle_device_add(device);
++	libusb_unref_device(device);
++	return NULL;
++}
++
+ static int _irecv_usb_hotplug_cb(libusb_context *ctx, libusb_device *device, libusb_hotplug_event event, void *user_data)
+ {
+ 	if (!_irecv_is_recovery_device(device)) {
+@@ -3546,8 +3555,10 @@
+ 	}
+ 	if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED) {
+ 		THREAD_T th_device;
+-		if (thread_new(&th_device, _irecv_handle_device_add, device) != 0) {
++		libusb_ref_device(device);
++		if (thread_new(&th_device, _irecv_handle_device_add_referenced, device) != 0) {
+ 			debug("%s: FATAL: failed to create thread to handle device add\n", __func__);
++			libusb_unref_device(device);
+ 			return 0;
+ 		}
+ 		thread_detach(th_device);
