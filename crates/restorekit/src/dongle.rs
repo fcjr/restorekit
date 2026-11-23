@@ -61,6 +61,8 @@ pub enum DongleModel {
     Lite,
     /// `Dongle-Pro` — the USB 3.1 Gen 1 passthrough variant.
     Pro,
+    /// `Dongle-Pro-v2` — hubless USB 3 passthrough on a CH32X035.
+    ProV2,
 }
 
 impl DongleModel {
@@ -70,6 +72,7 @@ impl DongleModel {
         match product {
             proto::PRODUCT_LITE => Some(Self::Lite),
             proto::PRODUCT_PRO => Some(Self::Pro),
+            proto::PRODUCT_PRO_V2 => Some(Self::ProV2),
             _ => None,
         }
     }
@@ -77,10 +80,12 @@ impl DongleModel {
     /// Git-tag prefix this model's firmware releases are published under.
     /// Lite and Pro build from the one firmware crate and share a release
     /// tag; the updater picks the per-model asset below, so a Pro never
-    /// receives a Lite image (and vice versa).
+    /// receives a Lite image (and vice versa). The Pro v2 is a different MCU
+    /// and gets its own tag, so it can never be offered an RP2350 image.
     fn release_tag_prefix(self) -> &'static str {
         match self {
             Self::Lite | Self::Pro => "dongle-lite-v",
+            Self::ProV2 => "dongle-pro-v2-v",
         }
     }
 
@@ -89,7 +94,14 @@ impl DongleModel {
         match self {
             Self::Lite => "dongle-lite-fw.bin",
             Self::Pro => "dongle-pro-fw.bin",
+            Self::ProV2 => "dongle-pro-v2-fw.bin",
         }
+    }
+
+    /// Whether the target's USB 3 lanes bypass the dongle's hub, so a USB 3
+    /// target enumerates on the host port's SuperSpeed side, not under the hub.
+    fn passes_usb3(self) -> bool {
+        matches!(self, Self::ProV2)
     }
 }
 
@@ -379,8 +391,9 @@ pub fn wait(target: DongleTarget, timeout: std::time::Duration) -> Result<Dongle
 /// Find the dongle a DFU Mac is plugged into, by USB topology.
 ///
 /// The Mac in DFU enumerates as a sibling of the dongle under the same hub, so
-/// the two share a USB bus and a parent port path. Requires the Mac to already
-/// be USB-visible (in DFU) and cabled through the dongle's hub.
+/// the two share a USB bus and a parent port path; through a Dongle-Pro v2 a
+/// USB 3 Mac is on the SuperSpeed side of the same host port instead. Requires
+/// the Mac to already be USB-visible (in DFU) and cabled through the dongle.
 pub fn find_for_ecid(ecid: u64) -> Result<Dongle> {
     let infos: Vec<_> = nusb::list_devices().wait().map_err(Error::from)?.collect();
 
@@ -391,7 +404,7 @@ pub fn find_for_ecid(ecid: u64) -> Result<Dongle> {
 
     list()?
         .into_iter()
-        .find(|d| shares_parent_hub(d, mac))
+        .find(|d| cabled_to(d, mac, &infos))
         .ok_or_else(|| {
             Error::Dongle(format!(
                 "the Mac with ECID {ecid:#x} is not behind a known dongle"
@@ -407,6 +420,30 @@ fn shares_parent_hub(dongle: &Dongle, mac: &nusb::DeviceInfo) -> bool {
         && !dongle.port_chain.is_empty()
         && mac_chain.len() == dongle.port_chain.len()
         && mac_chain[..mac_chain.len() - 1] == dongle.port_chain[..dongle.port_chain.len() - 1]
+}
+
+/// True if `dev` is the target cabled to `dongle`: beside its MCU under its
+/// hub, or, for a dongle that passes USB 3 straight through, on the SuperSpeed
+/// companion of the port the hub is plugged into.
+fn cabled_to(dongle: &Dongle, dev: &nusb::DeviceInfo, infos: &[nusb::DeviceInfo]) -> bool {
+    if shares_parent_hub(dongle, dev) {
+        return true;
+    }
+    if !dongle.model.passes_usb3() || dongle.port_chain.is_empty() {
+        return false;
+    }
+    let hub_chain = &dongle.port_chain[..dongle.port_chain.len() - 1];
+    let Some(hub) = infos.iter().find(|h| {
+        h.class() == USB_CLASS_HUB && h.bus_id() == dongle.bus_id && h.port_chain() == hub_chain
+    }) else {
+        return false;
+    };
+    if crate::usb3_peer::EXACT {
+        crate::usb3_peer::is_companion(hub, dev)
+    } else {
+        crate::usb3_peer::fallback(hub, infos.iter().filter(|i| i.vendor_id() == APPLE_VID))
+            .is_some_and(|only| only.id() == dev.id())
+    }
 }
 
 /// USB device class for a hub.
@@ -468,7 +505,7 @@ pub fn connection_for(dev: &Device) -> Connection {
     // Behind a RecoverKit dongle? (Its hub also parents the dongle's MCU.)
     if let Ok(dongles) = list() {
         for d in dongles {
-            if shares_parent_hub(&d, me) {
+            if cabled_to(&d, me, &infos) {
                 return Connection::Dongle(d.serial);
             }
         }
@@ -525,6 +562,26 @@ impl Dongle {
         self.open()?.dfu()
     }
 
+    /// Install a firmware image over USB. The Lite and Pro stage it through
+    /// their vendor interface ([`DongleHandle::update`]). The Pro v2 has no
+    /// room for a second image, so it drops into the CH32's ROM USB loader on
+    /// `bootsel` and the host flashes and verifies it there; `image` is then
+    /// the raw binary at flash offset 0. `progress` receives (bytes, total).
+    pub fn update(&self, image: &[u8], progress: impl FnMut(usize, usize)) -> Result<()> {
+        if self.model == DongleModel::ProV2 {
+            if image.is_empty() || image.len() > crate::wch_isp::MAX_IMAGE {
+                return Err(Error::Dongle(format!(
+                    "firmware image is {} bytes; a Dongle-Pro v2 takes 1 to {}",
+                    image.len(),
+                    crate::wch_isp::MAX_IMAGE
+                )));
+            }
+            self.open()?.bootsel()?;
+            return crate::wch_isp::flash(&self.bus_id, &self.port_chain, image, progress);
+        }
+        self.open()?.update(image, progress)
+    }
+
     /// Reboot the cabled Mac.
     pub fn reboot(&self) -> Result<()> {
         self.open()?.reboot()
@@ -562,11 +619,12 @@ impl Dongle {
     /// [`find_for_ecid`]. `None` if the target's USB data isn't routed to this
     /// host, or nothing Apple is attached.
     pub fn attached_device(&self) -> Result<Option<Device>> {
-        let infos = nusb::list_devices().wait().map_err(Error::from)?;
+        let infos: Vec<_> = nusb::list_devices().wait().map_err(Error::from)?.collect();
         Ok(infos
+            .iter()
             .filter(|i| i.vendor_id() == APPLE_VID)
-            .find(|i| shares_parent_hub(self, i))
-            .map(|i| device::from_usb(&i)))
+            .find(|i| cabled_to(self, i, &infos))
+            .map(device::from_usb))
     }
 }
 
@@ -610,7 +668,8 @@ impl DongleHandle {
 
     /// Reboot the dongle itself into its USB bootloader for a firmware update.
     /// Fire-and-forget: the dongle drops off the bus and re-enumerates as the
-    /// RP2350 bootloader, so there is no status to poll.
+    /// RP2350 bootloader (the Pro v2: the CH32's ROM USB loader), so there is
+    /// no status to poll.
     pub fn bootsel(&self) -> Result<()> {
         self.vendor_out_raw(proto::VREQ_CMD, proto::VCMD_BOOTSEL, &[], CTRL_TIMEOUT)
             .map_err(|e| match e {
@@ -807,6 +866,15 @@ mod tests {
         assert_ne!(
             DongleModel::Lite.release_asset(),
             DongleModel::Pro.release_asset()
+        );
+        // The Pro v2 is a different MCU: never the RP2350 release.
+        assert_eq!(
+            DongleModel::from_product(proto::PRODUCT_PRO_V2),
+            Some(DongleModel::ProV2)
+        );
+        assert_ne!(
+            DongleModel::ProV2.release_tag_prefix(),
+            DongleModel::Lite.release_tag_prefix()
         );
     }
 

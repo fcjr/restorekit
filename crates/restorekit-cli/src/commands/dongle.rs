@@ -88,6 +88,12 @@ pub fn bootsel(json: bool, target: DongleTarget) -> Result<()> {
             "{}",
             serde_json::json!({ "serial": d.serial, "bootsel": true })
         );
+    } else if d.model == dongle::DongleModel::ProV2 {
+        println!(
+            "{} is in the CH32's ROM USB loader; flash it with \
+             `restorekit dongle update --file <image.bin>` or replug it to leave.",
+            d.serial
+        );
     } else {
         println!(
             "{} is rebooting into its USB bootloader; push new firmware with \
@@ -191,7 +197,9 @@ pub fn update(
             release.download()?
         }
     };
-    handle.update(&image, |staged, total| {
+    // The update opens the dongle itself; the Pro v2 also leaves the bus.
+    drop(handle);
+    d.update(&image, |staged, total| {
         if json {
             // NDJSON progress, matching the erase/download event stream style.
             println!(
@@ -204,11 +212,12 @@ pub fn update(
             let _ = std::io::stderr().flush();
         }
     })?;
-    // The claimed interface is stale once the dongle reboots; release it
-    // before polling for re-enumeration.
-    drop(handle);
     if !json {
-        eprintln!("\r  staged and verified; the dongle is rebooting to swap it in.");
+        if d.model == dongle::DongleModel::ProV2 {
+            eprintln!("\r  written and verified; the dongle is restarting.");
+        } else {
+            eprintln!("\r  staged and verified; the dongle is rebooting to swap it in.");
+        }
     }
 
     // The swap takes a moment; report when it's back on the bus.

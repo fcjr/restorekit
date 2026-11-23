@@ -73,8 +73,10 @@ pub mod history;
 pub mod kis;
 pub mod progress;
 pub mod restore;
+mod usb3_peer;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod usbmuxd;
+mod wch_isp;
 
 pub use device::{Device, Port, Target, UsbMode};
 pub use dfu::{
