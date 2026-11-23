@@ -11,8 +11,8 @@ compiles the patched copy.
   chunks as binary plists instead of XML on data-port connections, cutting the
   ~35% base64 overhead (the same format the URLAsset response already uses).
 - `0002-retry-component-sends-on-transport-failure.patch` — multi-gigabyte
-  components (cryptexes, recoveryOS) stream as hundreds of thousands of 8K
-  plist chunks with no recovery; one dropped USB write aborted the whole
+  components (cryptexes, recoveryOS) stream as tens of thousands of plist
+  chunks with no recovery; one dropped USB write aborted the whole
   restore. Reconnect to the data port and re-send the component from the
   start, up to 3 attempts.
 - `0006-fix-double-free-in-dfu-open-retry.patch` — libirecovery's
@@ -42,6 +42,11 @@ compiles the patched copy.
   short took about 30 seconds to boot iBEC, so every retry failed with "Device
   did not disconnect. Possibly invalid iBEC". Wait up to 60 seconds each, like
   the same step in `idevicerestore.c` already does.
+- `0010-send-file-data-in-128k-chunks.patch` — component `FileData` went out
+  in 8 KiB plist chunks, each a separate message through usbmuxd. Send
+  128 KiB, the chunk size ASR already uses for the filesystem. On Windows a
+  6.5 GB Rosetta cryptex took 250 seconds in 8 KiB chunks and about 150 in
+  128 KiB ones.
 
 ## libimobiledevice-glue
 

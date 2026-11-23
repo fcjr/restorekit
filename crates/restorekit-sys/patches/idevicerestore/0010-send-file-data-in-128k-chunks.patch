@@ -1,0 +1,19 @@
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -4311,14 +4311,14 @@
+ 		int rc = 0;
+ 		if (path) {
+ 			register_progress(rctx.tag, component);
+-			rc = ipsw_extract_send(client->ipsw, path, 8192, (ipsw_send_cb)_restore_send_file_data, &rctx);
++			rc = ipsw_extract_send(client->ipsw, path, 0x20000, (ipsw_send_cb)_restore_send_file_data, &rctx);
+ 		} else {
+ 			if (size > 0x2000000) {
+ 				register_progress(rctx.tag, component);
+ 			}
+ 			int64_t i = size;
+ 			while (i > 0) {
+-				int blob_size = i > 8192 ? 8192 : (int)i;
++				int blob_size = i > 0x20000 ? 0x20000 : (int)i;
+ 				if (_restore_send_file_data(&rctx, ((char*)data + size - i), blob_size, size-i, size) < 0) {
+ 					rc = -1;
+ 					break;
