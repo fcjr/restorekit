@@ -258,7 +258,17 @@ void restorekit_usbmuxd_run(void)
                     }
                 }
                 if (pollfds.owners[i] == FD_CLIENT) {
-                    client_process(pollfds.fds[i].fd, pollfds.fds[i].revents);
+                    /*
+                     * WSAPoll reports a peer that has closed as POLLHUP alone.
+                     * usbmuxd finds the end of a stream in a read, which poll
+                     * reports alongside POLLHUP on Unix, so ask for one here.
+                     * Otherwise the connection is never closed toward the
+                     * device, which waits on it, and this loop spins.
+                     */
+                    short revents = pollfds.fds[i].revents;
+                    if (revents & (POLLHUP | POLLERR))
+                        revents |= POLLIN;
+                    client_process(pollfds.fds[i].fd, revents);
                 }
             }
         }
