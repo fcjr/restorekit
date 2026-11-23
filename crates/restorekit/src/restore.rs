@@ -399,10 +399,22 @@ fn run_once(
         .name("restore".into())
         .stack_size(RESTORE_STACK)
         .spawn(move || -> Result<Obliteration> {
-            let ipsw_c = CString::new(ipsw.as_os_str().to_string_lossy().as_bytes())
+            // The C libraries open these through the C runtime, which can't
+            // take a verbatim (`\\?\`) path such as `canonicalize` returns on
+            // Windows.
+            let c_path = |path: &Path| {
+                CString::new(
+                    dunce::simplified(path)
+                        .as_os_str()
+                        .to_string_lossy()
+                        .as_bytes(),
+                )
+            };
+            let ipsw_c = c_path(&ipsw)
                 .map_err(|_| Error::Download("ipsw path contains a NUL byte".into()))?;
             let cache_c = cache_dir
-                .map(|d| CString::new(d.as_os_str().to_string_lossy().as_bytes()))
+                .as_deref()
+                .map(c_path)
                 .transpose()
                 .map_err(|_| Error::Download("cache path contains a NUL byte".into()))?;
 
