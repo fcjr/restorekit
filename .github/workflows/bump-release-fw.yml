@@ -1,9 +1,10 @@
 name: bump-release-fw
 
 # One-click dongle-firmware release from the Actions tab: bump the firmware
-# crate version, commit, tag dongle-lite-vX.Y.Z, and push — the tag then
-# triggers release-fw.yml, which builds and publishes the update image that
-# `restorekit dongle update` installs. Runs with a GitHub App token because
+# crate version, commit, tag it (dongle-lite-vX.Y.Z or dongle-pro-v2-vX.Y.Z),
+# and push — the tag then triggers release-fw.yml or release-fw-pro-v2.yml,
+# which builds and publishes the update image `restorekit dongle update`
+# installs. Runs with a GitHub App token because
 # pushes made with the default GITHUB_TOKEN don't trigger other workflows.
 
 on:
@@ -15,6 +16,12 @@ on:
         default: patch
         type: choice
         options: [patch, minor, major]
+      firmware:
+        description: "Firmware: lite (Lite and Pro) or pro-v2"
+        required: true
+        default: lite
+        type: choice
+        options: [lite, pro-v2]
 
 # Serialize workflows that commit to the repo.
 concurrency:
@@ -44,11 +51,15 @@ jobs:
       - name: Bump firmware version
         id: bump
         run: |
-          scripts/bump-fw-version.sh "${{ inputs.version_type }}"
-          version=$(perl -ne 'print $1 and exit if /^version = "([^"]+)"$/' crates/dongle-lite-fw/Cargo.toml)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          scripts/bump-fw-version.sh "${{ inputs.version_type }}" "${{ inputs.firmware }}"
+          case "${{ inputs.firmware }}" in
+            lite) crate=crates/dongle-lite-fw tag=dongle-lite-v ;;
+            pro-v2) crate=crates/dongle-pro-v2-fw tag=dongle-pro-v2-v ;;
+          esac
+          version=$(perl -ne 'print $1 and exit if /^version = "([^"]+)"$/' "$crate/Cargo.toml")
+          echo "tag=$tag$version" >> "$GITHUB_OUTPUT"
 
       - name: Tag and push
         run: |
-          git tag "dongle-lite-v${{ steps.bump.outputs.version }}"
-          git push --no-verify origin HEAD "dongle-lite-v${{ steps.bump.outputs.version }}"
+          git tag "${{ steps.bump.outputs.tag }}"
+          git push --no-verify origin HEAD "${{ steps.bump.outputs.tag }}"
