@@ -639,11 +639,13 @@ impl UsbMode {
             DFU_PID => UsbMode::Dfu,
             PORT_DFU_PID => UsbMode::PortDfu,
             KIS_PID => UsbMode::Kis,
-            0x1280 | 0x1281 => UsbMode::Recovery,
+            0x1280..=0x1283 => UsbMode::Recovery,
             0x1222 => UsbMode::Wtf,
-            0x1338 | 0x1339 => UsbMode::Restore,
-            // The RemoteXPC/NCM gadget a booted macOS exposes to a USB host.
-            0x1902 => UsbMode::Booted,
+            0x12ac => UsbMode::Restore,
+            // The RemoteXPC/NCM gadget a booted macOS exposes to a USB host,
+            // by model family: Mac mini, MacBook Pro, MacBook Air, iMac, then
+            // every MacNN,N.
+            0x1901..=0x1905 => UsbMode::Booted,
             // The USB Billboard a Mac's USB-C port controller presents when an
             // alt mode (Thunderbolt) can't be entered over the link.
             BILLBOARD_PID => UsbMode::Billboard,
@@ -1500,6 +1502,16 @@ mod tests {
     fn recognizes_port_dfu_pid() {
         assert_eq!(UsbMode::from_pid(PORT_DFU_PID), UsbMode::PortDfu);
         assert_eq!(UsbMode::PortDfu.to_string(), "port-dfu");
+    }
+
+    #[test]
+    fn recognizes_booted_restore_and_recovery_pids() {
+        for pid in 0x1901..=0x1905 {
+            assert_eq!(UsbMode::from_pid(pid), UsbMode::Booted);
+        }
+        assert_eq!(UsbMode::from_pid(0x12ac), UsbMode::Restore);
+        assert_eq!(UsbMode::from_pid(0x1283), UsbMode::Recovery);
+        assert_eq!(UsbMode::from_pid(0x12ab), UsbMode::Other);
     }
 
     #[test]
