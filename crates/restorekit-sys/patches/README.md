@@ -111,7 +111,8 @@ compiles the patched copy.
   restore tool, that reconfigures every other Apple device on the host as soon
   as the server starts. A Mac in restore mode already has its mux interface in
   the active configuration, so only look there, matching class, subclass and
-  protocol together, and leave a device without one alone. Linux can activate
+  protocol together, and leave a device without one alone, logging that once
+  per device so a stall at restore mode says why. Linux can activate
   a new configuration at the same address without a hotplug event, so the
   periodic discovery pass stays on next to hotplug there.
 
