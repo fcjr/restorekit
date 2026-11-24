@@ -67,35 +67,87 @@ pub(crate) enum Read {
 /// arrival, so the first request can land before it's ready.
 const ARRIVAL_GRACE: Duration = Duration::from_secs(3);
 
+/// One arrival of a device on the bus. The device id alone already changes
+/// with each arrival on macOS (a registry entry id) and Linux (bus and
+/// address). Windows keeps the device instance, and so the id, for whatever
+/// arrives at the same port, and may hand out the same bus address again, so
+/// add the time Windows recorded this arrival.
+type Arrival = (nusb::DeviceId, u64);
+
 /// When each KIS device was first seen, and its identity once read.
-type Seen = HashMap<nusb::DeviceId, (Instant, Option<String>)>;
+type Seen = HashMap<Arrival, (Instant, Option<String>)>;
+
+/// `None` when Windows won't say when the device arrived: its identity then
+/// isn't cached, rather than risk handing it to the next Mac at that port.
+fn arrival(info: &nusb::DeviceInfo) -> Option<Arrival> {
+    #[cfg(target_os = "windows")]
+    return Some((info.id(), last_arrival(info)?));
+    #[cfg(not(target_os = "windows"))]
+    Some((info.id(), 0))
+}
+
+/// The FILETIME of the device's last arrival, which the PnP manager records.
+#[cfg(target_os = "windows")]
+fn last_arrival(info: &nusb::DeviceInfo) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        CM_Get_DevNode_PropertyW, CM_Locate_DevNodeW, CM_LOCATE_DEVNODE_NORMAL, CR_SUCCESS,
+    };
+    use windows_sys::Win32::Devices::Properties::{
+        DEVPKEY_Device_LastArrivalDate, DEVPROP_TYPE_FILETIME,
+    };
+
+    let id: Vec<u16> = info.instance_id().encode_wide().chain([0]).collect();
+    unsafe {
+        let mut dev = 0;
+        if CM_Locate_DevNodeW(&mut dev, id.as_ptr(), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS {
+            return None;
+        }
+        let mut kind = 0;
+        let mut buf = [0u8; 8];
+        let mut size = buf.len() as u32;
+        let ok = CM_Get_DevNode_PropertyW(
+            dev,
+            &DEVPKEY_Device_LastArrivalDate,
+            &mut kind,
+            buf.as_mut_ptr(),
+            &mut size,
+            0,
+        ) == CR_SUCCESS;
+        (ok && kind == DEVPROP_TYPE_FILETIME && size == 8).then(|| u64::from_le_bytes(buf))
+    }
+}
 
 fn seen() -> &'static Mutex<Seen> {
     static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
     SEEN.get_or_init(Default::default)
 }
 
-/// Drop what [`identify`] remembers about devices no longer on the bus. Device
-/// ids can come back for the same port (Windows reuses the device instance), and
-/// a Mac re-entering DFU there is a new arrival that needs its own grace period
-/// and its own read.
+/// Drop what [`identify`] remembers about devices no longer on the bus.
 pub(crate) fn forget_absent(present: &[nusb::DeviceId]) {
-    seen().lock().unwrap().retain(|id, _| present.contains(id));
+    seen()
+        .lock()
+        .unwrap()
+        .retain(|(id, _), _| present.contains(id));
 }
 
-/// Read the KIS device behind `info`. A good identity is cached per
-/// enumeration, so polling `list()` asks each device once; anything else is
-/// asked again on the next call, so a device that finishes coming up (or a
-/// daemon that finishes attaching) isn't stuck with its first answer.
+/// Read the KIS device behind `info`. A good identity is cached per arrival,
+/// so polling `list()` asks each device once; anything else is asked again on
+/// the next call, so a device that finishes coming up (or a daemon that
+/// finishes attaching) isn't stuck with its first answer.
 pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
     let seen = seen();
-    let first_seen = {
-        let mut seen = seen.lock().unwrap();
-        let entry = seen.entry(info.id()).or_insert((Instant::now(), None));
-        if let Some(serial) = &entry.1 {
-            return Read::Serial(serial.clone());
+    let arrival = arrival(info);
+    let first_seen = match arrival {
+        Some(arrival) => {
+            let mut seen = seen.lock().unwrap();
+            let entry = seen.entry(arrival).or_insert((Instant::now(), None));
+            if let Some(serial) = &entry.1 {
+                return Read::Serial(serial.clone());
+            }
+            entry.0
         }
-        entry.0
+        None => Instant::now(),
     };
     let read = loop {
         let read = read(info);
@@ -104,10 +156,10 @@ pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
         }
         std::thread::sleep(Duration::from_millis(250));
     };
-    if let Read::Serial(serial) = &read {
+    if let (Read::Serial(serial), Some(arrival)) = (&read, arrival) {
         seen.lock()
             .unwrap()
-            .insert(info.id(), (first_seen, Some(serial.clone())));
+            .insert(arrival, (first_seen, Some(serial.clone())));
     }
     read
 }

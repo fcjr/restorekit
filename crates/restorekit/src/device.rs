@@ -950,9 +950,19 @@ fn ecid_from_usb_serial(serial: &str) -> Option<u64> {
 /// Describe one USB device from the caller's own nusb enumeration, the way
 /// [`list`] describes every Apple device on the bus. For callers that track
 /// devices by where they are attached and need the identity of a particular
-/// one. A KIS identity is cached per enumeration; see [`forget_absent`].
+/// one. A KIS identity is cached per arrival; see [`forget_absent`]. A
+/// non-Apple device is described as [`UsbMode::Other`] without being opened.
+///
+/// Blocking: reading a KIS device does USB I/O, and right after it arrives
+/// retries for up to a few seconds while the host finishes attaching it. Don't
+/// call it from a hotplug callback or an async task.
 pub fn from_usb(info: &nusb::DeviceInfo) -> Device {
-    let mut mode = UsbMode::from_pid(info.product_id());
+    let apple = info.vendor_id() == APPLE_VID;
+    let mut mode = if apple {
+        UsbMode::from_pid(info.product_id())
+    } else {
+        UsbMode::Other
+    };
     let serial = match mode {
         UsbMode::Kis => match crate::kis::identify(info) {
             crate::kis::Read::Serial(s) => Some(s),
@@ -966,7 +976,9 @@ pub fn from_usb(info: &nusb::DeviceInfo) -> Device {
         _ => info.serial_number().map(str::to_string),
     }
     .unwrap_or_default();
-    let parsed = if mode == UsbMode::PortDfu {
+    let parsed = if !apple {
+        None
+    } else if mode == UsbMode::PortDfu {
         parse_port_dfu_serial(&serial)
     } else {
         parse_serial(&serial)
@@ -974,7 +986,7 @@ pub fn from_usb(info: &nusb::DeviceInfo) -> Device {
     let ecid = parsed
         .as_ref()
         .map(|(_, _, ecid, _, _)| *ecid)
-        .or_else(|| ecid_from_usb_serial(&serial));
+        .or_else(|| apple.then(|| ecid_from_usb_serial(&serial)).flatten());
     // The hardware serial from iBoot's SRNM (recovery), else the raw USB serial
     // for a booted Mac (which already is the Apple serial).
     let srnm = parsed
@@ -1028,9 +1040,8 @@ fn driver_ready(_info: &nusb::DeviceInfo, _mode: UsbMode) -> bool {
 }
 
 /// Drop the identities [`from_usb`] cached for devices that have left the bus.
-/// Pass the id of every device attached now. [`list`] does this itself; a
-/// caller describing devices one at a time must, because a device id can be
-/// reused by a later arrival.
+/// Pass the id of every device attached now, after each enumeration; [`list`]
+/// does this itself. A caller describing devices one at a time must call it.
 pub fn forget_absent(present: &[nusb::DeviceId]) {
     crate::kis::forget_absent(present);
 }
@@ -1230,9 +1241,12 @@ fn read_bos(dev: &nusb::Device) -> Option<Vec<u8>> {
 }
 
 /// The ECID a booted Mac advertises in a platform capability of its BOS
-/// descriptor. Opens the device; `None` when it can't be opened or advertises
-/// none.
+/// descriptor. Opens the device; `None` when it isn't an Apple device, can't
+/// be opened or advertises none.
 pub fn read_ecid(info: &nusb::DeviceInfo) -> Option<u64> {
+    if info.vendor_id() != APPLE_VID {
+        return None;
+    }
     ecid_from_bos(&read_bos(&info.open().wait().ok()?)?)
 }
 
