@@ -820,6 +820,7 @@ impl DongleHandle {
                 proto::RES_PENDING => {}
                 proto::RES_OK => return Ok(()),
                 proto::RES_NOTARGET => return Err(Error::DongleNoTarget),
+                proto::RES_UNHEARD => return Err(Error::DongleTargetSilent),
                 _ => {}
             }
             if Instant::now() >= deadline {

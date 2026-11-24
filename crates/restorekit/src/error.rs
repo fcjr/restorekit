@@ -52,6 +52,12 @@ pub enum Error {
     #[error("no target Mac is attached to the dongle")]
     DongleNoTarget,
 
+    #[error(
+        "the target Mac didn't answer the dongle over USB-PD; make sure it's on and awake \
+         (open the lid or press a key), then try again"
+    )]
+    DongleTargetSilent,
+
     #[error("dongle: {0}")]
     Dongle(String),
 

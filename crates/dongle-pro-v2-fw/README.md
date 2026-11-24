@@ -15,10 +15,12 @@ Firmware for the Dongle-Pro v2 and the Dongle-Pro v2 PD, two binaries:
   "check before ordering" list.
 
 Both are built on [ch32-hal](https://github.com/ch32-rs/ch32-hal) and
-embassy-usb. On the first v2 board: PD contract, `dfu`, `reboot`, firmware
-updates and USB 3 passthrough (an iPhone at 10 Gb/s) work. `serial` gets the
-Mac to switch its UART onto SBU, but I haven't seen a byte from a production
-Mac yet. The PD build has not run on a board.
+embassy-usb, with this crate's own X035 USB driver (`src/usbfs.rs`, adapted
+from ch32-hal's): it keeps working when the host abandons a transfer midway,
+which upstream's can't. On the first v2 board: PD contract, `dfu`, `reboot`,
+firmware updates and USB 3 passthrough (an iPhone at 10 Gb/s) work. `serial`
+gets the Mac to switch its UART onto SBU, but I haven't seen a byte from a
+production Mac yet. The PD build has not run on a board.
 
 ## Building
 
@@ -53,7 +55,7 @@ hub and the MCU's USB work.
 The bench console uses the pid.codes test ID (1209:0001) on purpose, so restorekit
 does not mistake it for a dongle.
 
-Size, of 62 KB: product 41 KB; bench 53 KB for the v2, 59 KB for the PD board.
+Size, of 62 KB: product 44 KB; bench 54 KB for the v2, 60 KB for the PD board.
 
 ## Releasing
 
@@ -71,6 +73,9 @@ where `restorekit dongle update` finds it.
   Source_Capabilities until the target takes a contract, then stops, so an
   established contract isn't renegotiated. Get_Source_Cap and Soft_Reset start
   it over.
+- If none of a command's VDMs gets a GoodCRC (the Mac is asleep, off, or
+  its port isn't listening), it reports that to the host instead of
+  success, so restorekit can say so rather than wait.
 - If the target answers `dfu` with a hard reset within 5 s (a Mac that has
   just booted can), `dfu` is sent again after 5 s, up to three times. Same as
   the Lite.

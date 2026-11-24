@@ -28,6 +28,8 @@ mod tcpc;
 mod uart;
 #[path = "../usb.rs"]
 mod usb;
+#[path = "../usbfs.rs"]
+mod usbfs;
 
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicU8, Ordering};
@@ -346,7 +348,12 @@ impl Engine<'_> {
         if !self.fresh_session().await {
             return proto::RES_NOTARGET;
         }
-        self.enter_serial().await
+        let res = self.enter_serial().await;
+        if res == proto::RES_OK && self.serial_acked == 0 {
+            // Still listening, in case it comes round; the host is told.
+            return proto::RES_UNHEARD;
+        }
+        res
     }
 
     /// Cycle CC and wait for the target to take a contract again.
@@ -649,7 +656,11 @@ impl Engine<'_> {
             acked,
             12 * variants.len()
         );
-        proto::RES_OK
+        if acked == 0 {
+            proto::RES_UNHEARD
+        } else {
+            proto::RES_OK
+        }
     }
 
     /// Target power off and CC open for a second, then attach again: what

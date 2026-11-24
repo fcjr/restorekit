@@ -107,6 +107,10 @@ pub const RES_NONE: u8 = 0;
 pub const RES_PENDING: u8 = 1;
 pub const RES_OK: u8 = 2;
 pub const RES_NOTARGET: u8 = 3;
+/// The dongle sent the command's PD messages but the target acknowledged
+/// none of them: it's asleep, off, or its USB-C port isn't listening.
+/// Dongle-Pro v2 firmware only; the Lite and Pro never report it.
+pub const RES_UNHEARD: u8 = 4;
 
 // Firmware update over the vendor interface (no bootrom, no RPI-RP2 drive).
 // The dongle runs behind an embassy-boot bootloader with A/B slots: the host
