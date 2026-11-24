@@ -103,10 +103,20 @@ pub use nusb;
 /// `RESTOREKIT_SHARED_USBMUXD` for its restores does the same with
 /// `driver::spawn_restore_mode_watcher`.
 ///
-/// A no-op on macOS, where the system usbmuxd is always available.
+/// A no-op on macOS, where the system usbmuxd is always available, and on
+/// Windows when Apple's own usbmuxd already serves the port.
 pub struct SharedUsbmuxd {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    _guard: usbmuxd::UsbmuxdGuard,
+    _guard: Option<usbmuxd::UsbmuxdGuard>,
+}
+
+impl Drop for SharedUsbmuxd {
+    fn drop(&mut self) {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        if self._guard.is_some() {
+            unsafe { std::env::remove_var("RESTOREKIT_SHARED_USBMUXD") };
+        }
+    }
 }
 
 /// Start a [`SharedUsbmuxd`] the parent holds for the lifetime of its restore
@@ -114,9 +124,17 @@ pub struct SharedUsbmuxd {
 pub fn start_shared_usbmuxd(progress: progress::ProgressFn) -> Result<SharedUsbmuxd> {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
+        // Settle who serves the port before the watcher's UAC prompt. With
+        // Apple's usbmuxd there, each restore uses it directly.
+        #[cfg(target_os = "windows")]
+        if restore::windows_mux_check()? {
+            return Ok(SharedUsbmuxd { _guard: None });
+        }
         let guard = usbmuxd::UsbmuxdGuard::start(progress)?;
         unsafe { std::env::set_var("RESTOREKIT_SHARED_USBMUXD", "1") };
-        Ok(SharedUsbmuxd { _guard: guard })
+        Ok(SharedUsbmuxd {
+            _guard: Some(guard),
+        })
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
