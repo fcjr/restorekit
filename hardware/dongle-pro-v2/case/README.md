@@ -6,7 +6,12 @@ supports, no paperclip. 25.2 x 49.9 x 8.8 mm.
 ```sh
 uv run case.py    # output/: STEP assembly + STLs
 uv run check.py   # fit checks against ../mfg-jlcpcb/dongle-pro-v2.step
+uv run check.py --pinhole
 ```
+
+There are two lids. `lid.stl` has the flex-tab BOOT button. `lid-pinhole.stl`
+has a 2.4 mm paperclip hole over the button instead, like the Lite. It's
+sturdier and you can't bump BOOT by accident. Same tray for both.
 
 ## Printing
 

@@ -1,6 +1,7 @@
 """Fit checks for the Dongle-Pro v2 case against the board's own STEP.
 
-uv run check.py   (exits 1 on any failure)
+uv run check.py             (exits 1 on any failure)
+uv run check.py --pinhole   the paperclip-hole lid
 """
 
 import os
@@ -35,7 +36,8 @@ def to_case(s):
     return s.translate(cq.Vector(-c.KX0, c.KY0, 0))
 
 
-parts = c.build()
+PINHOLE = "--pinhole" in sys.argv
+parts = c.build(pinhole=PINHOLE)
 tray, lid = parts["tray"].val(), parts["lid"].val()
 board = [to_case(s) for s in cq.importers.importStep(STEP).solids().vals()]
 pcb = max(board, key=lambda s: s.Volume())
@@ -53,8 +55,13 @@ print(f"     tallest part z {top:.2f}, lid underside z {c.CAV_D:.2f}")
 
 sw1 = [s for s in board if s.BoundingBox().zmax > 3.0
        and abs(s.Center().x - c.SW1[0]) < 2 and abs(s.Center().y - c.SW1[1]) < 2]
-gap = min(lid.distance(s) for s in sw1)
-check(0.1 < gap < 0.4, f"BOOT nub {gap:.2f} mm over SW1")
+if PINHOLE:
+    # a 1 mm pin straight down the hole lands on the actuator
+    pin = cq.Solid.makeCylinder(0.5, c.TOP_Z, cq.Vector(*c.SW1, 0))
+    check(any(vol(pin, s) > EPS for s in sw1), "a 1 mm pin through the hole hits SW1")
+else:
+    gap = min(lid.distance(s) for s in sw1)
+    check(0.1 < gap < 0.4, f"BOOT nub {gap:.2f} mm over SW1")
 # each snap bump needs unbroken lip 4 mm either side, or it flexes instead of clicking
 for sx in (1, -1):
     for sy in (1, -1):
@@ -66,8 +73,9 @@ for sx in (1, -1):
 bite = c.RIDGE_X + c.RIDGE_R - c.CAV_W / 2
 catch = c.CAV_D - (c.SNAP_Z + c.GROOVE_R)
 check(0.35 < bite < 0.6 and catch >= 0.5, f"snap ridge bites {bite:.2f} mm, {catch:.2f} mm of wall above the groove")
-strain = 1.5 * c.TAB_T * (gap + 0.25) / (c.NUB[0] - c.TAB_X0) ** 2
-check(strain < 0.02, f"flexure strain {strain * 100:.1f}% at full press")
+if not PINHOLE:
+    strain = 1.5 * c.TAB_T * (gap + 0.25) / (c.NUB[0] - c.TAB_X0) ** 2
+    check(strain < 0.02, f"flexure strain {strain * 100:.1f}% at full press")
 
 recess = c.OUT_L / 2 - (c.PCB_L / 2 + c.USB_OUT)
 check(recess < 0.5, f"mouth {recess:.2f} mm behind the face")

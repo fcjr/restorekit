@@ -4,8 +4,12 @@ Two pieces, no screws, no supports: a tray the board drops into and a snap
 lid with a printed-in BOOT button and LED windows. Dimensions come from
 dongle-pro-v2.kicad_pcb (21 x 48 mm, board center at kicad (110.5, 124)).
 
-Run:    uv run case.py            STEP + STLs into ./output/
+The pinhole variant swaps the BOOT flexure for a paperclip hole straight
+over SW1, like the Lite. Same tray.
+
+Run:    uv run case.py            STEP + STLs (both lids) into ./output/
 Check:  uv run check.py           fit checks against the board STEP
+        uv run check.py --pinhole
 """
 
 import os
@@ -116,6 +120,7 @@ LED_R = 0.75
 # D1 sits under the lip, so its window would cut it in two. A collar around
 # the window keeps the lip in one piece.
 COLLAR_R = LED_R + 0.9
+PIN_D = 2.4         # pinhole variant: paperclip hole over SW1, same as the Lite
 TEXT_DEPTH = 0.6     # 3 x 0.2 mm layers, the lid prints top-face-down
 RING_DEPTH = 0.4
 
@@ -186,7 +191,7 @@ def arrow(sign, base, tip, w=6.0):
     )
 
 
-def build():
+def build(pinhole=False):
     # --- tray ---
     cut = box(-CAV_W / 2, CAV_W / 2, -CAV_L / 2, CAV_L / 2, 0, CAV_D + 1)
     for s in (1, -1):
@@ -228,14 +233,18 @@ def build():
         tongue = box(-PORT_W / 2 + 0.1, PORT_W / 2 - 0.1, y0, y1, TONGUE_Z0, CAV_D + 0.01)
         lid = lid.union(tongue.cut(port_hole(s)))
 
-    # BOOT flexure: U-slot through the lid, thin the tab, hang the nub off it
-    ty0, ty1 = TAB_Y
-    slot = box(TAB_X0, TAB_X1 + SLOT, ty0 - SLOT, ty1 + SLOT, CAV_D - 1, TOP_Z + 1)
-    slot = slot.cut(box(TAB_X0 - 1, TAB_X1, ty0, ty1, CAV_D - 1, TOP_Z + 1))
-    lid = lid.cut(slot, clean=False)
-    lid = lid.cut(box(TAB_X0, TAB_X1, ty0, ty1, CAV_D - 1, TOP_Z - TAB_T),
-                  clean=False)
-    lid = lid.union(cyl(*NUB, NUB_R, SW1_TOP + NUB_GAP, TOP_Z - TAB_T + 0.01))
+    if pinhole:
+        slot = cyl(*SW1, PIN_D / 2, CAV_D - 1, TOP_Z + 1)
+        lid = lid.cut(slot, clean=False)
+    else:
+        # BOOT flexure: U-slot through the lid, thin the tab, hang the nub off it
+        ty0, ty1 = TAB_Y
+        slot = box(TAB_X0, TAB_X1 + SLOT, ty0 - SLOT, ty1 + SLOT, CAV_D - 1, TOP_Z + 1)
+        slot = slot.cut(box(TAB_X0 - 1, TAB_X1, ty0, ty1, CAV_D - 1, TOP_Z + 1))
+        lid = lid.cut(slot, clean=False)
+        lid = lid.cut(box(TAB_X0, TAB_X1, ty0, ty1, CAV_D - 1, TOP_Z - TAB_T),
+                      clean=False)
+        lid = lid.union(cyl(*NUB, NUB_R, SW1_TOP + NUB_GAP, TOP_Z - TAB_T + 0.01))
 
     # --- graphics ---
     # Built in absolute coords and cut in one pass: re-selecting faces(">Z")
@@ -249,6 +258,8 @@ def build():
         text("TARGET", 0, -17.8, 4.5),
         arrow(1, 20.3, 22.7),
         arrow(-1, 20.3, 22.7),
+        text("BOOT", SW1[0] - PIN_D / 2 - 1.0, SW1[1], 2.6, halign="right")
+        if pinhole else
         text("BOOT", TAB_X0 - 1.0, sum(TAB_Y) / 2, 2.6, halign="right"),
         text("STAT", D2[0] - 1.2, D2[1], 2.6, halign="right"),
         text("PWR", D1[0] - 1.2, D1[1] - 0.1, 2.6, halign="right"),  # clear of the BOOT slot
@@ -257,7 +268,7 @@ def build():
             .circle(1.3).circle(0.8).extrude(RING_DEPTH))
     leds = [cyl(x, y, LED_R, TOP_Z - TEXT_DEPTH, TOP_Z) for x, y in (D1, D2)]
     inlay = marks[0]
-    for m in marks[1:] + [ring] + leds:
+    for m in marks[1:] + ([] if pinhole else [ring]) + leds:
         inlay = inlay.union(m)
     windows = cyl(*D1, LED_R, CAV_D - LIP_H - 1, TOP_Z + 1).union(
         cyl(*D2, LED_R, CAV_D - LIP_H - 1, TOP_Z + 1))
@@ -267,7 +278,7 @@ def build():
             "slot": slot, "windows": windows}
 
 
-def export(parts):
+def export(parts, suffix=""):
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(out, exist_ok=True)
     (
@@ -275,17 +286,18 @@ def export(parts):
         .add(parts["tray"], name="tray", color=cq.Color(0.16, 0.16, 0.18))
         .add(parts["lid"], name="lid", color=cq.Color(0.16, 0.16, 0.18))
         .add(parts["inlay"], name="inlay", color=cq.Color(1.0, 1.0, 1.0))
-        .export(os.path.join(out, "dongle-pro-v2-case.step"))
+        .export(os.path.join(out, f"dongle-pro-v2-case{suffix}.step"))
     )
     cq.exporters.export(parts["tray"], os.path.join(out, "tray.stl"))
     # lid and inlay flipped together so the inlay drops into its pockets
     flip = lambda w: w.rotate((0, 0, 0), (0, 1, 0), 180)
-    cq.exporters.export(flip(parts["lid"]), os.path.join(out, "lid.stl"))
-    cq.exporters.export(flip(parts["inlay"]), os.path.join(out, "lid-inlay.stl"))
+    cq.exporters.export(flip(parts["lid"]), os.path.join(out, f"lid{suffix}.stl"))
+    cq.exporters.export(flip(parts["inlay"]), os.path.join(out, f"lid{suffix}-inlay.stl"))
     return out
 
 
 if __name__ == "__main__":
+    export(build(pinhole=True), "-pinhole")
     out = export(build())
     print("wrote", out)
     print(f"outer: {OUT_W:.1f} x {OUT_L:.1f} x {TOP_Z + FLOOR:.1f} mm")
