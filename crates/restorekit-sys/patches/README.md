@@ -90,6 +90,12 @@ compiles the patched copy.
   several Macs re-enumerating at once, the thread could read a freed device and
   crash in `libusb_get_device_descriptor`. Reference the device for the thread
   and release it when the thread is done.
+- `0005-open-the-kis-device-with-the-requested-ecid.patch` — a KIS device has
+  no serial, so `irecv_open_with_ecid()` can only learn its ECID by opening
+  it. Every backend returned the first KIS device it could open, and the
+  caller then rejected it as the wrong device, so with two Macs in DFU over
+  Debug USB only the first could be restored. Try each KIS device in turn
+  until one answers with the requested ECID.
 
 ## usbmuxd
 
