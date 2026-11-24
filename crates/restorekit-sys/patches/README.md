@@ -47,6 +47,11 @@ compiles the patched copy.
   128 KiB, the chunk size ASR already uses for the filesystem. On Windows a
   6.5 GB Rosetta cryptex took 250 seconds in 8 KiB chunks and about 150 in
   128 KiB ones.
+- `0011-update-only-from-an-upgrade-install-identity.patch` — without
+  `FLAG_ERASE`, idevicerestore looked for the device's Upgrade Install
+  identity and, when the image had none, fell back to the model's first
+  identity, which can be an Erase Install. A revive could then erase the
+  device. Fail with "Unable to find a matching build identity" instead.
 
 ## libimobiledevice-glue
 

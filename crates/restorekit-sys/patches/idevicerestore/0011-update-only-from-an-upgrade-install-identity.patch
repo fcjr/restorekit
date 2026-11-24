@@ -1,0 +1,14 @@
+--- a/src/idevicerestore.c
++++ b/src/idevicerestore.c
+@@ -1057,10 +1057,8 @@
+ 	} else if (client->flags & FLAG_ERASE) {
+ 		build_identity = build_manifest_get_build_identity_for_model_with_variant(client->build_manifest, client->device->hardware_model, RESTORE_VARIANT_ERASE_INSTALL, 0);
+ 	} else {
++		/* No fallback: the model's other identities can erase. */
+ 		build_identity = build_manifest_get_build_identity_for_model_with_variant(client->build_manifest, client->device->hardware_model, RESTORE_VARIANT_UPGRADE_INSTALL, 0);
+-		if (!build_identity) {
+-			build_identity = build_manifest_get_build_identity_for_model(client->build_manifest, client->device->hardware_model);
+-		}
+ 	}
+ 	if (build_identity == NULL) {
+ 		logger(LL_ERROR, "Unable to find a matching build identity\n");
