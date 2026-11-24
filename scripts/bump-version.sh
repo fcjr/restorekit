@@ -10,7 +10,8 @@
 #   - apps/desktop/src-tauri/Cargo.toml     package version (outside the workspace)
 #   - apps/desktop/src-tauri/tauri.conf.json
 #   - apps/desktop/package.json
-#   - Cargo.lock + apps/desktop/src-tauri/Cargo.lock (via cargo)
+#   - Cargo.lock, apps/desktop/src-tauri/Cargo.lock and
+#     crates/dongle-pro-v2-fw/Cargo.lock (via cargo)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -68,6 +69,10 @@ echo "  updating Cargo.lock"
 cargo update --workspace --quiet
 echo "  updating apps/desktop/src-tauri/Cargo.lock"
 (cd apps/desktop/src-tauri && cargo update --workspace --quiet)
+# The Pro v2 firmware is its own workspace with a path dep on
+# restorekit-dongle-proto, and CI builds it --locked.
+echo "  updating crates/dongle-pro-v2-fw/Cargo.lock"
+(cd crates/dongle-pro-v2-fw && cargo update -p restorekit-dongle-proto --quiet)
 
 files=(
   Cargo.toml Cargo.lock
@@ -75,6 +80,7 @@ files=(
   apps/desktop/package.json
   apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
   apps/desktop/src-tauri/tauri.conf.json
+  crates/dongle-pro-v2-fw/Cargo.lock
 )
 git commit --quiet -m "chore(release): bump version to $new" -- "${files[@]}"
 echo "  committed: chore(release): bump version to $new"
