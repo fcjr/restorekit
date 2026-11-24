@@ -94,7 +94,9 @@ impl Controller {
         self.0
     }
     /// Start 8N1 at `baud` on the controller's pads. The caller owns them.
-    pub fn open(self, baud: u32) -> Uart {
+    /// With `drive_tx` false only RX is connected and the TX pad is left as
+    /// it is, so nothing drives the line until [`Uart::drive_tx`].
+    pub fn open(self, baud: u32, drive_tx: bool) -> Uart {
         let index = self.0;
         let divider = (ch32_hal::rcc::clocks().hclk.0 + baud / 2) / baud;
         critical_section::with(|cs| {
@@ -102,10 +104,8 @@ impl Controller {
             (ring.head, ring.len) = (0, 0);
             clock(index, true);
         });
-        // (port, TX pin, RX pin): PA2/PA3 or PB3/PB4.
-        let (port, tx, rx) = if index == 2 { (0, 2, 3) } else { (1, 3, 4) };
+        let (port, _, rx) = pads(index);
         pad(port, rx, 0b1000, true);
-        pad(port, tx, 0b1011, false);
         let r = regs(index);
         r.brr().write(|w| w.0 = divider);
         r.ctlr1().write(|w| {
@@ -115,13 +115,27 @@ impl Controller {
             w.set_rxneie(true);
         });
         interrupt(index, true);
-        Uart(index)
+        let mut uart = Uart(index);
+        if drive_tx {
+            uart.drive_tx();
+        }
+        uart
     }
+}
+
+/// (port, TX pin, RX pin): PA2/PA3 for USART2, PB3/PB4 for USART3.
+fn pads(index: u8) -> (usize, u32, u32) {
+    if index == 2 { (0, 2, 3) } else { (1, 3, 4) }
 }
 
 /// A running USART.
 pub struct Uart(u8);
 impl Uart {
+    /// Connect the TX pad.
+    pub fn drive_tx(&mut self) {
+        let (port, tx, _) = pads(self.0);
+        pad(port, tx, 0b1011, false);
+    }
     /// The next received byte, if any.
     pub fn read(&mut self) -> Option<u8> {
         critical_section::with(|cs| {

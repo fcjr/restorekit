@@ -679,7 +679,7 @@ impl Bench<'_> {
         let Some(controller) = slot.take() else {
             return;
         };
-        self.bridge = Some(controller.open(115_200));
+        self.bridge = Some(controller.open(115_200, true));
         say!(
             self.out,
             "SBU serial on USART{} at 115200 ({} cable). Ctrl-X leaves.",

@@ -210,12 +210,22 @@ struct Engine<'d> {
     uart2: Option<uart::Controller>,
     uart3: Option<uart::Controller>,
     bridge: Option<uart::Uart>,
+    /// After `serial`, before the target has sent anything: both USARTs
+    /// receiving, neither driving its TX pad.
+    listening: Option<(uart::Uart, uart::Uart)>,
     port: Port,
     /// `serial` was asked for: keep it up across target reboots.
     serial: bool,
     /// When to ask for the UART again: a rebooted target comes back with it
     /// off SBU, and renegotiates its contract on the way.
     serial_rearm_at: Option<Instant>,
+    /// Further re-arms after this one, a second apart.
+    serial_rearms: u8,
+    /// Cycle CC before the next re-arm: a booting Mac ignores SOP'' Debug
+    /// on the session it had before the reboot.
+    serial_reprime: bool,
+    /// GoodCRCs the last serial VDM pair got.
+    serial_acked: u8,
     tcpc_ok: bool,
     state: State,
     cc2: bool,
@@ -289,9 +299,9 @@ impl Engine<'_> {
     }
 
     /// Ask the target for its debug UART on SBU and bridge it to the second
-    /// CDC port. As on the Lite, the target transmits on the SBU line of the
-    /// active CC side: SBU1 (USART3 RX, PB4) with a normal cable, SBU2
-    /// (USART2 RX, PA3) flipped.
+    /// CDC port. Which SBU line the target transmits on depends on the cable
+    /// and the orientation, so listen on both (USART3 RX on SBU1, USART2 RX
+    /// on SBU2) and only drive the other line once the target has spoken.
     async fn enter_serial(&mut self) -> u8 {
         if self.state == State::Detached {
             log!(self.log, "serial: no target");
@@ -311,32 +321,62 @@ impl Engine<'_> {
         }
         self.close_bridge();
         self.sbu_pu.set_high();
-        let slot = if self.cc2 {
-            &mut self.uart2
-        } else {
-            &mut self.uart3
-        };
-        let Some(controller) = slot.take() else {
+        let (Some(u2), Some(u3)) = (self.uart2.take(), self.uart3.take()) else {
             return proto::RES_NONE;
         };
-        self.bridge = Some(controller.open(SBU_BAUD));
+        self.listening = Some((u2.open(SBU_BAUD, false), u3.open(SBU_BAUD, false)));
         self.serial = true;
+        self.serial_acked = acked;
         log!(
             self.log,
-            "serial: {} of 2 got a GoodCRC; target UART on SBU{} bridged to the second port",
-            acked,
-            if self.cc2 { 2 } else { 1 }
+            "serial: {} of 2 got a GoodCRC; listening on both SBU lines",
+            acked
         );
         proto::RES_OK
     }
 
+    /// `serial` from the host. A Mac that has booted or rebooted since the
+    /// PD session started ignores SOP'' Debug, as with `dfu`: if nothing
+    /// acknowledged it, start a fresh session and ask again.
+    async fn serial_command(&mut self) -> u8 {
+        let res = self.enter_serial().await;
+        if res != proto::RES_OK || self.serial_acked != 0 {
+            return res;
+        }
+        if !self.fresh_session().await {
+            return proto::RES_NOTARGET;
+        }
+        self.enter_serial().await
+    }
+
+    /// Cycle CC and wait for the target to take a contract again.
+    async fn fresh_session(&mut self) -> bool {
+        if !self.reprime().await {
+            return false;
+        }
+        let end = Instant::now() + Duration::from_secs(2);
+        while self.state != State::Contract && Instant::now() < end {
+            Timer::after_millis(2).await;
+            self.alerts().await;
+        }
+        true
+    }
+
     fn close_bridge(&mut self) {
-        let Some(uart) = self.bridge.take() else {
-            return;
-        };
+        if let Some((u2, u3)) = self.listening.take() {
+            self.park(u2);
+            self.park(u3);
+        }
+        if let Some(uart) = self.bridge.take() {
+            self.park(uart);
+        }
+        self.sbu_pu.set_low();
+    }
+
+    /// Stop a USART and hand its pins back as inputs: each SBU net also lands
+    /// on the other USART's pin, and a parked TX output would fight it.
+    fn park(&mut self, uart: uart::Uart) {
         let controller = uart.close();
-        // Hand the pins back as inputs: each SBU net also lands on the other
-        // USART's pin, and a parked TX output would fight it.
         let pins = if controller.index() == 2 { 0..2 } else { 2..4 };
         for pin in &mut self.sbu_pins[pins] {
             pin.set_as_input(Pull::None);
@@ -346,18 +386,56 @@ impl Engine<'_> {
         } else {
             self.uart3 = Some(controller);
         }
-        self.sbu_pu.set_low();
+    }
+
+    /// While listening: the first byte picks the line the target transmits
+    /// on, and the USART receiving it takes the bridge.
+    fn pick_line(&mut self) -> Option<u8> {
+        let (u2, u3) = self.listening.as_mut()?;
+        let (first, keep_u3) = if let Some(b) = u3.read() {
+            (b, true)
+        } else {
+            (u2.read()?, false)
+        };
+        let (u2, u3) = self.listening.take()?;
+        let (mut keep, drop) = if keep_u3 { (u3, u2) } else { (u2, u3) };
+        self.park(drop);
+        keep.drive_tx();
+        let (rx, tx) = if keep_u3 { (1, 2) } else { (2, 1) };
+        log!(
+            self.log,
+            "serial: target transmits on SBU{}; bridged, sending on SBU{}",
+            rx,
+            tx
+        );
+        self.bridge = Some(keep);
+        Some(first)
     }
 
     /// Move bytes between the target UART and the second CDC port.
     fn bridge_poll(&mut self) {
+        let mut buf = [0u8; 64];
+        let mut n = 0;
+        if self.listening.is_some() {
+            match self.pick_line() {
+                Some(b) => {
+                    buf[0] = b;
+                    n = 1;
+                }
+                None => {
+                    // Nowhere to send host input until the target has spoken.
+                    let _ = self.port.try_read(&mut buf);
+                    return;
+                }
+            }
+        }
         let Some(uart) = self.bridge.as_mut() else {
             return;
         };
         let port = &mut self.port;
-        let mut buf = [0u8; 64];
-        if let Ok(n) = port.try_read(&mut buf) {
-            for &b in &buf[..n] {
+        let mut inbound = [0u8; 64];
+        if let Ok(k) = port.try_read(&mut inbound) {
+            for &b in &inbound[..k] {
                 for _ in 0..20_000 {
                     if uart.write(b) {
                         break;
@@ -365,7 +443,6 @@ impl Engine<'_> {
                 }
             }
         }
-        let mut n = 0;
         while n < buf.len() {
             match uart.read() {
                 Some(b) => {
@@ -611,9 +688,21 @@ impl Engine<'_> {
                 self.dfu_retries = 0;
                 self.dfu().await
             }
-            proto::VCMD_REBOOT => self.action("reboot", &[&pd::VDM_REBOOT], false).await,
+            proto::VCMD_REBOOT => {
+                let res = self.action("reboot", &[&pd::VDM_REBOOT], false).await;
+                if res == proto::RES_OK && self.serial {
+                    // A rebooting Mac drops its UART off SBU and stops
+                    // listening on the old PD session, so start a fresh one
+                    // and ask again while it comes up, as macvdmtool's
+                    // `reboot serial` does.
+                    self.serial_rearm_at = Some(Instant::now() + Duration::from_millis(1500));
+                    self.serial_rearms = 6;
+                    self.serial_reprime = true;
+                }
+                res
+            }
             proto::VCMD_DEBUGUSB => self.action("debugusb", &[&pd::VDM_DEBUGUSB], true).await,
-            proto::VCMD_SERIAL => self.enter_serial().await,
+            proto::VCMD_SERIAL => self.serial_command().await,
             proto::VCMD_REPLUG => self.replug().await,
             proto::VCMD_BOOTSEL => {
                 log!(self.log, "entering the ROM USB loader");
@@ -657,7 +746,17 @@ impl Engine<'_> {
             _ => {
                 if self.serial_rearm_at.is_some_and(|t| Instant::now() >= t) {
                     self.serial_rearm_at = None;
+                    if core::mem::take(&mut self.serial_reprime) && !self.fresh_session().await {
+                        return;
+                    }
                     self.enter_serial().await;
+                    // Unheard: the Mac is still resetting its port, so start
+                    // over with a fresh session in a moment.
+                    if self.serial_acked == 0 && self.serial_rearms > 0 {
+                        self.serial_rearms -= 1;
+                        self.serial_reprime = true;
+                        self.serial_rearm_at = Some(Instant::now() + Duration::from_secs(2));
+                    }
                 }
                 if self.dfu_retry_at.is_some_and(|t| Instant::now() >= t) {
                     self.dfu_retry_at = None;
@@ -735,9 +834,13 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
         uart2: Some(uart::Controller::from(p.USART2)),
         uart3: Some(uart::Controller::from(p.USART3)),
         bridge: None,
+        listening: None,
         port: Port::second(),
         serial: false,
         serial_rearm_at: None,
+        serial_rearms: 0,
+        serial_reprime: false,
+        serial_acked: 0,
         tcpc_ok: false,
         state: State::Detached,
         cc2: false,
@@ -754,7 +857,8 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
         let mut greeted = false;
         let mut next_tick = Instant::now();
         loop {
-            Timer::after_millis(if engine.bridge.is_some() { 1 } else { 2 }).await;
+            let bridging = engine.bridge.is_some() || engine.listening.is_some();
+            Timer::after_millis(if bridging { 1 } else { 2 }).await;
             engine.bridge_poll();
             if engine.log.console.connected() != greeted {
                 greeted = !greeted;

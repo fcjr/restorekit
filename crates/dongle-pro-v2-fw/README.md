@@ -7,7 +7,8 @@ Firmware for the Dongle-Pro v2 and the Dongle-Pro v2 PD, two binaries:
   `DP2-` plus 8 hex digits of the chip UID. It answers the vendor interface in
   `restorekit-dongle-proto` (dfu, reboot, debugusb, serial, status, version,
   bootsel), logs to its first CDC port and bridges the target's SBU UART to its
-  second after `serial`, again after every new PD contract. Not for the PD
+  second after `serial`, again after every new PD contract and after a
+  `reboot`. Not for the PD
   board yet.
 - `dongle-pro-v2-fw` (`src/main.rs`): bench firmware for both boards. A USB
   serial console that drives every part of the board by hand, for each board's
@@ -139,6 +140,9 @@ PD list (`hardware/dongle-pro-v2-pd/README.md`):
 - The bit-banged I2C needs the MCU's pull-ups on as well: the first v2
   board's bus reads all zeros without them. Don't slow `pause()` in
   `src/i2c.rs` down, or the Accept misses tSenderResponse.
-- Which SBU line the target transmits on comes from the Lite: SBU1 with a
-  normal cable (USART3 RX), SBU2 flipped (USART2 RX). Not yet confirmed with a
-  Mac that actually prints.
+- Which SBU line the target transmits on depends on the cable (a C-to-C
+  cable crosses SBU1 and SBU2) and the orientation, so `serial` listens on
+  both and drives the other line only after the target's first byte. A
+  loopback on the board checks both directions; a production Mac with
+  default security printed nothing through a whole boot, so it's not
+  confirmed against a real target yet.
