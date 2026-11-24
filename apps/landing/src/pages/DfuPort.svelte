@@ -114,7 +114,7 @@
         </p>
         <p class="mt-4 max-w-[48ch]">
           From windows or linux, a normal usb-c port can't send the message that does it, so either
-          use a <a href="/#dongle" class="lnk">dongle-lite</a> or do it by hand with the button combo.
+          use a <a href="/#dongle" class="lnk">dongle-pro</a> or do it by hand with the button combo.
         </p>
       </div>
       <div class="space-y-8">

@@ -14,7 +14,7 @@
   } from "three";
   import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
   import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
-  import boardUrl from "../assets/dongle-lite.glb?url";
+  import boardUrl from "../assets/dongle-pro.glb?url";
 
   let {
     onports,
@@ -27,17 +27,19 @@
   const GOLD = "#dcb660";
   const GOLD_BRIGHT = "#ecca7c";
 
-  // The actual board: dongle-lite-1s4l exported straight from the KiCad PCB
-  // (kicad-cli pcb export glb --subst-models --include-tracks ... then
-  // gltf-transform meshopt). Re-export if the layout changes, and refresh the
+  // The actual board: hardware/dongle-pro-v2 exported straight from the KiCad
+  // PCB (kicad-cli pcb export glb --subst-models --include-tracks --include-pads
+  // --include-zones --include-silkscreen --include-soldermask, J1/J2 child
+  // meshes lifted 1.6 mm because the receptacle model sits that low, then
+  // gltf-transform optimize --compress meshopt). Re-export if the layout changes, and refresh the
   // two port anchors below from the J1/J2 node translations in the raw GLB.
-  // The real board is 77.1 x 22.1 mm; it's normalized to 1 unit = 10 mm,
+  // The real board is 48 x 21 mm; it's normalized so its length is BOARD_L,
   // lying flat, centered at the origin, host port on the left.
-  const BOARD_L = 7.71;
+  const BOARD_L = 8.4;
 
   // J1 (host) and J2 (target) footprint origins in model space (meters).
-  const J1 = new Vector3(0.107, 0.004, 0.104115);
-  const J2 = new Vector3(0.107, 0.004, 0.170885);
+  const J1 = new Vector3(0.1105, 0.004, 0.1044);
+  const J2 = new Vector3(0.1105, 0.004, 0.1436);
 
   let board = $state<Group>();
   // Port positions in scene units, set once the board is placed.
@@ -132,7 +134,7 @@
     ty = (e.clientY / innerHeight - 0.5) * 0.12;
   }
 
-  // One trigger loop: idle, a pulse runs host to target, an gold flash washes
+  // One trigger loop: idle, a pulse runs host to target, a gold flash washes
   // over the target end on arrival (the mac just dropped into DFU), then it
   // settles and repeats. The board rocks instead of spinning so host stays
   // left and target right, matching the labels.

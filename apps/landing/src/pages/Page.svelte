@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { GITHUB, RELEASES, SPONSOR } from "../lib/links";
 
-  // Shell for the standalone pages under src/pages. They're rendered to static
-  // html at build time (scripts/prerender.js) and ship no JS.
+  // Header and footer for every page. The home page is hydrated (main.ts);
+  // the pages under src/pages are rendered to static html at build time
+  // (scripts/prerender.js) and ship no JS.
   let { children }: { children: Snippet } = $props();
-
-  const GITHUB = "https://github.com/fcjr/restorekit";
 </script>
 
 <header class="sticky top-0 z-50 border-b border-copper bg-mask/95 backdrop-blur">
@@ -21,6 +21,8 @@
     <div class="hidden items-center gap-6 text-[15px] text-silk2 md:flex">
       <a href="/#dongle" class="hover:text-silk">Dongle</a>
       <a href="/#how" class="hover:text-silk">How it works</a>
+      <a href="/#desktop" class="hover:text-silk">App</a>
+      <a href="/#cli" class="hover:text-silk">CLI</a>
       <a href="/#install" class="hover:text-silk">Install</a>
     </div>
     <a href={GITHUB} class="text-[15px] font-semibold text-gold hover:text-gold-hi">GitHub</a>
@@ -36,13 +38,18 @@
     <a href="/" class="wide font-bold text-silk">restorekit</a>
     <div class="grow"></div>
     <div class="flex flex-wrap gap-x-6 gap-y-2 text-silk2">
-      <a href="/#dongle" class="hover:text-silk">Reserve dongle-lite</a>
+      <a href="/#dongle" class="hover:text-silk">Reserve dongle-pro</a>
+      <a href="/dfu-port" class="hover:text-silk">Find the DFU port</a>
       <a href={GITHUB} class="hover:text-silk">GitHub</a>
-      <a href="{GITHUB}/releases" class="hover:text-silk">Releases</a>
+      <a href={SPONSOR} class="hover:text-silk">Sponsor</a>
+      <a href={RELEASES} class="hover:text-silk">Releases</a>
+      <a href="https://crates.io/crates/restorekit-cli" class="hover:text-silk">crates.io</a>
       <a href="https://docs.rs/restorekit" class="hover:text-silk">docs.rs</a>
     </div>
   </div>
   <p class="mx-auto max-w-6xl px-5 pb-8 t-small">
-    Mac and Apple Silicon are trademarks of Apple Inc.
+    The DFU code is a rust port of Asahi Linux's macvdmtool (also Apache-2.0), thank you to that
+    team. Mac and Apple Silicon are trademarks of Apple Inc., Acroname and Cambrionix of their
+    respective owners, mentioned here for comparison only.
   </p>
 </footer>

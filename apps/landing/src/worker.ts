@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { reservations } from "./db/schema";
 
 // Serves the built landing page, 301s the apex domain to www, and collects
-// dongle-lite preorder interest into D1.
+// dongle-pro preorder interest into D1.
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
@@ -31,6 +31,6 @@ async function reserve(request: Request, env: Env): Promise<Response> {
   if (email.length > 254 || !EMAIL.test(email)) {
     return Response.json({ error: "that doesn't look like an email address" }, { status: 400 });
   }
-  await drizzle(env.DB).insert(reservations).values({ email }).onConflictDoNothing();
+  await drizzle(env.DB).insert(reservations).values({ email, product: "dongle-pro" }).onConflictDoNothing();
   return Response.json({ ok: true });
 }

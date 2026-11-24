@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Code from "./components/Code.svelte";
+  import Page from "./pages/Page.svelte";
+  import { GITHUB, RELEASES, SPONSOR } from "./lib/links";
   import shotRestoreDark from "./assets/app-restore-dark.png";
   import shotDevicesDark from "./assets/app-devices-dark.png";
   import shotHistoryDark from "./assets/app-history-dark.png";
@@ -8,10 +10,6 @@
   import leftshiftLogo from "./assets/leftshift.svg";
   import sceneDongle from "./assets/scene-dongle.webp";
   import sceneRecovery from "./assets/scene-recovery.webp";
-
-  const GITHUB = "https://github.com/fcjr/restorekit";
-  const RELEASES = `${GITHUB}/releases`;
-  const SPONSOR = "https://github.com/sponsors/fcjr";
 
   // Direct links to the desktop-app builds, resolved from the GitHub API on
   // load. Each link points at the newest release that actually has that build
@@ -27,18 +25,32 @@
     ].map((d) => ({ ...d, url: RELEASES })),
   );
 
-  // The hero offers the download and install command for whatever OS the
-  // visitor is on, with the others one click away.
+  // Install commands per OS. The hero shows the visitor's OS with the others
+  // one click away, and the install section shows all three.
   type Host = "mac" | "windows" | "linux";
-  const hosts: { id: Host; label: string; lines: string; dl: number }[] = [
-    { id: "mac", label: "macOS", lines: "brew trust fcjr/fcjr\nbrew install fcjr/fcjr/restorekit-cli", dl: 0 },
+  const hosts: { id: Host; label: string; via: string; lines: string; dl: number }[] = [
+    {
+      id: "mac",
+      label: "macOS",
+      via: "Homebrew",
+      lines: "brew trust fcjr/fcjr\nbrew install fcjr/fcjr/restorekit-cli",
+      dl: 0,
+    },
     {
       id: "windows",
       label: "Windows",
-      lines: "scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr\nscoop install restorekit-cli",
+      via: "Scoop",
+      lines:
+        "scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr\nscoop install restorekit-cli\nrestorekit setup-driver",
       dl: 1,
     },
-    { id: "linux", label: "Linux", lines: "sudo snap install restorekit-cli", dl: 2 },
+    {
+      id: "linux",
+      label: "Linux",
+      via: "Snap",
+      lines: "sudo snap install restorekit-cli\nsudo restorekit-cli restore",
+      dl: 2,
+    },
   ];
   let host = $state<Host>("mac");
   const heroHost = $derived(hosts.find((h) => h.id === host) ?? hosts[0]);
@@ -84,8 +96,8 @@
       .catch(() => {});
   }
 
-  // dongle-lite vs the DFU-capable USB hubs people usually end up pricing out.
-  const hubCols = ["dongle-lite", "Acroname USBHub 3c", "Cambrionix ThunderSync5 C16 PD"];
+  // dongle-pro vs the DFU-capable USB hubs people usually end up pricing out.
+  const hubCols = ["dongle-pro", "Acroname USBHub 3c", "Cambrionix ThunderSync5 C16 PD"];
   const hubRows: [string, string, string, string][] = [
     ["Targets at once", "One", "6 ports, kit rated for 5", "16 ports"],
     ["Host machine", "Any linux, windows or mac", "Windows, mac or linux", "Windows, mac or linux"],
@@ -105,7 +117,6 @@
     ["Serial console", "Target UART over SBU", "—", "—"],
     ["Built for", "One mac, at a bench or in a bag", "A bench of macs", "A rack of macs"],
   ];
-
 
   // The 3D scenes are decoration, so three.js only loads when a section is
   // close to the viewport and the browser actually has WebGL.
@@ -150,7 +161,7 @@
     () => (showDongle = true),
   );
 
-  // dongle-lite preorder-interest form → POST /api/reserve → D1.
+  // dongle-pro preorder-interest form → POST /api/reserve → D1.
   let reserveEmail = $state("");
   let reserveState = $state<"idle" | "busy" | "done" | "error">("idle");
   let reserveError = $state("");
@@ -176,15 +187,10 @@
     }
   }
 
-  const dfuPorts = [
-    ["14″ / 16″ MacBook Pro", "Left side, port next to MagSafe"],
-    ["Mac mini / Studio", "Port closest to the power button"],
-    ["MacBook Air / 13″ Pro", "Left side, port closest to the hinge"],
-    ["iMac", "Port closest to the edge"],
-  ];
+  const withPrompt = (lines: string) => lines.split("\n").map((l) => `$ ${l}`).join("\n");
 </script>
 
-{#snippet cmd(id: string, lines: string, display: string)}
+{#snippet cmd(id: string, lines: string, display = withPrompt(lines))}
   <div class="group relative rounded-md border border-copper bg-mask-deep text-left">
     <Code code={display} lang="bash" />
     <button
@@ -204,29 +210,7 @@
   <span class="mt-[0.55em] inline-block h-[7px] w-[11px] shrink-0 rounded-[2px] bg-gold" aria-hidden="true"></span>
 {/snippet}
 
-<!-- nav -->
-<header class="sticky top-0 z-50 border-b border-copper bg-mask/95 backdrop-blur">
-  <nav class="mx-auto flex h-16 max-w-6xl items-center gap-6 px-5">
-    <a href="#top" class="flex items-center gap-2.5 text-silk">
-      <svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true">
-        <rect x="7" y="7" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" />
-        <path d="M4 16 H10 L12.2 11 L16 21 L19 16 H28" fill="none" stroke="var(--color-gold)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <span class="wide text-[17px] font-bold">restorekit</span>
-    </a>
-    <div class="grow"></div>
-    <div class="hidden items-center gap-6 text-[15px] text-silk2 md:flex">
-      <a href="#dongle" class="hover:text-silk">Dongle</a>
-      <a href="#how" class="hover:text-silk">How it works</a>
-      <a href="#desktop" class="hover:text-silk">App</a>
-      <a href="#cli" class="hover:text-silk">CLI</a>
-      <a href="#install" class="hover:text-silk">Install</a>
-    </div>
-    <a href={GITHUB} class="text-[15px] font-semibold text-gold hover:text-gold-hi">GitHub</a>
-  </nav>
-</header>
-
-<main id="top">
+<Page>
   <!-- hero: copper showing through the mask behind the headline -->
   <section class="relative overflow-hidden">
     <svg
@@ -284,7 +268,7 @@
               </button>
             {/each}
           </div>
-          {@render cmd("hero", heroHost.lines, heroHost.lines.split("\n").map((l) => `$ ${l}`).join("\n"))}
+          {@render cmd("hero", heroHost.lines)}
         </div>
       </div>
 
@@ -299,20 +283,18 @@
     </div>
   </section>
 
-  <!-- dongle-lite -->
+  <!-- dongle-pro -->
   <section id="dongle" class="bg-mask-deep">
     <div class="mx-auto grid max-w-6xl items-start gap-10 px-5 py-20 lg:grid-cols-[1fr_1.3fr]">
       <div>
-        <h2 class="t-h2">
-          Automatic DFU from any computer. Yes, even windows.
-        </h2>
+        <h2 class="t-h2">Automatic DFU from any computer. Yes, even windows.</h2>
         <p class="mt-5 max-w-[56ch]">
-          Putting a mac into DFU takes a USB-PD message that normal PC ports can't send, so you've always needed a second mac. dongle-lite sends it for you. It also exposes apple's serial console, so you can see why a restore failed.
+          Putting a mac into DFU takes a USB-PD message that normal PC ports can't send, so you've always needed a second mac. dongle-pro sends it for you. It passes USB 3 straight through to the mac, and it exposes apple's serial console, so you can see why a restore failed.
         </p>
         <p class="mt-4 max-w-[56ch]">
           Buying one from me is what keeps restorekit going, so I'd love it if you did. But it's
           open hardware, so if you'd rather fire up the soldering iron, the
-          <a href="{GITHUB}/tree/main/hardware/dongle-lite" class="lnk">schematics and fab files</a>
+          <a href="{GITHUB}/tree/main/hardware/dongle-pro-v2" class="lnk">schematics and fab files</a>
           are all in the repo. I won't be offended. Much.
         </p>
 
@@ -320,10 +302,11 @@
           <dt class="text-silk3">Ports</dt>
           <dd class="text-silk">Two usb-c, one to your computer and one to the mac</dd>
           <dt class="text-silk3">Chip</dt>
-          <dd class="text-silk">RP2350 running rust firmware</dd>
-          
+          <dd class="text-silk">CH32X035 running rust firmware</dd>
+          <dt class="text-silk3">USB</dt>
+          <dd class="text-silk">USB 3 passthrough to the mac</dd>
           <dt class="text-silk3">Size</dt>
-          <dd class="text-silk">77 × 22 mm</dd>
+          <dd class="text-silk">48 × 21 mm</dd>
         </dl>
 
         <div class="mt-9 rounded-lg border border-copper bg-mask p-5">
@@ -358,7 +341,6 @@
               {/if}
             {/if}
           </div>
-          
         </div>
       </div>
 
@@ -388,9 +370,7 @@
   <!-- dongle vs hubs -->
   <section id="hubs" class="bg-mask">
     <div class="mx-auto max-w-6xl px-5 py-20">
-      <h2 class="t-h2 max-w-3xl">
-        Compared to DFU hubs
-      </h2>
+      <h2 class="t-h2 max-w-3xl">Compared to DFU hubs</h2>
       <p class="mt-5 max-w-[62ch]">
         <a href="https://acroname.com/store/s106-usbhub-3c-kit" class="lnk">Acroname</a>
         and
@@ -398,7 +378,7 @@
         make hubs that work at scale, for racks of macs. They've also had DFU hardware to
         themselves for years, and they price like it. Acroname charges $400 for the software
         license that switches DFU on. Cambrionix's DFU hub is £1,999. Triggering DFU is one USB-PD
-        message. It shouldn't cost that much. dongle-lite does it from the computer you already
+        message. It shouldn't cost that much. dongle-pro does it from the computer you already
         have, with nothing to license.
       </p>
 
@@ -440,9 +420,7 @@
   <!-- why -->
   <section class="bg-mask-deep">
     <div class="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-[1fr_1.2fr]">
-      <h2 class="t-h2">
-        People should be able to repair their mac without needing to own another one!
-      </h2>
+      <h2 class="t-h2">People should be able to repair their mac without needing to own another one!</h2>
       <div class="t-lead max-w-[58ch] space-y-5">
         <p>
           I've worked at a few places where windows was the default machine (including for IT) and
@@ -456,9 +434,8 @@
         <p class="t-h3">I think this sucks.</p>
         <p>
           So the software is free and Apache-2.0, and it'll stay that way.
-          <a href="#dongle" class="lnk">dongle-lite</a> is the part you can buy, and selling it pays for my time on the rest.
+          <a href="#dongle" class="lnk">dongle-pro</a> is the part you can buy, and selling it pays for my time on the rest.
         </p>
-        
       </div>
     </div>
   </section>
@@ -466,9 +443,7 @@
   <!-- how it works -->
   <section id="how" class="bg-mask">
     <div class="mx-auto max-w-6xl px-5 py-20">
-      <h2 class="t-h2">
-        Plug it in, follow the instructions, and bam!
-      </h2>
+      <h2 class="t-h2">Plug it in, follow the instructions, and bam!</h2>
 
       <div
         bind:this={sceneHost}
@@ -491,7 +466,7 @@
           <div class="t-step">1</div>
           <h3 class="t-h3 mt-4">Plug into the DFU port</h3>
           <p class="mt-2">
-            From a mac, restorekit puts the target into DFU for you. On linux or windows, follow the on-screen steps or use a <a href="#dongle" class="lnk">dongle-lite</a>.
+            Apple moves it around, so <a href="/dfu-port" class="lnk">look yours up</a>. From a mac, restorekit puts the target into DFU for you. On linux or windows, follow the on-screen steps or use a <a href="#dongle" class="lnk">dongle-pro</a>.
           </p>
         </li>
         <li>
@@ -509,45 +484,20 @@
           </p>
         </li>
       </ol>
-
-      <div class="mt-16 grid gap-8 md:grid-cols-[1fr_1.3fr]">
-        <div>
-          <h3 class="t-h3">Which port is the DFU port?</h3>
-          <p class="mt-2 max-w-[44ch]">
-            Apple moved it around from model to model. Here are the common ones, or find
-            <a href="/dfu-port" class="lnk">the DFU port on every mac</a>.
-          </p>
-        </div>
-        <dl class="t-data">
-          {#each dfuPorts as [model, port] (model)}
-            <div class="grid grid-cols-[1fr_1.3fr] gap-4 border-t border-copper py-3 last:border-b">
-              <dt class="text-silk3">{model}</dt>
-              <dd class="text-silk">{port}</dd>
-            </div>
-          {/each}
-        </dl>
-      </div>
     </div>
   </section>
 
   <!-- desktop app -->
   <section id="desktop" class="bg-mask-deep">
     <div class="mx-auto max-w-6xl px-5 py-20">
-      <h2 class="t-h2 max-w-3xl">
-        The desktop app
-      </h2>
+      <h2 class="t-h2 max-w-3xl">The desktop app</h2>
       <p class="mt-5 max-w-[62ch]">
         It does everything the cli does. Plug in several macs and it restores them all at once, and it keeps itself updated.
       </p>
 
       <div class="mt-8 flex flex-wrap items-center gap-3">
         {#each appDownloads as dl (dl.label)}
-          <a
-            href={dl.url}
-            class="btn-line"
-          >
-            {dl.label}
-          </a>
+          <a href={dl.url} class="btn-line">{dl.label}</a>
         {/each}
       </div>
       <p class="t-small mt-3">
@@ -562,7 +512,7 @@
             alt="Devices tab listing connected Macs with serial numbers, ECIDs, modes and ports, with QR and CSV export buttons"
             class="block w-full rounded-lg border border-silk/15"
             width="1720"
-            height="1240"
+            height="792"
             loading="lazy"
           />
           <figcaption class="mt-3 max-w-[70ch] t-small">
@@ -578,9 +528,7 @@
             height="1240"
             loading="lazy"
           />
-          <figcaption class="mt-3 t-small">
-            A log of every mac you've restored.
-          </figcaption>
+          <figcaption class="mt-3 t-small">A log of every mac you've restored.</figcaption>
         </figure>
         <figure>
           <img
@@ -591,9 +539,7 @@
             height="1240"
             loading="lazy"
           />
-          <figcaption class="mt-3 t-small">
-            Light mode.
-          </figcaption>
+          <figcaption class="mt-3 t-small">Light mode.</figcaption>
         </figure>
       </div>
     </div>
@@ -603,16 +549,13 @@
   <section id="cli" class="bg-mask">
     <div class="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-[1fr_1.25fr]">
       <div>
-        <h2 class="t-h2">
-          The cli
-        </h2>
+        <h2 class="t-h2">The cli</h2>
         <p class="mt-5 max-w-[48ch]">
           Run <code class="text-silk">sudo restorekit restore</code> and bam!
         </p>
         <ul class="mt-6 space-y-3">
           <li class="flex gap-3">{@render pad()}<span><code class="text-silk">--json</code> on most commands</span></li>
           <li class="flex gap-3">{@render pad()}<span>Pick a mac with <code class="text-silk">--ecid</code></span></li>
-          
           <li class="flex gap-3">{@render pad()}<span>On windows, <code class="text-silk">restorekit setup-driver</code> binds WinUSB once</span></li>
           <li class="flex gap-3">{@render pad()}<span>On linux, a udev rule lets you skip <code class="text-silk">sudo</code></span></li>
         </ul>
@@ -649,43 +592,23 @@ $ restorekit -h`,
       <h2 class="t-h2">Install</h2>
 
       <div class="mt-10 grid gap-10 lg:grid-cols-3 lg:gap-6">
-        <div>
-          <h3 class="t-h3 mb-3">macOS, with Homebrew</h3>
-          {@render cmd(
-            "mac",
-            "brew trust fcjr/fcjr\nbrew install fcjr/fcjr/restorekit-cli",
-            `$ brew trust fcjr/fcjr
-$ brew install fcjr/fcjr/restorekit-cli`,
-          )}
-          <p class="mt-3 t-small">
-            For the desktop app, <code class="text-silk2">brew install --cask fcjr/fcjr/restorekit</code>
-          </p>
-        </div>
-        <div>
-          <h3 class="t-h3 mb-3">Windows, with Scoop</h3>
-          {@render cmd(
-            "win",
-            "scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr\nscoop install restorekit-cli\nrestorekit setup-driver",
-            `$ scoop bucket add fcjr https://github.com/fcjr/scoop-fcjr
-$ scoop install restorekit-cli
-$ restorekit setup-driver`,
-          )}
-          <p class="mt-3 t-small">
-            The desktop app is on the <a href="{GITHUB}/releases" class="lnk">releases page</a>.
-          </p>
-        </div>
-        <div>
-          <h3 class="t-h3 mb-3">Linux, with Snap</h3>
-          {@render cmd(
-            "linux",
-            "sudo snap install restorekit-cli\nsudo restorekit-cli restore",
-            `$ sudo snap install restorekit-cli
-$ sudo restorekit-cli restore`,
-          )}
-          <p class="mt-3 t-small">
-            For the desktop app, run <code class="text-silk2">sudo snap install restorekit</code>. The .deb and .AppImage builds are on the <a href="{GITHUB}/releases" class="lnk">releases page</a>.
-          </p>
-        </div>
+        {#each hosts as h (h.id)}
+          <div>
+            <h3 class="t-h3 mb-3">{h.label}, with {h.via}</h3>
+            {@render cmd(h.id, h.lines)}
+            <p class="mt-3 t-small">
+              {#if h.id === "mac"}
+                For the desktop app, <code class="text-silk2">brew install --cask fcjr/fcjr/restorekit</code>
+              {:else if h.id === "windows"}
+                For the desktop app, grab the <a href={appDownloads[1].url} class="lnk">installer</a>.
+              {:else}
+                For the desktop app, run <code class="text-silk2">sudo snap install restorekit</code>, or
+                grab the <a href={appDownloads[2].url} class="lnk">.deb</a> or
+                <a href={appDownloads[3].url} class="lnk">.AppImage</a>.
+              {/if}
+            </p>
+          </div>
+        {/each}
       </div>
 
       <p class="mt-10 max-w-[70ch]">
@@ -699,9 +622,7 @@ $ sudo restorekit-cli restore`,
   <section class="bg-mask">
     <div class="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-[1fr_1.25fr]">
       <div>
-        <h2 class="t-h2">
-          Use it as a rust crate
-        </h2>
+        <h2 class="t-h2">Use it as a rust crate</h2>
         <p class="mt-5 max-w-[48ch]">
           The cli and the app are both built on the restorekit crate, so you can build your own tools on it too. Docs are on <a href="https://docs.rs/restorekit" class="lnk">docs.rs</a>.
         </p>
@@ -722,25 +643,29 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
   <!-- open source -->
   <section id="open-source" class="bg-mask-deep">
     <div class="mx-auto max-w-6xl px-5 py-20">
-      <h2 class="t-h2 max-w-3xl">
-        Open source
-      </h2>
+      <h2 class="t-h2 max-w-3xl">Open source</h2>
       <p class="mt-5 max-w-[62ch]">
         The software, firmware and dongle hardware are all in <a href={GITHUB} class="lnk">one repo</a>.
       </p>
 
-      <p class="mt-8 max-w-[78ch] t-small">
+      <p class="mt-3 max-w-[78ch] t-small">
         Source is Apache-2.0. Linux and windows binaries bundle <a href="https://github.com/libimobiledevice/usbmuxd" class="lnk">usbmuxd</a>, so those builds are GPL-3.0.
       </p>
+
+      <div class="mt-10 flex flex-col items-start gap-6 md:flex-row md:items-center">
+        <p class="text-silk">restorekit development is sponsored by</p>
+        <a href="https://leftshift.com" class="rounded-md bg-silk px-5 py-3 transition-opacity hover:opacity-90">
+          <img src={leftshiftLogo} alt="Left Shift Logical" width="150" height="46" loading="lazy" />
+        </a>
+        <a href={SPONSOR} class="lnk t-small md:ml-auto">Sponsor restorekit</a>
+      </div>
 
       <div
         id="sponsor-certification"
         class="mt-12 flex flex-col gap-6 rounded-lg border border-gold/50 bg-mask p-6 md:flex-row md:items-center md:p-8"
       >
         <div class="grow">
-          <h3 class="t-h3">
-            Sponsor a certified erasure report
-          </h3>
+          <h3 class="t-h3">Sponsor a certified erasure report</h3>
           <p class="mt-3 max-w-[62ch]">
             A DFU restore already wipes the drive, but certifications like ADISA need paid lab time. If your org needs certified erasure, sponsor the lab time and the report is public for everyone.
           </p>
@@ -754,39 +679,4 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
       </div>
     </div>
   </section>
-
-  <!-- sponsor -->
-  <section class="bg-mask">
-    <div class="mx-auto flex max-w-6xl flex-col items-start gap-6 px-5 py-16 md:flex-row md:items-center">
-      <p class="text-silk">restorekit development is sponsored by</p>
-      <a href="https://leftshift.com" class="rounded-md bg-silk px-5 py-3 transition-opacity hover:opacity-90">
-        <img src={leftshiftLogo} alt="Left Shift Logical" width="150" height="46" loading="lazy" />
-      </a>
-      <p class="t-small md:ml-auto">
-        <a href={SPONSOR} class="lnk">Sponsor restorekit</a>
-      </p>
-    </div>
-  </section>
-
-  <!-- footer -->
-  <footer class="border-t border-copper bg-mask-deep">
-    <div class="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-8 text-[14.5px] md:flex-row md:items-center">
-      <div class="wide font-bold text-silk">restorekit</div>
-      <div class="grow"></div>
-      <div class="flex flex-wrap gap-x-6 gap-y-2 text-silk2">
-        <a href="#dongle" class="hover:text-silk">Reserve dongle-lite</a>
-        <a href="/dfu-port" class="hover:text-silk">Find the DFU port</a>
-        <a href={GITHUB} class="hover:text-silk">GitHub</a>
-        <a href={SPONSOR} class="hover:text-silk">Sponsor</a>
-        <a href="{GITHUB}/releases" class="hover:text-silk">Releases</a>
-        <a href="https://crates.io/crates/restorekit-cli" class="hover:text-silk">crates.io</a>
-        <a href="https://docs.rs/restorekit" class="hover:text-silk">docs.rs</a>
-      </div>
-    </div>
-    <p class="mx-auto max-w-6xl px-5 pb-8 t-small">
-      The DFU code is a rust port of Asahi Linux's macvdmtool (also Apache-2.0), thank you to that
-      team. Mac and Apple Silicon are trademarks of Apple Inc., Acroname and Cambrionix of their
-      respective owners, mentioned here for comparison only.
-    </p>
-  </footer>
-</main>
+</Page>
