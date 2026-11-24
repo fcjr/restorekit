@@ -486,6 +486,13 @@ impl Engine<'_> {
         self.cap_timer = 0;
     }
 
+    /// An empty VDM on SOP'' Debug, as dongle-lite-fw sends on its
+    /// handshake timer.
+    async fn debug_poke(&mut self) -> Tx {
+        let header = pd::header(pd::DATA_VENDOR_DEF, 1);
+        self.tcpc.transmit(tcpc::SOP_DBG2, header, &[0]).await
+    }
+
     async fn ctrl(&mut self, kind: u16) -> Tx {
         self.tcpc
             .transmit(tcpc::SOP, pd::header(kind, 0), &[])
@@ -563,10 +570,12 @@ impl Engine<'_> {
         }
         if alert & tcpc::ALERT_RX_HARD_RESET != 0 {
             self.tcpc.reset_msg_ids();
+            // Tear down and attach afresh, VBUS included, as the Lite does.
+            // The next tick sees Rd and starts a new session.
             if self.state != State::Detached {
-                // TCPCI clears RECEIVE_DETECT on a received hard reset.
-                self.tcpc.start_session(self.cc2);
-                self.state = State::Attached;
+                self.detach("PD hard reset from the target").await;
+            } else {
+                log!(self.log, "PD hard reset from the target");
             }
             if let Some(t) = self.dfu_sent_at.take() {
                 if t.elapsed() < DFU_HARD_RESET_WINDOW && self.dfu_retries < DFU_MAX_RETRIES {
@@ -774,12 +783,16 @@ impl Engine<'_> {
                     log!(self.log, "retrying dfu");
                     self.dfu().await;
                 }
-                // Keep offering until the target takes a contract.
-                if self.state != State::Contract {
-                    self.cap_timer += 1;
-                    if self.cap_timer > 10 {
+                // Keep offering until the target takes a contract, and keep
+                // the SOP'' Debug session warm the way the Lite does, so a
+                // Mac that rebooted without dropping CC still hears us.
+                self.cap_timer += 1;
+                if self.cap_timer > 10 {
+                    if self.state != State::Contract {
                         self.send_caps().await;
                     }
+                    self.cap_timer = 0;
+                    self.debug_poke().await;
                 }
                 if rd {
                     self.detach_count = 0;

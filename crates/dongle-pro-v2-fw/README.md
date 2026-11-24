@@ -79,6 +79,11 @@ where `restorekit dongle update` finds it.
 - If the target answers `dfu` with a hard reset within 5 s (a Mac that has
   just booted can), `dfu` is sent again after 5 s, up to three times. Same as
   the Lite.
+- The product firmware also does what the Lite does around a session: a hard
+  reset from the target is logged and tears everything down, target power
+  included, and the next tick attaches afresh. Every half second it sends an
+  empty Apple VDM on SOP'' Debug, so a Mac that rebooted without dropping CC
+  still hears the next command.
 - On the PD board: notices a charger, and drops the CH224Q from its 9 V
   default to 5 V straight away. It never passes charger power to the target
   unless told to.
