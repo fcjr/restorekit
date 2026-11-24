@@ -626,6 +626,15 @@ impl Dongle {
             .find(|i| cabled_to(self, i, &infos))
             .map(device::from_usb))
     }
+
+    /// [`attached_device`](Self::attached_device) with a booted Mac's ECID and
+    /// model filled in by [`device::identify`], as `list` shows them. For
+    /// display: polling only needs the plain lookup.
+    pub fn identified_device(&self) -> Result<Option<Device>> {
+        let mut dev = self.attached_device()?;
+        device::identify(dev.as_mut_slice());
+        Ok(dev)
+    }
 }
 
 /// An open connection to a dongle's vendor interface.
