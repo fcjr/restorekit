@@ -100,7 +100,8 @@ compiles the patched copy.
   it. Every backend returned the first KIS device it could open, and the
   caller then rejected it as the wrong device, so with two Macs in DFU over
   Debug USB only the first could be restored. Try each KIS device in turn
-  until one answers with the requested ECID.
+  until one answers with the requested ECID, passing over one that can't be
+  claimed or initialised (another restore's Mac).
 
 ## usbmuxd
 
