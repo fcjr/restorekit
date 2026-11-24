@@ -85,6 +85,9 @@ fn main() {
         let usbmuxd_src =
             patch_autotools_sources(&manifest, "usbmuxd", &vendor.join("usbmuxd"), &out, &deps);
         compile_usbmuxd(&usbmuxd_src, &deps);
+        // The marker patch_autotools_sources checks before reusing the copy;
+        // build_autotools writes it for the other libraries.
+        std::fs::write(prefix.join(".built-usbmuxd"), "").unwrap();
     }
 
     emit_link_directives(&prefix);
@@ -476,7 +479,8 @@ fn patch_autotools_sources(
     let root = out.join(format!("{name}-patched"));
     let stamp_file = deps.prefix.join(format!(".{name}-patches"));
     let marker = deps.prefix.join(format!(".built-{name}"));
-    if marker.exists() && std::fs::read_to_string(&stamp_file).is_ok_and(|s| s == stamp) {
+    let built = marker.exists() && std::fs::read_to_string(&stamp_file).is_ok_and(|s| s == stamp);
+    if built && root.exists() {
         return root;
     }
 
@@ -494,10 +498,13 @@ fn patch_autotools_sources(
             &format!("apply {}", patch.file_name().unwrap().to_string_lossy()),
         );
     }
-    // Force a fresh configure + build of the patched sources.
-    let _ = std::fs::remove_file(&marker);
-    let _ = std::fs::remove_dir_all(deps.prefix.parent().unwrap().join("build").join(name));
-    std::fs::write(&stamp_file, stamp).unwrap();
+    // New patches force a fresh configure + build. A prefix cached without
+    // the copy (CI's C-stack cache) only needed the copy back.
+    if !built {
+        let _ = std::fs::remove_file(&marker);
+        let _ = std::fs::remove_dir_all(deps.prefix.parent().unwrap().join("build").join(name));
+        std::fs::write(&stamp_file, stamp).unwrap();
+    }
     root
 }
 
