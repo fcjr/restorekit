@@ -188,6 +188,88 @@ pub fn init_progress() {
     unsafe { register_progress(0, std::ptr::null()) };
 }
 
+// ── libimobiledevice: lockdownd on a running device ──────────────────────────
+
+/// Opaque libimobiledevice device.
+#[repr(C)]
+pub struct idevice_private {
+    _private: [u8; 0],
+}
+pub type idevice_t = *mut idevice_private;
+
+/// Opaque lockdownd client.
+#[repr(C)]
+pub struct lockdownd_client_private {
+    _private: [u8; 0],
+}
+pub type lockdownd_client_t = *mut lockdownd_client_private;
+
+/// Opaque pair record passed to lockdownd's pairing calls.
+#[repr(C)]
+pub struct lockdownd_pair_record {
+    _private: [u8; 0],
+}
+pub type lockdownd_pair_record_t = *mut lockdownd_pair_record;
+
+/// A libplist node.
+pub type plist_t = *mut c_void;
+
+// idevice_error_t (libimobiledevice.h) and lockdownd_error_t (lockdown.h).
+pub const IDEVICE_E_SUCCESS: c_int = 0;
+pub const LOCKDOWN_E_SUCCESS: c_int = 0;
+pub const LOCKDOWN_E_PASSWORD_PROTECTED: c_int = -17;
+pub const LOCKDOWN_E_USER_DENIED_PAIRING: c_int = -18;
+pub const LOCKDOWN_E_PAIRING_DIALOG_RESPONSE_PENDING: c_int = -19;
+pub const LOCKDOWN_E_INVALID_HOST_ID: c_int = -21;
+pub const LOCKDOWN_E_SESSION_INACTIVE: c_int = -23;
+
+/// `PLIST_INT` in libplist's `plist_type`.
+pub const PLIST_INT: c_int = 1;
+
+extern "C" {
+    /// The UDIDs of the USB devices usbmuxd lists. Fails only when usbmuxd
+    /// can't be reached.
+    pub fn idevice_get_device_list(devices: *mut *mut *mut c_char, count: *mut c_int) -> c_int;
+    pub fn idevice_device_list_free(devices: *mut *mut c_char) -> c_int;
+    pub fn idevice_new(device: *mut idevice_t, udid: *const c_char) -> c_int;
+    pub fn idevice_free(device: idevice_t) -> c_int;
+    /// Connect to lockdownd without pairing.
+    pub fn lockdownd_client_new(
+        device: idevice_t,
+        client: *mut lockdownd_client_t,
+        label: *const c_char,
+    ) -> c_int;
+    /// Connect to lockdownd in a paired session. Pairs first when the host has
+    /// no pair record for the device, which asks the device's user to trust
+    /// this computer.
+    pub fn lockdownd_client_new_with_handshake(
+        device: idevice_t,
+        client: *mut lockdownd_client_t,
+        label: *const c_char,
+    ) -> c_int;
+    pub fn lockdownd_client_free(client: lockdownd_client_t) -> c_int;
+    /// The service's type; free it with [`plist_mem_free`].
+    pub fn lockdownd_query_type(client: lockdownd_client_t, kind: *mut *mut c_char) -> c_int;
+    pub fn lockdownd_get_value(
+        client: lockdownd_client_t,
+        domain: *const c_char,
+        key: *const c_char,
+        value: *mut plist_t,
+    ) -> c_int;
+    pub fn lockdownd_enter_recovery(client: lockdownd_client_t) -> c_int;
+    /// Send a pair request. With a null `pair_record` it generates a new one,
+    /// and on success saves it as this host's pair record for the device.
+    pub fn lockdownd_pair(
+        client: lockdownd_client_t,
+        pair_record: lockdownd_pair_record_t,
+    ) -> c_int;
+    pub fn lockdownd_strerror(err: c_int) -> *const c_char;
+    pub fn plist_get_node_type(node: plist_t) -> c_int;
+    pub fn plist_get_uint_val(node: plist_t, val: *mut u64);
+    pub fn plist_free(plist: plist_t);
+    pub fn plist_mem_free(ptr: *mut c_void);
+}
+
 // ── Embedded usbmuxd server (Linux + Windows) ────────────────────────────────
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]

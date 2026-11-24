@@ -89,6 +89,27 @@ pub enum Error {
     #[error("failed to start usbmuxd: {0}")]
     UsbmuxdFailed(String),
 
+    #[error("can't reach usbmuxd{hint}", hint = running_device_hint())]
+    UsbmuxdUnreachable,
+
+    #[error(
+        "no running iPhone or iPad with ECID {0:#x} is visible to usbmuxd{hint}",
+        hint = running_device_hint()
+    )]
+    RunningDeviceNotFound(u64),
+
+    #[error("the device is locked; unlock it and retry")]
+    DeviceLocked,
+
+    #[error("the device is asking whether to trust this computer; tap Trust on it and retry")]
+    TrustPending,
+
+    #[error("the device declined to trust this computer; reconnect it to be asked again")]
+    TrustDenied,
+
+    #[error("lockdown error {code}: {message}")]
+    Lockdown { code: i32, message: String },
+
     #[error("WinUSB driver setup failed: {0}")]
     DriverInstall(String),
 
@@ -139,6 +160,21 @@ fn kis_unreadable_message() -> &'static str {
     } else {
         "the Mac is in DFU over Apple's Debug USB interface (05ac:1881), but restorekit couldn't \
          read its identity. Check USB permissions (the udev rule covers 05ac:1881) and retry"
+    }
+}
+
+/// Which usbmuxd reaches a running iPhone or iPad on this host, appended to
+/// [`Error::UsbmuxdUnreachable`] and [`Error::RunningDeviceNotFound`]. On macOS
+/// it is always Apple's.
+fn running_device_hint() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "\n\nOn Linux a running device is reached through the system usbmuxd (the \
+         `usbmuxd` package)."
+    } else if cfg!(target_os = "windows") {
+        "\n\nOn Windows a running device is reached through Apple Mobile Device \
+         Service, which Apple Devices and iTunes install."
+    } else {
+        ""
     }
 }
 
