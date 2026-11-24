@@ -249,9 +249,14 @@ pub fn update(
         );
     }
     if !back {
+        let hint = if d.model == dongle::DongleModel::ProV2 {
+            "the image was written and verified, so it may not be dongle firmware; \
+             hold the boot button while plugging it in and update it again"
+        } else {
+            "the bootloader reverts to the old firmware if the new one fails to boot"
+        };
         return Err(restorekit::Error::Dongle(format!(
-            "{} did not re-enumerate within 20s — check the board; the bootloader \
-             reverts to the old firmware if the new one fails to boot",
+            "{} did not re-enumerate within 20s — check the board; {hint}",
             d.serial
         )));
     }

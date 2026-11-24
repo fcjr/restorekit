@@ -30,7 +30,7 @@ const CMD_READ_CONFIG: u8 = 0xa7;
 /// CH32X035: chip ID 0x56 in device family 0x23.
 const CHIP_ID: u8 = 0x56;
 const DEVICE_TYPE: u8 = 0x23;
-/// The application region `weirdo` flashes (62 KB; the top 2 KB is reserved).
+/// The application region (62 KB; the top 2 KB is reserved).
 pub(crate) const MAX_IMAGE: usize = 62 * 1024;
 const SECTOR: usize = 1024;
 /// Data bytes per program/verify packet: 64 - 3 header - 4 address - 1 pad.
@@ -172,7 +172,7 @@ pub(crate) fn flash(
     }
     if config[2] != RDPR_UNPROTECTED {
         return Err(Error::Dongle(
-            "the dongle's flash is read-protected; unprotect it with weirdo first".into(),
+            "the dongle's flash is read-protected; clear that with wchisp first".into(),
         ));
     }
     let key = xor_key(&config[18..26], CHIP_ID);
