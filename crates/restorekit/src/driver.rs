@@ -656,6 +656,87 @@ pub fn restore_watch_log() -> std::path::PathBuf {
     std::env::temp_dir().join("restorekit-restore-watch.log")
 }
 
+/// Open [`restore_watch_log`] for the elevated watcher without being pointed at
+/// another file. It lives in the user's temp directory, which any of their
+/// processes can write, so a link planted there (or a junction swapped in
+/// above it) would otherwise aim an administrator's truncate-and-write at any
+/// file. The file is opened first and the opened handle checked, so nothing
+/// can change in between, and it's only emptied once known to be the log.
+/// Returns `None`, and the watcher runs without a log, if the checks fail; at
+/// worst that leaves an empty file where a junction pointed.
+fn open_watch_log() -> Option<std::fs::File> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, GetFinalPathNameByHandleW, GetLongPathNameW,
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_NAME_NORMALIZED,
+    };
+
+    let path = restore_watch_log();
+    // OPEN_ALWAYS: create it or open what's there without truncating, and
+    // open a link as itself rather than what it points at.
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&path)
+        .ok()?;
+    let handle = file.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
+
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0
+        || info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        || info.nNumberOfLinks != 1
+    {
+        return None;
+    }
+
+    // Where the handle really is, against where we asked for it: a junction on
+    // the way puts the file somewhere else.
+    let mut buf = vec![0u16; 1024];
+    let len = unsafe {
+        GetFinalPathNameByHandleW(
+            handle,
+            buf.as_mut_ptr(),
+            buf.len() as u32,
+            FILE_NAME_NORMALIZED,
+        )
+    } as usize;
+    if len == 0 || len >= buf.len() {
+        return None;
+    }
+    let opened = std::path::PathBuf::from(std::ffi::OsString::from_wide(&buf[..len]));
+    let dir: Vec<u16> = path
+        .parent()?
+        .as_os_str()
+        .encode_wide()
+        .chain([0])
+        .collect();
+    let mut long = vec![0u16; 1024];
+    let long_len =
+        unsafe { GetLongPathNameW(dir.as_ptr(), long.as_mut_ptr(), long.len() as u32) } as usize;
+    if long_len == 0 || long_len >= long.len() {
+        return None;
+    }
+    let expected = std::path::PathBuf::from(std::ffi::OsString::from_wide(&long[..long_len]))
+        .join(path.file_name()?);
+    let same = |a: &std::path::Path, b: &std::path::Path| {
+        let plain = |p: &std::path::Path| {
+            let s = p.to_string_lossy().to_lowercase();
+            s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+        };
+        plain(a) == plain(b)
+    };
+    if !same(&opened, &expected) {
+        return None;
+    }
+
+    file.set_len(0).ok()?;
+    Some(file)
+}
+
 /// The elevated watcher worker, invoked when this binary is rerun with
 /// [`RESTORE_WATCH_ARG`]. Until the restore removes the liveness file (or a
 /// safety deadline passes), it binds WinUSB to:
@@ -674,7 +755,7 @@ pub fn run_restore_mode_watch_worker(liveness: &std::path::Path) {
 
     const DRIVERLESS_GRACE: Duration = Duration::from_secs(5);
     let deadline = Instant::now() + Duration::from_secs(45 * 60);
-    let mut log = std::fs::File::create(restore_watch_log()).ok();
+    let mut log = open_watch_log();
     let mut note = |msg: String| {
         if let Some(f) = log.as_mut() {
             let _ = writeln!(f, "{msg}\r");
