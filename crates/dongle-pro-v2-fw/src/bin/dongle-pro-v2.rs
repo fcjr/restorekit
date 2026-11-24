@@ -88,6 +88,7 @@ impl Handler for Vendor {
             | proto::VCMD_REBOOT
             | proto::VCMD_SERIAL
             | proto::VCMD_DEBUGUSB
+            | proto::VCMD_REPLUG
             | proto::VCMD_BOOTSEL => req.value as u8,
             _ => return Some(OutResponse::Rejected),
         };
@@ -574,6 +575,25 @@ impl Engine<'_> {
         proto::RES_OK
     }
 
+    /// Target power off and CC open for a second, then attach again: what
+    /// unplugging and replugging the cable does, to recover a target whose
+    /// USB stopped enumerating.
+    async fn replug(&mut self) -> u8 {
+        if self.state == State::Detached {
+            log!(self.log, "replug: no target");
+            return proto::RES_NOTARGET;
+        }
+        self.close_bridge();
+        self.vbus_en.set_low();
+        self.state = State::Detached;
+        log!(self.log, "replug: target power and CC off for a second");
+        if self.reprime().await {
+            proto::RES_OK
+        } else {
+            proto::RES_NOTARGET
+        }
+    }
+
     async fn dfu(&mut self) -> u8 {
         let res = self
             .action("dfu", &[&pd::VDM_DFU_HOLD, &pd::VDM_DFU_HOLD_T2], true)
@@ -594,6 +614,7 @@ impl Engine<'_> {
             proto::VCMD_REBOOT => self.action("reboot", &[&pd::VDM_REBOOT], false).await,
             proto::VCMD_DEBUGUSB => self.action("debugusb", &[&pd::VDM_DEBUGUSB], true).await,
             proto::VCMD_SERIAL => self.enter_serial().await,
+            proto::VCMD_REPLUG => self.replug().await,
             proto::VCMD_BOOTSEL => {
                 log!(self.log, "entering the ROM USB loader");
                 self.vbus_en.set_low();
