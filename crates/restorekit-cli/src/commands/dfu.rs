@@ -354,8 +354,16 @@ pub(crate) fn ensure_present(
     dongle: Option<String>,
     ecid: Option<u64>,
 ) -> Result<Device> {
-    // An explicit dongle always routes through it.
+    // An explicit dongle routes the trigger through it, but a Mac that's
+    // already in DFU is used as is: triggering it again only bounces it.
     if let Some(id) = dongle {
+        let mut present = dfu_devices()?;
+        if let Some(e) = ecid {
+            present.retain(|d| d.ecid == Some(e));
+        }
+        if !present.is_empty() {
+            return select_from(present, json);
+        }
         return finish_trigger(json, DfuVia::Dongle(id), timeout, ecid);
     }
     // Already in DFU? Use it without re-triggering.
