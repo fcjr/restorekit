@@ -207,10 +207,11 @@ struct DongleFwProgress {
     total: usize,
 }
 
-/// Download the latest published firmware and stream it onto dongle `serial`
-/// over its vendor interface. The dongle verifies, reboots, and its
-/// bootloader swaps the image in (rolling back if it fails to boot). Emits
-/// `dongle_fw_progress` events; resolves with the version running afterward.
+/// Download the latest published firmware and install it on dongle `serial`:
+/// streamed over the vendor interface and swapped in by the bootloader on the
+/// Lite and Pro, written and verified through the ROM USB loader on the Pro
+/// v2. Emits `dongle_fw_progress` events; resolves with the version running
+/// afterward.
 #[tauri::command]
 pub async fn dongle_fw_update(app: AppHandle, serial: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -219,21 +220,19 @@ pub async fn dongle_fw_update(app: AppHandle, serial: String) -> Result<String, 
             .map_err(|e| e.to_string())?
             .ok_or("no published firmware releases for this model")?;
         let image = release.download().map_err(|e| e.to_string())?;
-        let handle = d.open().map_err(|e| e.to_string())?;
-        handle
-            .update(&image, |staged, total| {
-                let _ = app.emit(
-                    "dongle_fw_progress",
-                    DongleFwProgress {
-                        serial: d.serial.clone(),
-                        staged,
-                        total,
-                    },
-                );
-            })
-            .map_err(|e| e.to_string())?;
-        // The claimed interface is stale once the dongle reboots to swap.
-        drop(handle);
+        // Routes by model: the Lite and Pro stage it over the vendor
+        // interface, the Pro v2 is flashed through its ROM USB loader.
+        d.update(&image, |staged, total| {
+            let _ = app.emit(
+                "dongle_fw_progress",
+                DongleFwProgress {
+                    serial: d.serial.clone(),
+                    staged,
+                    total,
+                },
+            );
+        })
+        .map_err(|e| e.to_string())?;
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         loop {
             std::thread::sleep(Duration::from_millis(500));
@@ -244,9 +243,14 @@ pub async fn dongle_fw_update(app: AppHandle, serial: String) -> Result<String, 
                 return Ok(back.fw_version().unwrap_or(release.version));
             }
             if std::time::Instant::now() >= deadline {
-                return Err("the dongle did not come back after the update; \
+                return Err(if d.model == dongle::DongleModel::ProV2 {
+                    "the dongle did not come back after the update; hold its boot \
+                     button while plugging it in and update it again"
+                } else {
+                    "the dongle did not come back after the update; \
                      its bootloader reverts a firmware that fails to boot"
-                    .into());
+                }
+                .into());
             }
         }
     })

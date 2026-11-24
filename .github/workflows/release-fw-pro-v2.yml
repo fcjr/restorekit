@@ -1,0 +1,66 @@
+name: release-fw-pro-v2
+
+# Publish Dongle-Pro v2 firmware. Tag the commit `dongle-pro-v2-v<version>`
+# (matching crates/dongle-pro-v2-fw's crate version, which the firmware reports
+# over USB) and this attaches dongle-pro-v2-fw.bin: the raw image, at flash
+# offset 0, that `restorekit dongle update` writes through the CH32X035's ROM
+# USB loader. The same file flashes a blank board with `wchisp flash`.
+
+on:
+  push:
+    tags: ["dongle-pro-v2-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: crates/dongle-pro-v2-fw
+    steps:
+      - uses: actions/checkout@v4
+
+      # The version comes from the crate; a tag that doesn't match it would
+      # publish a release that misreports itself to every dongle.
+      - name: Check tag matches the crate version
+        run: |
+          tag_version="${GITHUB_REF_NAME#dongle-pro-v2-v}"
+          crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
+          if [ "$tag_version" != "$crate_version" ]; then
+            echo "tag is v$tag_version but crates/dongle-pro-v2-fw is v$crate_version" >&2
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update --component llvm-tools
+          rustup default stable
+          rustup target add riscv32imc-unknown-none-elf
+
+      - name: Build
+        run: |
+          cargo build --release --locked --bin dongle-pro-v2
+          objcopy="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n "s/^host: //p")/bin/llvm-objcopy"
+          "$objcopy" -O binary target/riscv32imc-unknown-none-elf/release/dongle-pro-v2 target/dongle-pro-v2-fw.bin
+          size=$(stat -c %s target/dongle-pro-v2-fw.bin)
+          echo "image is $size bytes"
+          # The application region the ROM loader programs: 62 KB.
+          [ "$size" -le 63488 ]
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#dongle-pro-v2-v}"
+          # --latest=false: the repo's "Latest" release must stay on the
+          # newest app/CLI release; the desktop updater fetches
+          # releases/latest/download/latest.json.
+          gh release create "$GITHUB_REF_NAME" \
+            --latest=false \
+            --title "Dongle-Pro v2 firmware $version" \
+            --notes "Install on a connected Dongle-Pro v2 with \`restorekit dongle update\`. \
+          A blank or stuck board: hold its boot button while plugging it in, then \
+          \`wchisp flash dongle-pro-v2-fw.bin\`." \
+            target/dongle-pro-v2-fw.bin

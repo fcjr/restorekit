@@ -175,6 +175,57 @@ jobs:
         working-directory: crates/dongle-lite-boot
         run: cargo build --release
 
+  # The Dongle-Pro v2 firmware (CH32X035, RISC-V), also standalone: the product
+  # image and both bench builds, each of which has to fit the 62 KB of flash.
+  firmware-pro-v2:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_INCREMENTAL: 0
+    defaults:
+      run:
+        working-directory: crates/dongle-pro-v2-fw
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        id: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update \
+            --component rustfmt --component llvm-tools
+          rustup default stable
+          rustup target add riscv32imc-unknown-none-elf
+          echo "version=$(rustc --version | tr ' ' '-' | tr -d '()')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            crates/dongle-pro-v2-fw/target
+          key: rust-fw-pro-v2-${{ steps.toolchain.outputs.version }}-${{ hashFiles('crates/dongle-pro-v2-fw/Cargo.lock') }}
+          restore-keys: |
+            rust-fw-pro-v2-${{ steps.toolchain.outputs.version }}-
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Build and check sizes
+        run: |
+          size="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n "s/^host: //p")/bin/llvm-size"
+          check() {
+            text=$("$size" "target/riscv32imc-unknown-none-elf/release/$1" | awk 'NR==2 {print $1 + $2}')
+            echo "$1 $2: $text bytes of flash"
+            [ "$text" -le 63488 ]
+          }
+          cargo build --release --locked --bin dongle-pro-v2
+          check dongle-pro-v2 product
+          cargo build --release --locked --bin dongle-pro-v2-fw
+          check dongle-pro-v2-fw bench
+          cargo build --release --locked --bin dongle-pro-v2-fw --features pd
+          check dongle-pro-v2-fw "PD bench"
+
   # Windows is a separate job (not a `test` matrix entry) because it needs the
   # GNU toolchain and an MSYS2 MINGW64 shell: the vendored C stack is built with
   # autotools, which can't target MSVC.

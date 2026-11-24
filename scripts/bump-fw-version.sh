@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Bump the dongle firmware version (crates/dongle-lite-fw), the firmware
-# counterpart of scripts/bump-version.sh. The crate version is what the
-# firmware reports over USB, and release-fw.yml refuses a tag that doesn't
-# match it.
+# Bump a dongle firmware version, the firmware counterpart of
+# scripts/bump-version.sh. The crate version is what the firmware reports over
+# USB, and the release workflows refuse a tag that doesn't match it.
 #
-# Usage: scripts/bump-fw-version.sh [patch|minor|major]   (default: patch)
+#   lite    crates/dongle-lite-fw (Lite and Pro), tag dongle-lite-vX.Y.Z
+#   pro-v2  crates/dongle-pro-v2-fw (Pro v2), tag dongle-pro-v2-vX.Y.Z
+#
+# Usage: scripts/bump-fw-version.sh [patch|minor|major] [lite|pro-v2]
+#        (defaults: patch, lite)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -12,10 +15,15 @@ cd "$(dirname "$0")/.."
 kind="${1:-patch}"
 case "$kind" in
   patch|minor|major) ;;
-  *) echo "usage: $0 [patch|minor|major]" >&2; exit 1 ;;
+  *) echo "usage: $0 [patch|minor|major] [lite|pro-v2]" >&2; exit 1 ;;
+esac
+case "${2:-lite}" in
+  lite) crate=crates/dongle-lite-fw tag=dongle-lite-v ;;
+  pro-v2) crate=crates/dongle-pro-v2-fw tag=dongle-pro-v2-v ;;
+  *) echo "usage: $0 [patch|minor|major] [lite|pro-v2]" >&2; exit 1 ;;
 esac
 
-toml=crates/dongle-lite-fw/Cargo.toml
+toml=$crate/Cargo.toml
 current=$(perl -ne 'print $1 and exit if /^version = "([^"]+)"$/' "$toml")
 if [[ ! "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
   echo "error: could not parse version from $toml (got '$current')" >&2
@@ -38,13 +46,13 @@ if ! grep -qF "version = \"$new\"" "$toml"; then
 fi
 echo "  updated $toml"
 
-echo "  updating crates/dongle-lite-fw/Cargo.lock"
-(cd crates/dongle-lite-fw && cargo update --workspace --quiet)
+echo "  updating $crate/Cargo.lock"
+(cd "$crate" && cargo update --workspace --quiet)
 
-git commit --quiet -m "chore(release): bump dongle firmware to $new" \
-  -- "$toml" crates/dongle-lite-fw/Cargo.lock
-echo "  committed: chore(release): bump dongle firmware to $new"
+msg="chore(release): bump ${crate#crates/} to $new"
+git commit --quiet -m "$msg" -- "$toml" "$crate/Cargo.lock"
+echo "  committed: $msg"
 
 echo
 echo "done. next:"
-echo "  git tag dongle-lite-v$new && git push origin main dongle-lite-v$new"
+echo "  git tag $tag$new && git push origin main $tag$new"

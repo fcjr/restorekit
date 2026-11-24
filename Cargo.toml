@@ -10,7 +10,7 @@ members = [
 # The Tauri app pulls in webkit/GTK deps that don't build on the Linux CI
 # runners, so it's a standalone crate outside the workspace build. The dongle
 # firmware is a bare-metal thumbv6m crate, built standalone from its own dir.
-exclude = ["apps/desktop/src-tauri", "crates/dongle-lite-fw"]
+exclude = ["apps/desktop/src-tauri", "crates/dongle-lite-fw", "crates/dongle-pro-v2-fw"]
 
 [workspace.package]
 version = "0.6.4"

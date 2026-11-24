@@ -1,0 +1,54 @@
+# Firmware for the Dongle-Pro v2 and Dongle-Pro v2 PD boards (CH32X035G8U6):
+# the product firmware (src/bin/dongle-pro-v2.rs) and the bench firmware
+# (src/main.rs). Standalone crate, kept out of the host workspace like
+# dongle-lite-fw.
+[workspace]
+
+[package]
+name = "dongle-pro-v2-fw"
+edition = "2024"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "RecoverKit Dongle-Pro v2 / v2 PD firmware (CH32X035 + HUSB311)"
+publish = false
+
+[features]
+# The PD board: charger port, CH224Q sink, TPS2121 power mux. Bench only.
+pd = []
+
+[[bin]]
+name = "dongle-pro-v2"
+path = "src/bin/dongle-pro-v2.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "dongle-pro-v2-fw"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+ch32-hal = { git = "https://github.com/ch32-rs/ch32-hal", rev = "f2be1bca8d8e0dc3892668afa7b558c6f2c1a19d", default-features = false, features = ["ch32x035g8u6", "memory-x", "embassy", "rt", "time-driver-tim2"] }
+qingke = "0.8.4"
+qingke-rt = "0.8.4"
+embassy-executor = { version = "0.10.0", features = ["platform-spin", "executor-thread"] }
+embassy-time = "0.5.1"
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
+# Same embassy revision as ch32-hal's USB driver.
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "e867f1210417a95be666d965a3567b3b2bed3bb9", default-features = false, features = ["device", "class-cdc-acm", "max-interface-count-8"] }
+critical-section = "1.2.0"
+embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "e867f1210417a95be666d965a3567b3b2bed3bb9" }
+restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+debug = 2
+panic = "abort"
+
+[profile.dev]
+opt-level = "s"
+panic = "abort"

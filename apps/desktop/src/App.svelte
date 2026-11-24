@@ -296,7 +296,12 @@
 
   async function refreshDongles() {
     try {
-      dongles = await api.listDongles();
+      const found = await api.listDongles();
+      // A Pro v2 leaves the bus while its ROM loader is flashed; keep its row
+      // (and the progress in it) until the update finishes.
+      const updating = dongles.find((d) => d.serial === fwUpdating);
+      if (updating && !found.some((d) => d.serial === fwUpdating)) found.push(updating);
+      dongles = found;
     } catch {
       /* dongle enumeration hiccups are fine */
     }
