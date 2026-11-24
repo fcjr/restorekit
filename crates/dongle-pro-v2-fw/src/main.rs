@@ -15,6 +15,7 @@ mod rom;
 mod tcpc;
 mod uart;
 mod usb;
+mod usbfs;
 
 use core::fmt::Write as _;
 

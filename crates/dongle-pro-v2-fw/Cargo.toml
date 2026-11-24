@@ -39,9 +39,7 @@ embassy-futures = "0.1.2"
 # Same embassy revision as ch32-hal's USB driver.
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "e867f1210417a95be666d965a3567b3b2bed3bb9", default-features = false, features = ["device", "class-cdc-acm", "max-interface-count-8"] }
 critical-section = "1.2.0"
-static_cell = "2.1"
-# rv32imc has no atomic CAS; static_cell takes it from portable-atomic.
-portable-atomic = { version = "1", features = ["critical-section"] }
+embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "e867f1210417a95be666d965a3567b3b2bed3bb9" }
 restorekit-dongle-proto = { path = "../restorekit-dongle-proto" }
 
 [profile.release]

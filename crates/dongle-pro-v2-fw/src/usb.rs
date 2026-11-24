@@ -1,5 +1,5 @@
 //! USB device: a CDC console, optionally a second CDC port and a vendor
-//! interface, on ch32-hal's USBFS driver and embassy-usb.
+//! interface, on embassy-usb and this crate's X035 driver (`usbfs.rs`).
 //!
 //! The engine never waits on USB. Each CDC port is a pair of pipes that
 //! [`run`] pumps: [`Port::try_write`] drops output while no terminal has the
@@ -9,9 +9,7 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
-use ch32_hal::usb::EndpointDataBuffer;
-use ch32_hal::usbfs::{self, Driver};
-use ch32_hal::{Peri, bind_interrupts, peripherals};
+use ch32_hal::{Peri, peripherals};
 use embassy_futures::join::{join, join3};
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -22,16 +20,13 @@ use embassy_usb::class::cdc_acm::device::{
 };
 use embassy_usb::msos;
 use embassy_usb::{Builder, Config, Handler};
-use static_cell::StaticCell;
 
-bind_interrupts!(struct Irqs {
-    USBFS => usbfs::InterruptHandler<peripherals::USBFS>;
-});
+use crate::usbfs::{Driver, EpBuffer};
 
 /// EP0 plus the two CDC ports' three endpoints each. EP4 shares EP0's buffer
 /// on the X035, which leaves exactly EP1-3 and EP5-7.
 const NR_EP: usize = 7;
-type UsbDriver = Driver<'static, peripherals::USBFS, NR_EP, 64>;
+type UsbDriver = Driver<'static>;
 
 /// `bMS_VendorCode` for the MS OS 2.0 descriptor set.
 const MSOS_VENDOR_CODE: u8 = 0x17;
@@ -134,15 +129,15 @@ pub async fn run(
     dm: Peri<'static, peripherals::PC16>,
     opts: Options,
 ) {
-    static EP_BUFFERS: StaticCell<[EndpointDataBuffer<64>; NR_EP]> = StaticCell::new();
+    static mut EP_BUFFERS: [EpBuffer; NR_EP] = [const { EpBuffer::new() }; NR_EP];
     static mut CONFIG_DESC: [u8; 256] = [0; 256];
     static mut BOS_DESC: [u8; 64] = [0; 64];
     static mut MSOS_DESC: [u8; 192] = [0; 192];
     static mut CONTROL_BUF: [u8; 64] = [0; 64];
     static mut STATES: [State; 2] = [State::new(), State::new()];
-    let _ = Irqs;
     // SAFETY: run is called once; these are handed to the builder for good.
-    let ep_buffers = EP_BUFFERS.init(core::array::from_fn(|_| EndpointDataBuffer::default()));
+    // SAFETY: as above.
+    let ep_buffers = unsafe { &mut *core::ptr::addr_of_mut!(EP_BUFFERS) };
     let (config_desc, bos_desc, msos_desc, control_buf, states) = unsafe {
         (
             &mut *core::ptr::addr_of_mut!(CONFIG_DESC),
