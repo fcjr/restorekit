@@ -587,13 +587,14 @@ impl Drop for RestoreWatcherGuard {
 /// binary elevated (one UAC) to run [`run_restore_mode_watch_worker`].
 ///
 /// Returns `None` if the watcher couldn't be launched (e.g. UAC declined). The
-/// returned guard ties the watcher's lifetime to the restore.
+/// watcher runs until the returned guard is dropped.
 pub fn spawn_restore_mode_watcher() -> Option<RestoreWatcherGuard> {
     let liveness = std::env::temp_dir().join(format!(
         "restorekit-restore-live-{}.tmp",
         std::process::id()
     ));
-    if std::fs::write(&liveness, b"1").is_err() {
+    // The watcher reads our pid from it, to stop if we exit without removing it.
+    if std::fs::write(&liveness, std::process::id().to_string()).is_err() {
         return None;
     }
 
@@ -738,23 +739,24 @@ fn open_watch_log() -> Option<std::fs::File> {
 }
 
 /// The elevated watcher worker, invoked when this binary is rerun with
-/// [`RESTORE_WATCH_ARG`]. Until the restore removes the liveness file (or a
-/// safety deadline passes), it binds WinUSB to:
+/// [`RESTORE_WATCH_ARG`]. Until the liveness file is removed or the process
+/// that wrote it exits, it binds WinUSB to:
 ///
 /// - the restore-mode data interface whenever it appears, and
 /// - a DFU, recovery or KIS device that has had no driver for a few seconds
 ///   (a machine without Apple's drivers, where Windows Update hasn't run):
 ///   the Mac changes modes during a restore, and each mode is a new device.
 ///
-/// It exits early once a bound restore-mode device has left. Logs what it did
-/// to [`restore_watch_log`].
+/// It keeps watching after a Mac leaves restore mode, since one watcher can
+/// serve every restore a shared usbmuxd runs. Logs what it did to
+/// [`restore_watch_log`].
 pub fn run_restore_mode_watch_worker(liveness: &std::path::Path) {
     use std::collections::HashMap;
     use std::io::Write;
     use std::time::{Duration, Instant};
 
     const DRIVERLESS_GRACE: Duration = Duration::from_secs(5);
-    let deadline = Instant::now() + Duration::from_secs(45 * 60);
+    let owner = OwnerProcess::from_liveness(liveness);
     let mut log = open_watch_log();
     let mut note = |msg: String| {
         if let Some(f) = log.as_mut() {
@@ -764,16 +766,8 @@ pub fn run_restore_mode_watch_worker(liveness: &std::path::Path) {
     note("watching for restore mode".into());
 
     let mut driverless_since: HashMap<String, Instant> = HashMap::new();
-    let mut bound_restore = false;
-    while Instant::now() < deadline && liveness.exists() {
+    while liveness.exists() && owner.alive() {
         let ids = present_instance_ids().unwrap_or_default();
-        let restore_present = ids
-            .iter()
-            .any(|id| id.to_ascii_uppercase().contains("&RESTORE_MODE&MI_00\\"));
-        if bound_restore && !restore_present {
-            note("restore-mode device left".into());
-            break;
-        }
         driverless_since.retain(|id, _| ids.contains(id));
         for id in &ids {
             let Some(guid) = bind_guid(id) else { continue };
@@ -793,10 +787,7 @@ pub fn run_restore_mode_watch_worker(liveness: &std::path::Path) {
                 }
             }
             match winusb::bind(id, guid) {
-                Ok(()) => {
-                    note(format!("bound WinUSB to {id}"));
-                    bound_restore |= restore_mode;
-                }
+                Ok(()) => note(format!("bound WinUSB to {id}")),
                 Err(e) => note(format!("binding {id} failed: {e}")),
             }
         }
@@ -804,7 +795,90 @@ pub fn run_restore_mode_watch_worker(liveness: &std::path::Path) {
     }
     if !liveness.exists() {
         note("restore ended".into());
+    } else {
+        note("owner exited".into());
     }
+}
+
+/// The process that started a watcher, named by the pid in its liveness file.
+/// The handle is opened once, so a later process reusing the pid isn't taken
+/// for it, and a process created after the file was written is taken for a
+/// reuse. Without a readable pid it falls back to a fixed deadline.
+enum OwnerProcess {
+    Unknown(std::time::Instant),
+    Gone,
+    Running(windows_sys::Win32::Foundation::HANDLE),
+}
+
+impl OwnerProcess {
+    fn from_liveness(liveness: &std::path::Path) -> Self {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::{
+            GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+        };
+
+        let Some(pid) = std::fs::read_to_string(liveness)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+        else {
+            return Self::Unknown(
+                std::time::Instant::now() + std::time::Duration::from_secs(45 * 60),
+            );
+        };
+        let written = std::fs::metadata(liveness).and_then(|m| m.modified()).ok();
+        unsafe {
+            let handle = OpenProcess(
+                PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                0,
+                pid,
+            );
+            if handle.is_null() {
+                return Self::Gone;
+            }
+            let zero = FILETIME {
+                dwLowDateTime: 0,
+                dwHighDateTime: 0,
+            };
+            let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+            if GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) != 0 {
+                if let (Some(created), Some(written)) = (filetime_to_system(created), written) {
+                    if created > written {
+                        windows_sys::Win32::Foundation::CloseHandle(handle);
+                        return Self::Gone;
+                    }
+                }
+            }
+            Self::Running(handle)
+        }
+    }
+
+    fn alive(&self) -> bool {
+        use windows_sys::Win32::Foundation::WAIT_TIMEOUT;
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+        match self {
+            Self::Unknown(deadline) => std::time::Instant::now() < *deadline,
+            Self::Gone => false,
+            Self::Running(handle) => unsafe { WaitForSingleObject(*handle, 0) == WAIT_TIMEOUT },
+        }
+    }
+}
+
+impl Drop for OwnerProcess {
+    fn drop(&mut self) {
+        if let Self::Running(handle) = self {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(*handle) };
+        }
+    }
+}
+
+/// A FILETIME (100 ns ticks since 1601) as a `SystemTime`.
+fn filetime_to_system(
+    ft: windows_sys::Win32::Foundation::FILETIME,
+) -> Option<std::time::SystemTime> {
+    const UNIX_EPOCH_TICKS: u64 = 116_444_736_000_000_000;
+    let ticks = ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64;
+    let since_unix = ticks.checked_sub(UNIX_EPOCH_TICKS)?;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_nanos(since_unix.saturating_mul(100)))
 }
 
 /// Launch `exe params` elevated (UAC) with no visible window, and return without
