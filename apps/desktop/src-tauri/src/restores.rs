@@ -57,8 +57,35 @@ struct Inner {
     jobs: HashMap<u64, Job>,
     order: Vec<u64>,
     next_id: u64,
-    /// Held for the app's lifetime so child workers reuse one usbmuxd.
+    /// Held while any job is queued or running, so child workers reuse one
+    /// usbmuxd. Dropped once the queue empties: on Windows it holds an elevated
+    /// helper that rebinds Apple restore-mode devices, which shouldn't outlive
+    /// the restores it serves.
     shared_usbmuxd: Option<restorekit::SharedUsbmuxd>,
+}
+
+impl Inner {
+    fn ensure_shared_usbmuxd(&mut self) -> Result<(), String> {
+        if self.shared_usbmuxd.is_none() {
+            self.shared_usbmuxd =
+                Some(restorekit::start_shared_usbmuxd(&mut |_| {}).map_err(|e| e.to_string())?);
+        }
+        Ok(())
+    }
+
+    /// The shared usbmuxd once no job needs it, for the caller to drop after
+    /// releasing the lock.
+    fn release_idle_usbmuxd(&mut self) -> Option<restorekit::SharedUsbmuxd> {
+        let active = self
+            .jobs
+            .values()
+            .any(|j| matches!(j.view.status.as_str(), "queued" | "running"));
+        if active {
+            None
+        } else {
+            self.shared_usbmuxd.take()
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -122,7 +149,9 @@ async fn set_status(
         job.view.message = message.to_string();
     }
     let view = job.view.clone();
+    let idle = g.release_idle_usbmuxd();
     drop(g);
+    drop(idle);
     emit_update(app, &view);
     true
 }
@@ -278,12 +307,7 @@ pub async fn enqueue_restore(
 
     let id = {
         let mut g = inner.lock().await;
-        if g.shared_usbmuxd.is_none() {
-            match restorekit::start_shared_usbmuxd(&mut |_| {}) {
-                Ok(s) => g.shared_usbmuxd = Some(s),
-                Err(e) => return Err(e.to_string()),
-            }
-        }
+        g.ensure_shared_usbmuxd()?;
         g.next_id += 1;
         let id = g.next_id;
         let view = JobView {
@@ -337,7 +361,9 @@ pub async fn cancel_restore(
         job.view.status = "canceled".into();
         job.view.step = "canceled".into();
         let view = job.view.clone();
+        let idle = g.release_idle_usbmuxd();
         drop(g);
+        drop(idle);
         emit_update(&app, &view);
     }
     Ok(())
@@ -355,6 +381,10 @@ pub async fn restart_restore(
 
     let (ipsw, ecid, mode) = {
         let mut g = inner.lock().await;
+        if !g.jobs.contains_key(&id) {
+            return Err("no such job".into());
+        }
+        g.ensure_shared_usbmuxd()?;
         let Some(job) = g.jobs.get_mut(&id) else {
             return Err("no such job".into());
         };
