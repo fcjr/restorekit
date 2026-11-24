@@ -243,15 +243,15 @@ def build():
     # The LED windows go right through; the inlay fills their top 0.6 mm, so a
     # white inlay is a diffuser and no inlay is an open window.
     marks = [
-        text("restorekit", 0, 7.0, 4.2),
+        text("restorekit", 0, 7.0, 4.4),
         text("PRO", 0, 1.6, 3.0),
-        text("HOST", 0, 17.2, 3.6),
-        text("TARGET", 0, -17.4, 3.6),
+        text("HOST", 0, 17.6, 4.5),
+        text("TARGET", 0, -17.8, 4.5),
         arrow(1, 20.3, 22.7),
         arrow(-1, 20.3, 22.7),
-        text("BOOT", TAB_X0 - 1.0, sum(TAB_Y) / 2, 2.4, halign="right"),
-        text("STAT", D2[0] - 1.2, D2[1], 2.2, halign="right"),
-        text("PWR", D1[0] - 1.2, D1[1], 2.2, halign="right"),
+        text("BOOT", TAB_X0 - 1.0, sum(TAB_Y) / 2, 2.6, halign="right"),
+        text("STAT", D2[0] - 1.2, D2[1], 2.6, halign="right"),
+        text("PWR", D1[0] - 1.2, D1[1] - 0.1, 2.6, halign="right"),  # clear of the BOOT slot
     ]
     ring = (cq.Workplane("XY", origin=(*NUB, TOP_Z - RING_DEPTH))
             .circle(1.3).circle(0.8).extrude(RING_DEPTH))
