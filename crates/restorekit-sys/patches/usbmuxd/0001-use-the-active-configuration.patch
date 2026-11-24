@@ -1,28 +1,98 @@
 --- a/src/usb.c
 +++ b/src/usb.c
-@@ -465,95 +465,52 @@
+@@ -465,95 +465,124 @@
  	return 0;
  }
  
 -/// @brief Finds and sets the valid configuration, interface and endpoints on the usb_device
 -static int set_valid_configuration(struct libusb_device* dev, struct usb_device *usbdev, struct libusb_device_handle *handle)
--{
++/* Bus addresses already reported as left alone, since discovery checks a
++ * device again every second. Cleared when the device leaves. */
++static int no_mux_noted[32];
++static unsigned int no_mux_next;
++#define NO_MUX_SLOTS (sizeof(no_mux_noted) / sizeof(no_mux_noted[0]))
++
++static void note_no_active_mux(int bus, int address)
+ {
 -	int j, k, res, found = 0;
++	int key = (bus << 8) | address;
++	unsigned int i;
++	for (i = 0; i < NO_MUX_SLOTS; i++) {
++		if (no_mux_noted[i] == key)
++			return;
++	}
++	no_mux_noted[no_mux_next++ % NO_MUX_SLOTS] = key;
++	usbmuxd_log(LL_WARNING, "No usbmux interface in the active configuration of device %d-%d; leaving it alone", bus, address);
++}
++
++static void forget_no_active_mux(int bus, int address)
++{
++	int key = (bus << 8) | address;
++	unsigned int i;
++	for (i = 0; i < NO_MUX_SLOTS; i++) {
++		if (no_mux_noted[i] == key)
++			no_mux_noted[i] = 0;
++	}
++}
++
++static int has_mux_interface(const struct libusb_config_descriptor *config)
++{
++	int k;
++	for (k = 0; k < config->bNumInterfaces; k++) {
++		const struct libusb_interface_descriptor *intf = &config->interface[k].altsetting[0];
++		if (intf->bInterfaceClass == INTERFACE_CLASS &&
++		    intf->bInterfaceSubClass == INTERFACE_SUBCLASS &&
++		    intf->bInterfaceProtocol == INTERFACE_PROTOCOL)
++			return 1;
++	}
++	return 0;
++}
++
++/* Give an unconfigured device the configuration that carries its mux
++ * interface. The distro udev rule unconfigures these so a usbmuxd can choose,
++ * and with no configuration there are no drivers to disturb. */
++static void configure_mux(struct libusb_device *dev, struct libusb_device_handle *handle, int bus, int address)
++{
++	struct libusb_device_descriptor devdesc;
++	int j, res;
++	if (libusb_get_device_descriptor(dev, &devdesc) != 0)
++		return;
++	for (j = 0; j < devdesc.bNumConfigurations; j++) {
++		struct libusb_config_descriptor *config;
++		if (libusb_get_config_descriptor(dev, j, &config) != 0)
++			continue;
++		int value = config->bConfigurationValue;
++		int mux = has_mux_interface(config);
++		libusb_free_config_descriptor(config);
++		if (!mux)
++			continue;
++		usbmuxd_log(LL_NOTICE, "Configuring unconfigured device %d-%d: %d", bus, address, value);
++		if ((res = libusb_set_configuration(handle, value)) != 0)
++			usbmuxd_log(LL_WARNING, "Could not set configuration %d for device %d-%d: %s", value, bus, address, libusb_error_name(res));
++		return;
++	}
++}
++
 +/* Read only the active configuration. A missing mux can appear later without a hotplug. */
++/* Returns 0 with the interface and endpoints set, -2 for an unconfigured
++ * device, -1 otherwise. */
 +static int find_active_mux(struct libusb_device* dev, struct usb_device *usbdev)
 +{
-+	int k, found = 0;
++	int k, res, found = 0;
  	struct libusb_config_descriptor *config;
  	const struct libusb_interface_descriptor *intf;
 -	struct libusb_device_descriptor devdesc = usbdev->devdesc;
  	int bus = usbdev->bus;
  	int address = usbdev->address;
 -	int current_config = 0;
--
+ 
 -	if((res = libusb_get_configuration(handle, &current_config)) != 0) {
 -		usbmuxd_log(LL_WARNING, "Could not get current configuration for device %d-%d: %s", bus, address, libusb_error_name(res));
-+
-+	if (libusb_get_active_config_descriptor(dev, &config) != 0) {
++	res = libusb_get_active_config_descriptor(dev, &config);
++	if (res == LIBUSB_ERROR_NOT_FOUND) {
++		return -2; /* unconfigured */
++	}
++	if (res != 0) {
  		return -1;
  	}
 -
@@ -103,7 +173,6 @@
 -		
 -		libusb_free_config_descriptor(config);
 -		break;
--	}
 +			if((intf->endpoint[0].bEndpointAddress & 0x80) == LIBUSB_ENDPOINT_OUT &&
 +			   (intf->endpoint[1].bEndpointAddress & 0x80) == LIBUSB_ENDPOINT_IN) {
 +				usbdev->interface = intf->bInterfaceNumber;
@@ -124,7 +193,7 @@
 +				usbmuxd_log(LL_WARNING, "Endpoint type mismatch for interface %i of device %i-%i", intf->bInterfaceNumber, bus, address);
 +			}
 +		}
-+	}
+ 	}
 +	libusb_free_config_descriptor(config);
  
  	if(!found) {
@@ -132,27 +201,40 @@
  		return -1;
  	}
  
-@@ -574,7 +531,7 @@
+@@ -574,7 +603,9 @@
  	int res;
  	struct libusb_transfer *transfer;
  
 -	if((res = set_valid_configuration(dev, usbdev, handle)) != 0) {
++	if (find_active_mux(dev, usbdev) == -2)
++		configure_mux(dev, handle, bus, address);
 +	if((res = find_active_mux(dev, usbdev)) != 0) {
  		usbdev->alive = 0;
  		return;
  	}
-@@ -759,6 +716,10 @@
+@@ -759,6 +790,13 @@
  	   ((devdesc.idProduct < PID_RANGE_LOW) ||
  		(devdesc.idProduct > PID_RANGE_MAX)))
  		return -1;
-+	/* Leave a device without an active mux alone. */
++	/* Leave a configured device without an active mux alone. An unconfigured
++	 * one is given its mux configuration once opened. */
 +	struct usb_device candidate = { .bus = bus, .address = address };
-+	if (find_active_mux(dev, &candidate) < 0)
++	if (find_active_mux(dev, &candidate) == -1) {
++		note_no_active_mux(bus, address);
 +		return -1;
++	}
  	libusb_device_handle *handle;
  	usbmuxd_log(LL_INFO, "Found new device with v/p %04x:%04x at %d-%d", devdesc.idVendor, devdesc.idProduct, bus, address);
  	// No blocking operation can follow: it may be run in the libusb hotplug callback and libusb will refuse any
-@@ -1062,7 +1023,11 @@
+@@ -1020,6 +1058,7 @@
+ 	} else if (LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT == event) {
+ 		uint8_t bus = libusb_get_bus_number(device);
+ 		uint8_t address = libusb_get_device_address(device);
++		forget_no_active_mux(bus, address);
+ 		FOREACH(struct usb_device *usbdev, &device_list) {
+ 			if(usbdev->bus == bus && usbdev->address == address) {
+ 				usbdev->alive = 0;
+@@ -1062,7 +1101,11 @@
  		usbmuxd_log(LL_INFO, "Registering for libusb hotplug events");
  		res = libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED | LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, LIBUSB_HOTPLUG_ENUMERATE, VID_APPLE, LIBUSB_HOTPLUG_MATCH_ANY, 0, usb_hotplug_cb, NULL, &usb_hotplug_cb_handle);
  		if (res == LIBUSB_SUCCESS) {
