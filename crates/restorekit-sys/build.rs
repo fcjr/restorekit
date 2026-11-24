@@ -270,6 +270,7 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         .arg("--enable-static")
         .arg("--disable-shared")
         .arg("--without-cython")
+        .arg("--without-tools")
         .env("PKG_CONFIG_PATH", deps.pkg_config_path())
         .env("CFLAGS", deps.cflags())
         .env("CPPFLAGS", deps.cflags())
@@ -286,27 +287,22 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
             .arg("--build=x86_64-w64-mingw32")
             .arg("--host=x86_64-w64-mingw32");
         configure.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
-        // Several of these projects also build command-line tools whose
-        // Makefiles don't link the Windows system libraries they need, so they
-        // fail on MinGW. Add them to LIBS (autoconf appends objects before LIBS,
-        // so this resolves the tools' undefined symbols): ws2_32/iphlpapi for
-        // sockets, ole32 for CoTaskMemFree (libimobiledevice's userpref.c uses
-        // it via SHGetKnownFolderPath for the config dir), setupapi for
-        // libirecovery's native win32 device enumeration (its configure only
-        // adds -lsetupapi for host_os mingw32*, but under the MSYS2 shell the
-        // host detects as msys, so irecovery.exe fails to link SetupDi*). The
-        // static libraries we ultimately link are archives and unaffected.
-        // winusb: libirecovery's KIS-over-WinUSB patch (irecovery.exe links it).
-        configure.env("LIBS", "-lws2_32 -liphlpapi -lole32 -lsetupapi -lwinusb");
     }
     run(&mut configure, &format!("{name} configure"));
     if deps.windows {
         drop_libtool_globs(&build_dir.join("libtool"));
     }
 
+    // The libraries only: nothing here runs the projects' programs or tests.
+    // libplist and libirecovery leave theirs out with `--without-tools`;
+    // libusbmuxd and libimobiledevice have no such switch, so make gets an
+    // empty list.
+    let libraries_only = ["bin_PROGRAMS="];
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "4".into());
     let mut make = Command::new("make");
-    make.current_dir(&build_dir).arg(format!("-j{jobs}"));
+    make.current_dir(&build_dir)
+        .arg(format!("-j{jobs}"))
+        .args(libraries_only);
     if deps.windows {
         make.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
     }
@@ -319,7 +315,8 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
     make_install
         .current_dir(&build_dir)
         .arg("install")
-        .arg(format!("udevrulesdir={}", udevdir.display()));
+        .arg(format!("udevrulesdir={}", udevdir.display()))
+        .args(libraries_only);
     if deps.windows {
         make_install.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
     }
