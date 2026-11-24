@@ -275,7 +275,11 @@ pub fn preflight() -> Result<()> {
     Ok(())
 }
 
-/// Run a restore against the DFU device with the given ECID, streaming progress.
+/// Run a restore against the device with the given ECID, streaming progress.
+///
+/// The engine takes the device in DFU or recovery mode. A Mac restores from
+/// DFU ([`crate::dfu`]); [`crate::recovery::enter`] takes a running iPhone or
+/// iPad to recovery mode.
 ///
 /// This links libidevicerestore statically; there is no external binary.
 /// Transient transport failures (dropped USB writes) are retried a bounded

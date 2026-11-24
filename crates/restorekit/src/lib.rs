@@ -11,10 +11,11 @@
 //! - [`dfu`] — put a cabled target into DFU mode with the USB-PD trigger
 //!   ([`dfu::vdm`], Apple Silicon macOS hosts only), and catch the Mac a trigger
 //!   just put *into* DFU with [`dfu::watch`] (subscribe before triggering).
+//!   [`recovery`] takes a running iPhone or iPad into recovery mode instead.
 //! - [`firmware`] — resolve the correct IPSW for a model, download it resumably,
 //!   verify its checksum, and cache it.
 //! - [`restore`] — restore or revive the device via the statically-linked
-//!   `idevicerestore` engine (DFU mode only).
+//!   `idevicerestore` engine, from DFU or recovery mode.
 //!
 //! # Design
 //!
@@ -72,6 +73,7 @@ pub mod history;
 #[doc(hidden)]
 pub mod kis;
 pub mod progress;
+pub mod recovery;
 pub mod restore;
 mod usb3_peer;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
