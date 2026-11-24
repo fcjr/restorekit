@@ -24,7 +24,7 @@ fn print_dongles() {
     };
     println!("RecoverKit dongles:\n");
     for d in &dongles {
-        match d.attached_device() {
+        match d.identified_device() {
             Ok(Some(dev)) => println!(
                 "  {} ({}) — {} [{} mode]",
                 d.serial,
@@ -94,7 +94,7 @@ fn run_once(json: bool) -> Result<()> {
                     "product": d.product,
                     "model": d.model,
                     "fw_version": d.fw_version().ok(),
-                    "targets": d.attached_device().ok().flatten().into_iter().collect::<Vec<_>>(),
+                    "targets": d.identified_device().ok().flatten().into_iter().collect::<Vec<_>>(),
                 })
             })
             .collect();

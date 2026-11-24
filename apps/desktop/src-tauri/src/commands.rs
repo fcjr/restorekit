@@ -113,7 +113,7 @@ fn dongle_view(d: restorekit::Dongle) -> DongleView {
     // lookup enumerates USB. Either may fail without failing the whole list.
     let fw_version = d.fw_version().ok();
     let status = d.status().ok();
-    let target = d.attached_device().ok().flatten().map(view);
+    let target = d.identified_device().ok().flatten().map(view);
     DongleView {
         serial: d.serial,
         product: d.product,

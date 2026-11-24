@@ -20,7 +20,7 @@ pub fn list(json: bool, target: Option<DongleTarget>) -> Result<()> {
                     "model": d.model,
                     "fw_version": d.fw_version().ok(),
                     "status": d.status().ok(),
-                    "target": d.attached_device().ok().flatten(),
+                    "target": d.identified_device().ok().flatten(),
                 })
             })
             .collect();
@@ -40,7 +40,7 @@ pub fn list(json: bool, target: Option<DongleTarget>) -> Result<()> {
             Ok(s) => {
                 println!("  pd state: {:?}", s.pd_state);
                 if s.target_attached {
-                    let target = match d.attached_device().ok().flatten() {
+                    let target = match d.identified_device().ok().flatten() {
                         Some(dev) => format!("{} [{} mode]", dev.display_name(), dev.mode),
                         None => "attached (its USB isn't visible to this host)".into(),
                     };
