@@ -131,12 +131,11 @@ The binary statically links its C stack, so building needs a C toolchain:
   ```sh
   sudo apt-get install -y \
     build-essential autoconf automake libtool pkg-config cmake autoconf-archive \
-    libusb-1.0-0-dev libssl-dev libcurl4-openssl-dev zlib1g-dev
+    libusb-1.0-0-dev
   ```
 
-  The `-dev` packages only satisfy the vendored libraries' `configure` checks;
-  OpenSSL, libcurl, and zlib are still linked statically. The resulting binary
-  depends only on `libc` and `libusb` (verified with `ldd`).
+  OpenSSL, libcurl, and zlib are built from source and linked statically. The
+  resulting binary depends only on `libc` and `libusb` (verified with `ldd`).
 - **Windows:** the autotools C stack needs the GNU toolchain, so builds target
   `x86_64-pc-windows-gnu` from an [MSYS2](https://www.msys2.org/) MINGW64 shell
   with the `-gnu` host toolchain (`rustup default stable-x86_64-pc-windows-gnu`).

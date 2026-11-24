@@ -31,12 +31,14 @@ fn main() {
     // Includes/libs exposed by the vendored -sys build dependencies.
     let openssl_include = env::var("DEP_OPENSSL_INCLUDE").ok();
     let zlib_include = env::var("DEP_Z_INCLUDE").ok();
+    let zlib_root = env::var("DEP_Z_ROOT").ok();
     let curl_include = env::var("DEP_CURL_INCLUDE").ok();
 
     let deps = Deps {
         prefix: prefix.clone(),
         openssl_include,
         zlib_include,
+        zlib_root,
         curl_include,
         windows: env::var_os("CARGO_CFG_WINDOWS").is_some(),
     };
@@ -92,6 +94,8 @@ struct Deps {
     prefix: PathBuf,
     openssl_include: Option<String>,
     zlib_include: Option<String>,
+    /// libz-sys's build, with the static zlib in `lib/`.
+    zlib_root: Option<String>,
     curl_include: Option<String>,
     /// Building for a Windows target (autotools run under MSYS2/MinGW, which
     /// wants POSIX-style paths).
@@ -275,6 +279,23 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         .env("CFLAGS", deps.cflags())
         .env("CPPFLAGS", deps.cflags())
         .env("LDFLAGS", deps.ldflags());
+    // configure takes the bundled OpenSSL and curl as given rather than
+    // looking for a system copy through pkg-config. curl-sys's own libcurl.pc
+    // can't stand in: it leaves curl 8's `@LIBCURL_PC_*@` placeholders
+    // unfilled.
+    for (module, include, libs) in [
+        ("openssl", &deps.openssl_include, "-lssl -lcrypto"),
+        ("libcurl", &deps.curl_include, "-lcurl"),
+    ] {
+        if let Some(include) = include {
+            configure
+                .env(
+                    format!("{module}_CFLAGS"),
+                    format!("-I{}", deps.path(Path::new(include))),
+                )
+                .env(format!("{module}_LIBS"), libs);
+        }
+    }
     // A stale-timestamp maintainer-mode rebuild can re-invoke aclocal from
     // configure/make, so keep the sanitized aclocal path in scope on Windows.
     if deps.windows {
@@ -382,8 +403,8 @@ fn build_libzip(src: &Path, deps: &Deps) {
         .define("ENABLE_ZSTD", "OFF")
         .define("CMAKE_INSTALL_PREFIX", &deps.prefix)
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
-    if let Some(inc) = &deps.zlib_include {
-        cfg.define("ZLIB_INCLUDE_DIR", inc);
+    if let Some(root) = &deps.zlib_root {
+        cfg.define("ZLIB_ROOT", root);
     }
     let dst = cfg.build();
     // cmake crate installs into <dst>; mirror into our prefix if separate.
