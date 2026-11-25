@@ -82,7 +82,8 @@ pub const VCMD_DEBUGUSB: u16 = 4;
 /// result, so hosts must not poll the status after sending it.
 pub const VCMD_BOOTSEL: u16 = 5;
 /// Cycle target VBUS and CC, then re-establish the connection without a reboot VDM.
-/// Supported by dongle firmware 0.1.3 and later.
+/// Supported by Dongle-Lite and Dongle-Pro firmware 0.1.3 and later, and every
+/// Dongle-Pro v2 firmware.
 pub const VCMD_REPLUG: u16 = 6;
 
 // `VREQ_STATUS` response: [version, pd_state, flags, last_result, seq].

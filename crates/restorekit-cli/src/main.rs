@@ -155,7 +155,8 @@ enum DongleAction {
     /// target's UART bridge).
     Console(DongleSelect),
     /// Cycle the target's USB connection (VBUS and CC) to recover enumeration.
-    /// Interrupts target USB data. Requires dongle firmware 0.1.3 or later.
+    /// Interrupts target USB data. Needs Dongle-Lite/Pro firmware 0.1.3 or later
+    /// (any Dongle-Pro v2 firmware).
     Replug(DongleSelect),
     /// Reboot a dongle into its RP2040 bootrom for a factory reflash. Hidden:
     /// normal updates go through `dongle update`, which needs no bootloader
