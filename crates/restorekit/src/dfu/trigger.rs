@@ -176,10 +176,17 @@ fn reboot_via_dongle(d: &Dongle, progress: ProgressFn) -> Result<()> {
         // Ignore a send error (e.g. a slow reply) — the VDM may still have gone
         // out; the mode check below is the source of truth.
         let _ = d.reboot();
-        // Wait past the re-establish USB blip, then check whether it actually
-        // left DFU rather than just flickering during the CC cycle.
+        // Wait past the re-establish USB blip, then watch a while before
+        // calling it gone: a Mac still in DFU can take more than the blip to
+        // enumerate again after the CC cycle, and absent isn't left.
         std::thread::sleep(Duration::from_secs(8));
-        if !dfu_attached(d) {
+        let settled = Instant::now() + Duration::from_secs(6);
+        let mut in_dfu = dfu_attached(d);
+        while !in_dfu && Instant::now() < settled {
+            std::thread::sleep(Duration::from_millis(500));
+            in_dfu = dfu_attached(d);
+        }
+        if !in_dfu {
             return Ok(());
         }
         if Instant::now() >= deadline {
