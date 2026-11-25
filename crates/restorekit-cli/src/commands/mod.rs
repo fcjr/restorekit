@@ -5,6 +5,7 @@ pub mod download;
 #[cfg(feature = "history")]
 pub mod history;
 pub mod list;
+pub mod recovery;
 pub mod render;
 pub mod restore;
 #[cfg(target_os = "windows")]

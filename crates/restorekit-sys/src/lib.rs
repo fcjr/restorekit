@@ -297,6 +297,8 @@ extern "C" {
     pub fn plist_get_uint_val(node: plist_t, val: *mut u64);
     /// A pointer into `node`'s own bytes.
     pub fn plist_get_data_ptr(node: plist_t, length: *mut u64) -> *const c_char;
+    /// A pointer into `node`'s own string, or null when it isn't one.
+    pub fn plist_get_string_ptr(node: plist_t, length: *mut u64) -> *const c_char;
     pub fn plist_free(plist: plist_t);
     pub fn plist_mem_free(ptr: *mut c_void);
 }

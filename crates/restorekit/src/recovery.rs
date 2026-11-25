@@ -85,6 +85,11 @@ pub fn enter(ecid: u64, supervisor: Option<&Supervisor>) -> Result<()> {
 /// [`Supervisor::generate`] or by Apple Configurator. A supervised device whose
 /// supervising host certificates include the certificate pairs with a host
 /// holding the key without asking its user whether to trust that host.
+///
+/// The key lives in OpenSSL, which clears it when the identity is dropped.
+/// Key material this crate hands back, from [`to_pem`](Self::to_pem), clears
+/// itself too. What a caller passes in, such as the PEM bytes or the PKCS #12
+/// password, stays the caller's to clear.
 pub struct Supervisor {
     certificate: X509,
     key: PKey<Private>,
@@ -175,6 +180,7 @@ impl Supervisor {
     }
 
     /// The identity as PEM: its unencrypted private key, then its certificate.
+    /// The bytes are cleared when dropped.
     pub fn to_pem(&self) -> Result<Zeroizing<Vec<u8>>> {
         let key = Zeroizing::new(self.key.private_key_to_pem_pkcs8().map_err(unusable)?);
         let certificate = self.certificate.to_pem().map_err(unusable)?;
@@ -288,6 +294,34 @@ fn unusable(error: ErrorStack) -> Error {
     Error::SupervisionIdentity(error.to_string())
 }
 
+/// A running iPhone or iPad the host's usbmuxd lists, as [`devices`] reads it
+/// without pairing.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RunningDevice {
+    pub ecid: u64,
+    pub udid: String,
+    /// The model, e.g. `iPhone12,8`.
+    pub product_type: Option<String>,
+}
+
+/// The running iPhones and iPads on USB that [`enter`] can reach.
+pub fn devices() -> Result<Vec<RunningDevice>> {
+    let _host = HostUsbmuxd::select();
+    Ok(udids()?
+        .iter()
+        .filter_map(|udid| {
+            let device = Device::open(udid)?;
+            let lockdown = Lockdown::connect(&device).ok()?;
+            Some(RunningDevice {
+                ecid: lockdown.unique_chip_id()?,
+                udid: udid.to_string_lossy().into_owned(),
+                product_type: lockdown.string_value(c"ProductType"),
+            })
+        })
+        .collect())
+}
+
 /// Open the USB device whose lockdownd reports this ECID.
 fn find(ecid: u64) -> Result<Device> {
     udids()?
@@ -395,23 +429,35 @@ impl<'a> Lockdown<'a> {
                 return None;
             }
 
-            let mut node: sys::plist_t = ptr::null_mut();
-            let mut ecid = None;
-            if sys::lockdownd_get_value(
-                self.client,
-                ptr::null(),
-                c"UniqueChipID".as_ptr(),
-                &mut node,
-            ) == sys::LOCKDOWN_E_SUCCESS
-                && sys::plist_get_node_type(node) == sys::PLIST_INT
-            {
-                let mut value = 0;
-                sys::plist_get_uint_val(node, &mut value);
-                ecid = Some(value);
+            let node = self.value(c"UniqueChipID")?;
+            if sys::plist_get_node_type(node.0) != sys::PLIST_INT {
+                return None;
             }
-            sys::plist_free(node);
-            ecid
+            let mut ecid = 0;
+            sys::plist_get_uint_val(node.0, &mut ecid);
+            Some(ecid)
         }
+    }
+
+    /// A string lockdownd reports without pairing.
+    fn string_value(&self, key: &CStr) -> Option<String> {
+        let node = self.value(key)?;
+        let mut length = 0;
+        let text = unsafe { sys::plist_get_string_ptr(node.0, &mut length) };
+        if text.is_null() {
+            return None;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(text.cast::<u8>(), length as usize) };
+        Some(String::from_utf8_lossy(bytes).into_owned())
+    }
+
+    /// A value from lockdownd's global domain.
+    fn value(&self, key: &CStr) -> Option<Plist> {
+        let mut node: sys::plist_t = ptr::null_mut();
+        let code =
+            unsafe { sys::lockdownd_get_value(self.client, ptr::null(), key.as_ptr(), &mut node) };
+        let node = Plist(node);
+        (code == sys::LOCKDOWN_E_SUCCESS && !node.0.is_null()).then_some(node)
     }
 
     fn enter_recovery(&self) -> c_int {
