@@ -171,6 +171,25 @@ pub struct UsbmuxdGuard {
     _restore_mode: crate::driver::RestoreWatcherGuard,
 }
 
+/// Another restorekit process serving its own embedded usbmuxd, if any. Its
+/// server claims every Mac in restore mode, so a second one would fight it for
+/// each of them and either restore could stall.
+#[cfg(target_os = "linux")]
+pub fn other_embedded_server() -> Option<u32> {
+    let own = std::process::id();
+    std::fs::read_dir("/tmp").ok()?.flatten().find_map(|entry| {
+        let name = entry.file_name();
+        let pid = name
+            .to_str()?
+            .strip_prefix("restorekit-usbmuxd-")?
+            .strip_suffix(".sock")?
+            .parse::<u32>()
+            .ok()?;
+        // A stale socket file from a process that's gone refuses the connect.
+        (pid != own && std::os::unix::net::UnixStream::connect(entry.path()).is_ok()).then_some(pid)
+    })
+}
+
 impl UsbmuxdGuard {
     /// Start the embedded usbmuxd server and point libusbmuxd at it. On
     /// Windows this also starts the restore-mode driver watcher, which asks
