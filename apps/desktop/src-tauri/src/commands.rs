@@ -295,9 +295,14 @@ pub fn manual_instructions() -> String {
 /// When `dongle` is set the target is behind that dongle, so DFU is routed over
 /// it (plain USB — no helper, works on any host OS). Otherwise it uses the host's
 /// electronic trigger via the elevated helper (Touch ID prompt), which needs an
-/// Apple Silicon Mac host.
+/// Apple Silicon Mac host. `port` (the selected Mac's AppleHPM RID) and `ecid`
+/// pick which Mac when several are cabled to the host.
 #[tauri::command]
-pub async fn trigger_dfu(dongle: Option<String>) -> Result<DeviceView, String> {
+pub async fn trigger_dfu(
+    dongle: Option<String>,
+    port: Option<i32>,
+    ecid: Option<String>,
+) -> Result<DeviceView, String> {
     if let Some(serial) = dongle {
         return tauri::async_runtime::spawn_blocking(move || {
             match dfu::trigger_dfu(DfuVia::Dongle(serial), DONGLE_DFU_TIMEOUT, &mut |_| {}) {
@@ -314,22 +319,25 @@ pub async fn trigger_dfu(dongle: Option<String>) -> Result<DeviceView, String> {
 
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = (port, ecid);
         Err(NO_TRIGGER.into())
     }
 
     #[cfg(target_os = "macos")]
     {
-        tauri::async_runtime::spawn_blocking(|| {
+        let want = ecid.as_deref().and_then(parse_ecid);
+        tauri::async_runtime::spawn_blocking(move || {
             // Subscribe before triggering so a Mac already sitting in DFU is
             // never mistaken for the one the trigger just rebooted.
             let mut watch = dfu::watch().map_err(|e| e.to_string())?;
+            let command = helper_command("dfu", port);
             // The target's boot ROM occasionally misses the DFU request and
             // boots normally (a timing race Apple Configurator hits too), so
             // re-send the trigger when DFU enumeration doesn't happen.
             let mut attempt = 1;
             loop {
-                crate::elevate::run_helper("dfu")?;
-                match watch.wait(std::time::Duration::from_secs(10)) {
+                crate::elevate::run_helper(&command)?;
+                match wait_entered(&mut watch, want, Duration::from_secs(10)) {
                     Ok(device) => return Ok(view(device)),
                     Err(restorekit::Error::WaitTimeout) if attempt < 3 => attempt += 1,
                     Err(e) => return Err(e.to_string()),
@@ -343,9 +351,9 @@ pub async fn trigger_dfu(dongle: Option<String>) -> Result<DeviceView, String> {
 
 /// Reboot the target back out of DFU. When `dongle` is set, routes over it using
 /// the CLI's retry-until-it-leaves-DFU flow (plain USB, any host OS); otherwise
-/// uses the elevated helper (macOS-only).
+/// uses the elevated helper (macOS-only) on `port`, the selected Mac's RID.
 #[tauri::command]
-pub async fn reboot_target(dongle: Option<String>) -> Result<(), String> {
+pub async fn reboot_target(dongle: Option<String>, port: Option<i32>) -> Result<(), String> {
     if let Some(serial) = dongle {
         return tauri::async_runtime::spawn_blocking(move || {
             dfu::reboot(DfuVia::Dongle(serial), &mut |_| {}).map_err(|e| e.to_string())
@@ -356,14 +364,58 @@ pub async fn reboot_target(dongle: Option<String>) -> Result<(), String> {
 
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = port;
         Err(NO_TRIGGER.into())
     }
 
     #[cfg(target_os = "macos")]
     {
-        tauri::async_runtime::spawn_blocking(|| crate::elevate::run_helper("reboot"))
-            .await
-            .map_err(|e| e.to_string())?
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::elevate::run_helper(&helper_command("reboot", port))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+}
+
+/// A helper command aimed at one port, or at whichever Mac `Auto` finds.
+#[cfg(target_os = "macos")]
+fn helper_command(verb: &str, port: Option<i32>) -> String {
+    match port {
+        Some(rid) => format!("{verb} {rid}"),
+        None => verb.to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn parse_ecid(s: &str) -> Option<u64> {
+    let s = s.trim();
+    match s.strip_prefix("0x") {
+        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+        None => s.parse().ok(),
+    }
+}
+
+/// Wait for the Mac with ECID `want` to arrive in DFU, or for any new arrival
+/// when its ECID isn't known. Another Mac entering DFU meanwhile (say one a
+/// restore just rebooted) is skipped. A KIS Mac whose identity can't be read
+/// has no ECID to compare, so it's taken as the target.
+#[cfg(target_os = "macos")]
+fn wait_entered(
+    watch: &mut dfu::Watch,
+    want: Option<u64>,
+    timeout: Duration,
+) -> restorekit::Result<Device> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(restorekit::Error::WaitTimeout);
+        }
+        let dev = watch.wait(remaining)?;
+        if dev.kis_unreadable() || want.is_none_or(|e| dev.ecid == Some(e)) {
+            return Ok(dev);
+        }
     }
 }
 

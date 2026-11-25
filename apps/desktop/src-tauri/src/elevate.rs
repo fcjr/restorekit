@@ -51,9 +51,10 @@ fn register() -> Result<(), String> {
     }
 }
 
-/// Run a helper command (`dfu` / `reboot`) as root over XPC. If the daemon isn't
-/// enabled yet, registers it and returns [`APPROVAL_REQUIRED`] so the UI can
-/// walk the user through the one-time approval.
+/// Run a helper command (`dfu` / `reboot`, optionally followed by a port RID) as
+/// root over XPC. If the daemon isn't enabled yet, registers it and returns
+/// [`APPROVAL_REQUIRED`] so the UI can walk the user through the one-time
+/// approval.
 pub fn run_helper(command: &str) -> Result<(), String> {
     if status() == "unavailable" {
         return Err("The helper needs macOS 13 or later.".into());

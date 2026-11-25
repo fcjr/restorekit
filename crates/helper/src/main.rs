@@ -43,11 +43,23 @@ mod imp {
             .to_string_lossy()
             .into_owned();
         let mut sink = |_: Event| {};
-        let result: Result<(), String> = match cmd.as_str() {
-            "dfu" => vdm::enter_dfu(&DfuTarget::Auto, &mut sink).map_err(|e| e.to_string()),
-            "reboot" => vdm::reboot(&DfuTarget::Auto, &mut sink).map_err(|e| e.to_string()),
-            other => Err(format!("unknown command: {other}")),
+        // "dfu" / "reboot", optionally followed by the AppleHPM RID of the port
+        // the selected Mac is on. Without one, Auto refuses to pick between
+        // several cabled Macs.
+        let (verb, target) = match cmd.split_once(' ') {
+            None => (cmd.as_str(), Ok(DfuTarget::Auto)),
+            Some((verb, rid)) => (
+                verb,
+                rid.parse()
+                    .map(DfuTarget::Port)
+                    .map_err(|_| format!("bad port: {rid}")),
+            ),
         };
+        let result: Result<(), String> = target.and_then(|t| match verb {
+            "dfu" => vdm::enter_dfu(&t, &mut sink).map_err(|e| e.to_string()),
+            "reboot" => vdm::reboot(&t, &mut sink).map_err(|e| e.to_string()),
+            other => Err(format!("unknown command: {other}")),
+        });
         match result {
             Ok(()) => 0,
             Err(msg) => {
