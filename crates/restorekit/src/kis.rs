@@ -513,13 +513,14 @@ fn nonces_from_info(info: &[u8]) -> Option<String> {
 }
 
 /// A USB string descriptor (`bLength`, `bDescriptorType` = 3, UTF-16LE) at `off`.
+/// `bLength` counts the two header bytes.
 fn string_at(info: &[u8], off: usize) -> Option<String> {
     let len = *info.get(off)? as usize;
-    if *info.get(off + 1)? != 3 || !len.is_multiple_of(2) {
+    if *info.get(off + 1)? != 3 || len < 2 || !len.is_multiple_of(2) {
         return None;
     }
     let units: Vec<u16> = info
-        .get(off + 2..off + 2 + len)?
+        .get(off + 2..off + len)?
         .as_chunks::<2>()
         .0
         .iter()
@@ -824,9 +825,11 @@ mod tests {
         info[DESCRIPTOR_OFFSET + I_SERIAL_NUMBER] = word as u8;
         let off = word * 4;
         let utf16: Vec<u8> = serial.encode_utf16().flat_map(u16::to_le_bytes).collect();
-        info[off] = utf16.len() as u8;
+        info[off] = (2 + utf16.len()) as u8;
         info[off + 1] = 3;
         info[off + 2..off + 2 + utf16.len()].copy_from_slice(&utf16);
+        // Whatever follows the descriptor isn't part of the string.
+        info[off + 2 + utf16.len()] = b'X';
         assert_eq!(serial_from_info(&info).as_deref(), Some(serial));
     }
 
