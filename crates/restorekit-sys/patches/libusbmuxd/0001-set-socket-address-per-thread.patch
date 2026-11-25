@@ -1,0 +1,60 @@
+diff --git a/include/usbmuxd.h b/include/usbmuxd.h
+index 859fccd..7b17014 100644
+--- a/include/usbmuxd.h
++++ b/include/usbmuxd.h
+@@ -334,6 +334,13 @@ USBMUXD_API void libusbmuxd_set_use_inotify(int set);
+ 
+ USBMUXD_API void libusbmuxd_set_debug_level(int level);
+ 
++/**
++ * Set where the calling thread reaches usbmuxd, ahead of USBMUXD_SOCKET_ADDRESS.
++ * Takes the same forms as that variable; NULL is the platform's default
++ * usbmuxd. Pass enable 0 to go back to USBMUXD_SOCKET_ADDRESS.
++ */
++USBMUXD_API void libusbmuxd_set_thread_socket_address(int enable, const char *address);
++
+ /**
+  * Returns a static string of the libusbmuxd version.
+  *
+diff --git a/src/libusbmuxd.c b/src/libusbmuxd.c
+index 6b7d220..23bbdc5 100644
+--- a/src/libusbmuxd.c
++++ b/src/libusbmuxd.c
+@@ -142,6 +142,24 @@ static struct collection listeners;
+ thread_once_t listener_init_once = THREAD_ONCE_INIT;
+ mutex_t listener_mutex;
+ 
++#if defined(_MSC_VER)
++#define THREAD_LOCAL __declspec(thread)
++#else
++#define THREAD_LOCAL __thread
++#endif
++
++static THREAD_LOCAL int thread_socket_address_set = 0;
++static THREAD_LOCAL char thread_socket_address[512];
++
++void libusbmuxd_set_thread_socket_address(int enable, const char *address)
++{
++	thread_socket_address_set = enable;
++	thread_socket_address[0] = '\0';
++	if (enable && address) {
++		snprintf(thread_socket_address, sizeof(thread_socket_address), "%s", address);
++	}
++}
++
+ /**
+  * Finds a device info record by its handle.
+  * if the record is not found, NULL is returned.
+@@ -164,7 +182,11 @@ static usbmuxd_device_info_t *devices_find(uint32_t handle)
+ static int connect_usbmuxd_socket()
+ {
+ 	int res = -1;
+-	char *usbmuxd_socket_addr = getenv("USBMUXD_SOCKET_ADDRESS");
++	const char *usbmuxd_socket_addr;
++	if (thread_socket_address_set)
++		usbmuxd_socket_addr = thread_socket_address[0] ? thread_socket_address : NULL;
++	else
++		usbmuxd_socket_addr = getenv("USBMUXD_SOCKET_ADDRESS");
+ 	if (usbmuxd_socket_addr) {
+ 		if (strncmp(usbmuxd_socket_addr, "UNIX:", 5) == 0) {
+ #if defined(_WIN32) || defined(__CYGWIN__)

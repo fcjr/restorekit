@@ -103,6 +103,16 @@ compiles the patched copy.
   until one answers with the requested ECID, passing over one that can't be
   claimed or initialised (another restore's Mac).
 
+## libusbmuxd
+
+- `0001-set-socket-address-per-thread.patch` — libusbmuxd finds usbmuxd from
+  `USBMUXD_SOCKET_ADDRESS`, which applies to the whole process. On Linux a
+  restore points it at the embedded usbmuxd, which only sees restore mode, so
+  `recovery::enter` running alongside couldn't reach a running iPhone or iPad
+  through the system usbmuxd. Add `libusbmuxd_set_thread_socket_address`, which
+  sets the address for the calling thread ahead of the variable (and without
+  reading it, so a concurrent `set_var` can't race the lookup).
+
 ## usbmuxd
 
 - `0001-use-the-active-configuration.patch` — on finding an Apple device,

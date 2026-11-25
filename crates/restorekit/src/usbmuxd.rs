@@ -12,6 +12,19 @@ use std::thread::{self, JoinHandle};
 use crate::error::{Error, Result};
 use crate::progress::{Event, ProgressFn};
 
+/// Where each process's embedded server listens on Linux, before its pid.
+#[cfg(target_os = "linux")]
+const SOCKET_PREFIX: &str = "/tmp/restorekit-usbmuxd-";
+
+/// Whether a `USBMUXD_SOCKET_ADDRESS` value points at an embedded server, this
+/// process's or a parent's [`SharedUsbmuxd`](crate::SharedUsbmuxd).
+#[cfg(target_os = "linux")]
+pub(crate) fn is_embedded_address(address: &str) -> bool {
+    address
+        .strip_prefix("UNIX:")
+        .is_some_and(|path| path.starts_with(SOCKET_PREFIX))
+}
+
 /// The loopback port usbmuxd listens on under Windows.
 #[cfg(any(target_os = "windows", test))]
 const MUX_PORT: u16 = 27015;
@@ -177,11 +190,12 @@ pub struct UsbmuxdGuard {
 #[cfg(target_os = "linux")]
 pub fn other_embedded_server() -> Option<u32> {
     let own = std::process::id();
-    std::fs::read_dir("/tmp").ok()?.flatten().find_map(|entry| {
+    let (dir, prefix) = SOCKET_PREFIX.rsplit_once('/')?;
+    std::fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
         let name = entry.file_name();
         let pid = name
             .to_str()?
-            .strip_prefix("restorekit-usbmuxd-")?
+            .strip_prefix(prefix)?
             .strip_suffix(".sock")?
             .parse::<u32>()
             .ok()?;
@@ -213,10 +227,8 @@ impl UsbmuxdGuard {
         // it binds a fixed loopback port).
         #[cfg(target_os = "linux")]
         let socket_path = {
-            let path = std::path::PathBuf::from(format!(
-                "/tmp/restorekit-usbmuxd-{}.sock",
-                std::process::id()
-            ));
+            let path =
+                std::path::PathBuf::from(format!("{SOCKET_PREFIX}{}.sock", std::process::id()));
             let _ = std::fs::remove_file(&path);
             path
         };
@@ -291,6 +303,15 @@ impl Drop for UsbmuxdGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_embedded_servers_address_is_recognized() {
+        let own = format!("UNIX:{SOCKET_PREFIX}{}.sock", std::process::id());
+        assert!(is_embedded_address(&own));
+        assert!(!is_embedded_address("UNIX:/var/run/usbmuxd"));
+        assert!(!is_embedded_address("127.0.0.1:27015"));
+    }
 
     fn row(addr: [u8; 4], port: u16, pid: u32) -> Vec<u8> {
         let mut r = Vec::new();
