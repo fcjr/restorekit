@@ -358,13 +358,30 @@ pub(crate) fn ensure_present(
     // already in DFU is used as is: triggering it again only bounces it.
     if let Some(id) = dongle {
         let mut present = dfu_devices()?;
-        if let Some(e) = ecid {
-            present.retain(|d| d.ecid == Some(e));
+        match ecid {
+            Some(e) => present.retain(|d| d.ecid == Some(e)),
+            // Without an ECID, only this dongle's Mac: another one in DFU may
+            // be another restore's.
+            None => {
+                match restorekit::dongle::find(restorekit::dongle::DongleTarget::Id(id.clone())) {
+                    Ok(g) => present.retain(|d| {
+                        restorekit::dongle::connection_for(d).dongle() == Some(g.serial.as_str())
+                    }),
+                    Err(_) => present.clear(),
+                }
+            }
         }
         if !present.is_empty() {
             return select_from(present, json);
         }
-        return finish_trigger(json, DfuVia::Dongle(id), timeout, ecid);
+        let dev = finish_trigger(json, DfuVia::Dongle(id.clone()), timeout, ecid)?;
+        return match ecid {
+            Some(e) if dev.ecid != Some(e) => Err(Error::Dongle(format!(
+                "the Mac cabled to {id} is {}, not {e:#x}; pass its ECID or use its dongle",
+                dev.ecid_hex().unwrap_or_else(|| "unidentified".into())
+            ))),
+            _ => Ok(dev),
+        };
     }
     // Already in DFU? Use it without re-triggering.
     if let Some(e) = ecid {

@@ -220,7 +220,7 @@ fn trigger_via_host(
     for attempt in 1..=TRIGGER_ATTEMPTS {
         host_trigger(target, progress)?;
         let slice = attempt_slice(attempt, deadline);
-        match wait_entered(&mut watch, want_ecid, slice) {
+        match wait_entered(&mut watch, want_ecid, None, slice) {
             Ok(dev) => return Ok(DfuOutcome::Entered(dev)),
             Err(Error::WaitTimeout) if attempt < TRIGGER_ATTEMPTS && Instant::now() < deadline => {}
             Err(e) => return Err(e),
@@ -252,7 +252,7 @@ fn trigger_via_dongle(
             Ok(())
         }
         let mut redfus = 0;
-        if device::list()?.iter().any(Device::kis_unreadable) {
+        if matches!(d.attached_device(), Ok(Some(dev)) if dev.kis_unreadable()) {
             redfu(d, progress)?;
             redfus += 1;
         }
@@ -294,7 +294,7 @@ fn trigger_via_dongle_once(
             stage: "waiting for the target to enter DFU mode".into(),
         });
         let slice = attempt_slice(attempt, deadline);
-        match wait_entered(&mut watch, want_ecid, slice) {
+        match wait_entered(&mut watch, want_ecid, Some(d), slice) {
             Ok(dev) => {
                 confirm_dfu(d, sent);
                 return Ok(DfuOutcome::Entered(dev));
@@ -333,18 +333,23 @@ fn attempt_slice(attempt: u32, deadline: Instant) -> Duration {
     }
 }
 
-/// Wait for a Mac in DFU (optionally matching `want_ecid`): return one already
-/// present, else block on the hotplug watch for one entering.
+/// Wait for a Mac in DFU (optionally matching `want_ecid`, and when triggered
+/// through `on`, cabled to that dongle): return one already present, else
+/// block on the hotplug watch for one entering.
 fn wait_entered(
     watch: &mut discovery::Watch,
     want_ecid: Option<u64>,
+    on: Option<&Dongle>,
     timeout: Duration,
 ) -> Result<Device> {
     // An unidentified KIS Mac has no ECID to match on; one showing up right
     // after we triggered is the target, and re-firing the trigger at a Mac
-    // already in DFU only fails.
+    // already in DFU only fails. Through a dongle it has to be that dongle's
+    // Mac: another one already in DFU may be mid-restore from another process.
     let matches = |d: &Device| {
-        d.in_dfu() && (d.kis_unreadable() || want_ecid.is_none_or(|e| d.ecid == Some(e)))
+        d.in_dfu()
+            && on.is_none_or(|g| dongle::connection_for(d).dongle() == Some(g.serial.as_str()))
+            && (d.kis_unreadable() || want_ecid.is_none_or(|e| d.ecid == Some(e)))
     };
 
     if let Some(d) = device::list()?.into_iter().find(&matches) {
