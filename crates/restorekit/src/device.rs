@@ -726,6 +726,10 @@ pub struct Device {
     /// Whether the OS driver lets restorekit open this device. Always true on
     /// macOS/Linux; on Windows, false until WinUSB is bound.
     pub driver_ready: bool,
+    /// The bus entry this was read from, to find it again: in KIS mode
+    /// `serial` is the identity read over KIS, not the USB serial.
+    #[serde(skip)]
+    pub(crate) usb_device: Option<nusb::DeviceId>,
 }
 
 /// Raw USB device-descriptor identifiers, straight off the wire.
@@ -1018,6 +1022,7 @@ pub fn from_usb(info: &nusb::DeviceInfo) -> Device {
             subclass: info.subclass(),
             protocol: info.protocol(),
         },
+        usb_device: Some(info.id()),
     }
 }
 
@@ -1569,6 +1574,7 @@ mod tests {
                 protocol: 0,
             },
             driver_ready: true,
+            usb_device: None,
         }
     }
 
