@@ -43,23 +43,24 @@ cargo install restorekit-cli
 sudo apt-get update
 sudo apt-get install -y \
   build-essential autoconf automake libtool pkg-config cmake autoconf-archive \
-  libusb-1.0-0-dev libssl-dev libcurl4-openssl-dev zlib1g-dev
+  libusb-1.0-0-dev
 ```
 
 ### Other distributions
 
 Install the equivalents of: a C compiler + `make`, `autoconf`, `automake`,
-`libtool`, `autoconf-archive`, `pkgconf`/`pkg-config`, `cmake`, and the dev
-headers for `libusb-1.0`, OpenSSL, curl, and zlib. For example:
+`libtool`, `autoconf-archive`, `pkgconf`/`pkg-config`, `cmake`, Perl with its
+core modules (the bundled OpenSSL's build needs it), and the dev headers for
+`libusb-1.0`. For example:
 
 ```sh
 # Fedora
 sudo dnf install gcc make autoconf automake libtool autoconf-archive pkgconf \
-  cmake libusb1-devel openssl-devel libcurl-devel zlib-devel
+  cmake perl libusb1-devel
 
 # Arch
 sudo pacman -S base-devel autoconf automake libtool autoconf-archive pkgconf \
-  cmake libusb openssl curl zlib
+  cmake perl libusb
 ```
 
 Then:
