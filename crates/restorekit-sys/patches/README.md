@@ -112,6 +112,15 @@ compiles the patched copy.
   Debug USB only the first could be restored. Try each KIS device in turn
   until one answers with the requested ECID, passing over one that can't be
   claimed or initialised (another restore's Mac).
+- `0006-debug-usb-links-over-winusb.patch` — with libusb, libirecovery opens
+  each KIS device through one link per process, shared by its clients and its
+  device event thread, and runs recovery mode over RSM on it, which a MacBook
+  Neo's iBoot needs: it has no USB device of its own. On Windows with WinUSB
+  bound to `05ac:1881` (0002), run the same links on the WinUSB pipes, so a
+  restore finds recovery mode there too, and the device event thread watches
+  WinUSB-bound KIS devices the same way. A failed transfer resets its pipe;
+  only removal marks a link dead. Devices bound to Apple's AppleKIS driver are
+  unchanged.
 
 ## libusbmuxd
 

@@ -1,0 +1,673 @@
+--- a/src/libirecovery.c
++++ b/src/libirecovery.c
+@@ -117,7 +117,7 @@ struct irecv_async_transfer {
+ 
+ #endif
+ 
+-#if !defined(USE_DUMMY) && !defined(HAVE_IOKIT) && !defined(_WIN32)
++#if !defined(USE_DUMMY) && !defined(HAVE_IOKIT)
+ #define HAVE_KIS_LINKS 1
+ struct kis_link;
+ #endif
+@@ -143,7 +143,6 @@ struct irecv_client_private {
+ #endif
+ #else
+ 	HANDLE handle;
+-	WINUSB_INTERFACE_HANDLE kis_winusb;
+ #endif
+ 	irecv_event_cb_t progress_callback;
+ 	irecv_event_cb_t received_callback;
+@@ -1198,7 +1197,14 @@ struct kis_link {
+ 	uint16_t packet;
+ 	uint8_t *out;
+ 	uint8_t *in;
++#ifdef _WIN32
++	char *path;
++	HANDLE file;
++	WINUSB_INTERFACE_HANDLE winusb;
++	unsigned int pipe_timeout;
++#else
+ 	libusb_device_handle *handle;
++#endif
+ 	/* The recovery session, while session is nonzero: changed under xfer and
+ 	 * lock, read under either. xfer: one recovery transfer at a time. */
+ 	mutex_t xfer;
+@@ -1236,14 +1242,22 @@ static void kis_put32(uint8_t *p, uint32_t v)
+ 
+ static uint64_t kis_now_ms(void)
+ {
++#ifdef _WIN32
++	return GetTickCount64();
++#else
+ 	struct timespec ts;
+ 	clock_gettime(CLOCK_MONOTONIC, &ts);
+ 	return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
++#endif
+ }
+ 
+ static void kis_sleep_ms(unsigned int ms)
+ {
++#ifdef _WIN32
++	Sleep(ms);
++#else
+ 	usleep(ms * 1000);
++#endif
+ }
+ 
+ /* Caller holds link->lock. */
+@@ -1257,6 +1271,40 @@ static void kis_link_set_dead(struct kis_link *link)
+ /* Caller holds link->lock. */
+ static irecv_error_t kis_link_bulk(struct kis_link *link, uint8_t ep, uint8_t *buf, int len, int *done, unsigned int timeout)
+ {
++#ifdef _WIN32
++	ULONG n = 0;
++	BOOL ok;
++	if (timeout != link->pipe_timeout) {
++		ULONG t = timeout;
++		UCHAR pipes[] = { 0x01, 0x81, 0x03, 0x83 };
++		int i;
++		for (i = 0; i < (int)sizeof(pipes); i++) {
++			WinUsb_SetPipePolicy(link->winusb, pipes[i], PIPE_TRANSFER_TIMEOUT, sizeof(t), &t);
++		}
++		link->pipe_timeout = timeout;
++	}
++	if (ep & 0x80) {
++		ok = WinUsb_ReadPipe(link->winusb, ep, buf, (ULONG)len, &n, NULL);
++	} else {
++		ok = WinUsb_WritePipe(link->winusb, ep, buf, (ULONG)len, &n, NULL);
++	}
++	*done = (int)n;
++	if (!ok) {
++		DWORD err = GetLastError();
++		debug("%s: pipe %02x: error %lu\n", __func__, ep, err);
++		if (err == ERROR_SEM_TIMEOUT) {
++			return IRECV_E_TIMEOUT;
++		}
++		if (err == ERROR_DEVICE_NOT_CONNECTED || err == ERROR_FILE_NOT_FOUND || err == ERROR_BAD_COMMAND) {
++			kis_link_set_dead(link);
++			return IRECV_E_NO_DEVICE;
++		}
++		/* A failed transfer on a device that is still there. */
++		WinUsb_ResetPipe(link->winusb, ep);
++		return IRECV_E_USB_STATUS;
++	}
++	return IRECV_E_SUCCESS;
++#else
+ 	int ret = libusb_bulk_transfer(link->handle, ep, buf, len, done, timeout);
+ 	switch (ret) {
+ 	case 0:
+@@ -1273,6 +1321,7 @@ static irecv_error_t kis_link_bulk(struct kis_link *link, uint8_t ep, uint8_t *b
+ 		}
+ 		return IRECV_E_USB_STATUS;
+ 	}
++#endif
+ }
+ 
+ /* Send the request built in link->out and read its reply, at most reply_max
+@@ -1957,10 +2006,20 @@ static irecv_error_t rsm_attach(struct kis_link *link, const struct kis_look *lo
+ 
+ static void kis_link_free(struct kis_link *link)
+ {
++#ifdef _WIN32
++	if (link->winusb) {
++		WinUsb_Free(link->winusb);
++	}
++	if (link->file != INVALID_HANDLE_VALUE) {
++		CloseHandle(link->file);
++	}
++	free(link->path);
++#else
+ 	if (link->handle) {
+ 		libusb_release_interface(link->handle, 0);
+ 		libusb_close(link->handle);
+ 	}
++#endif
+ 	mutex_destroy(&link->lock);
+ 	mutex_destroy(&link->xfer);
+ 	free(link->out);
+@@ -1978,6 +2037,9 @@ static struct kis_link* kis_link_new(uint32_t location)
+ 	link->location = location;
+ 	link->refs = 1;
+ 	link->packet = 512;
++#ifdef _WIN32
++	link->file = INVALID_HANDLE_VALUE;
++#endif
+ 	mutex_init(&link->lock);
+ 	mutex_init(&link->xfer);
+ 	link->out = malloc(KIS_LINK_BUFFER);
+@@ -2050,6 +2112,7 @@ static void kis_link_put_client(struct kis_link *link)
+ 	kis_link_put(link);
+ }
+ 
++#ifndef _WIN32
+ /* This process's link to the device at location, with a reference. */
+ static struct kis_link* kis_link_find(uint32_t location)
+ {
+@@ -2167,6 +2230,101 @@ static struct kis_link* kis_link_get(uint8_t bus, uint8_t address, int attempts,
+ 	}
+ 	return link;
+ }
++#else
++/* This process's link to the KIS device at path, with a reference. */
++static struct kis_link* kis_link_find_path(const char *path)
++{
++	struct kis_link *link = NULL;
++
++	mutex_lock(&kis_links_mutex);
++	FOREACH(struct kis_link *l, &kis_links) {
++		if (!l->dead && l->path && _stricmp(l->path, path) == 0) {
++			l->refs++;
++			link = l;
++			break;
++		}
++	} ENDFOREACH
++	mutex_unlock(&kis_links_mutex);
++	return link;
++}
++
++/* The link to the KIS device bound to WinUSB at path, opening it when this
++ * process has none. A WinUSB device opens once, so one another process has
++ * open is tried attempts times. */
++static struct kis_link* kis_link_get_path(const char *path, int attempts, int enable)
++{
++	HANDLE file = INVALID_HANDLE_VALUE;
++	WINUSB_INTERFACE_HANDLE winusb = NULL;
++	struct kis_link *link = NULL;
++	int attempt;
++
++	for (attempt = 0; ; attempt++) {
++		link = kis_link_find_path(path);
++		if (link) {
++			break;
++		}
++		file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
++		if (file != INVALID_HANDLE_VALUE) {
++			break;
++		}
++		DWORD err = GetLastError();
++		if (err != ERROR_ACCESS_DENIED || attempt + 1 >= attempts) {
++			debug("%s: can't open %s: %lu\n", __func__, path, err);
++			return NULL;
++		}
++		kis_sleep_ms(KIS_OPEN_RETRY_MS);
++	}
++	if (!link) {
++		if (!WinUsb_Initialize(file, &winusb)) {
++			debug("%s: WinUsb_Initialize failed: %lu\n", __func__, GetLastError());
++			CloseHandle(file);
++			return NULL;
++		}
++		link = kis_link_new(0);
++		if (!link) {
++			WinUsb_Free(winusb);
++			CloseHandle(file);
++			return NULL;
++		}
++		link->file = file;
++		link->winusb = winusb;
++		link->path = strdup(path);
++		if (!link->path) {
++			kis_link_free(link);
++			return NULL;
++		}
++		WINUSB_PIPE_INFORMATION pipe;
++		if (WinUsb_QueryPipe(winusb, 0, 0, &pipe) && pipe.MaximumPacketSize) {
++			link->packet = pipe.MaximumPacketSize;
++		}
++		struct kis_link *other = NULL;
++		mutex_lock(&kis_links_mutex);
++		FOREACH(struct kis_link *l, &kis_links) {
++			if (!l->dead && l->path && _stricmp(l->path, path) == 0) {
++				l->refs++;
++				other = l;
++				break;
++			}
++		} ENDFOREACH
++		if (!other) {
++			collection_add(&kis_links, link);
++		}
++		mutex_unlock(&kis_links_mutex);
++		if (other) {
++			kis_link_free(link);
++			link = other;
++		} else {
++			debug("%s: opened %s\n", __func__, path);
++		}
++	}
++	if (enable && kis_link_enable(link) != IRECV_E_SUCCESS) {
++		debug("%s: failed to enable the KIS device\n", __func__);
++		kis_link_put(link);
++		return NULL;
++	}
++	return link;
++}
++#endif
+ 
+ static uint64_t kis_serial_ecid(const char *serial)
+ {
+@@ -2224,7 +2382,11 @@ static irecv_error_t kis_link_open_client(irecv_client_t *pclient, struct kis_li
+ 		return err;
+ 	}
+ 	client->kis = link;
++#ifdef _WIN32
++	client->handle = link->file;
++#else
+ 	client->handle = link->handle;
++#endif
+ 	if (look.state == KIS_STATE_DFU) {
+ 		client->mode = KIS_PRODUCT_ID;
+ 	} else {
+@@ -2591,7 +2753,7 @@ static BOOL win32_device_io_control(HANDLE handle, DWORD code, void* in_buf, DWO
+  * "\\?\kis#vid_05ac&pid_0001". With plain WinUSB bound to 05ac:1881 instead
+  * (as restorekit does), the device shows up as a regular "\\?\usb#" interface
+  * and has to be spoken to the way the libusb and IOKit backends do: raw KIS
+- * requests on the bulk pipes (CONFIG portal on 0x01/0x81, RSM on 0x03/0x83).
++ * requests on its bulk pipes, through the device's link.
+  * Requests are built as bytes so the layout doesn't depend on the AppleKIS
+  * structs defined for Windows.
+  */
+@@ -2600,21 +2762,6 @@ static BOOL win32_device_io_control(HANDLE handle, DWORD code, void* in_buf, DWO
+ #define KISW_TRAILER     8
+ #define KISW_CHUNK       0x4000
+ 
+-static int kisw_open(irecv_client_t client)
+-{
+-	if (!WinUsb_Initialize(client->handle, &client->kis_winusb)) {
+-		debug("%s: WinUsb_Initialize failed: %d\n", __func__, (int)GetLastError());
+-		client->kis_winusb = NULL;
+-		return 0;
+-	}
+-	ULONG timeout = USB_TIMEOUT;
+-	UCHAR pipes[] = { 0x01, 0x81, 0x03, 0x83 };
+-	for (size_t i = 0; i < sizeof(pipes); i++) {
+-		WinUsb_SetPipePolicy(client->kis_winusb, pipes[i], PIPE_TRANSFER_TIMEOUT, sizeof(timeout), &timeout);
+-	}
+-	return 1;
+-}
+-
+ static void kisw_put32(uint8_t *p, uint32_t v)
+ {
+ 	p[0] = v & 0xff;
+@@ -2642,33 +2789,6 @@ static void kisw_header(uint8_t *h, uint8_t portal, uint16_t index, size_t arg_c
+ 	kisw_put32(h + 8, (uint32_t)(payload_size + (arg_count << 2)));
+ }
+ 
+-static irecv_error_t kisw_request(irecv_client_t client, const uint8_t *req, size_t req_size, uint8_t *rpl, size_t *rpl_size)
+-{
+-	UCHAR pipe;
+-	switch (req[3]) {
+-		case KIS_PORTAL_CONFIG:
+-			pipe = 0x01;
+-			break;
+-		case KIS_PORTAL_RSM:
+-			pipe = 0x03;
+-			break;
+-		default:
+-			return IRECV_E_INVALID_INPUT;
+-	}
+-	ULONG sent = 0;
+-	if (!WinUsb_WritePipe(client->kis_winusb, pipe, (PUCHAR)req, (ULONG)req_size, &sent, NULL) || sent != req_size) {
+-		debug("%s: WinUsb_WritePipe(%#x) failed: %d\n", __func__, pipe, (int)GetLastError());
+-		return IRECV_E_USB_UPLOAD;
+-	}
+-	ULONG rcvd = 0;
+-	if (!WinUsb_ReadPipe(client->kis_winusb, pipe | 0x80, rpl, (ULONG)*rpl_size, &rcvd, NULL)) {
+-		debug("%s: WinUsb_ReadPipe(%#x) failed: %d\n", __func__, pipe | 0x80, (int)GetLastError());
+-		return IRECV_E_USB_UPLOAD;
+-	}
+-	*rpl_size = rcvd;
+-	return IRECV_E_SUCCESS;
+-}
+-
+ static irecv_error_t kisw_write32(irecv_client_t client, uint8_t portal, uint16_t index, uint32_t value)
+ {
+ 	uint8_t req[KISW_HEADER_SIZE + 4];
+@@ -2676,21 +2796,7 @@ static irecv_error_t kisw_write32(irecv_client_t client, uint8_t portal, uint16_
+ 	size_t rpl_size = sizeof(rpl);
+ 	kisw_header(req, portal, index, 1, 0, 1);
+ 	kisw_put32(req + KISW_HEADER_SIZE, value);
+-	return kisw_request(client, req, sizeof(req), rpl, &rpl_size);
+-}
+-
+-static irecv_error_t kisw_init(irecv_client_t client)
+-{
+-	irecv_error_t err = kisw_write32(client, KIS_PORTAL_CONFIG, KIS_INDEX_ENABLE_A, KIS_ENABLE_A_VAL);
+-	if (err == IRECV_E_SUCCESS) {
+-		err = kisw_write32(client, KIS_PORTAL_CONFIG, KIS_INDEX_ENABLE_B, KIS_ENABLE_B_VAL);
+-	}
+-	if (err != IRECV_E_SUCCESS) {
+-		debug("%s: failed to enable KIS device, error %d\n", __func__, err);
+-		return err;
+-	}
+-	client->isKIS = 1;
+-	return IRECV_E_SUCCESS;
++	return kis_link_raw(client->kis, req, sizeof(req), rpl, &rpl_size);
+ }
+ 
+ /* A USB string descriptor at word offset `word` of the info block, as ASCII. */
+@@ -2717,7 +2823,7 @@ static irecv_error_t kisw_load_device_info(irecv_client_t client)
+ 	uint8_t rpl[KISW_HEADER_SIZE + KISW_INFO_SIZE + KISW_TRAILER];
+ 	size_t rpl_size = sizeof(rpl);
+ 	kisw_header(req, KIS_PORTAL_RSM, KIS_INDEX_GET_INFO, 0, 0, KISW_INFO_SIZE / 4);
+-	irecv_error_t err = kisw_request(client, req, sizeof(req), rpl, &rpl_size);
++	irecv_error_t err = kis_link_raw(client->kis, req, sizeof(req), rpl, &rpl_size);
+ 	if (err != IRECV_E_SUCCESS) {
+ 		return err;
+ 	}
+@@ -2762,7 +2868,7 @@ static irecv_error_t kisw_send_buffer(irecv_client_t client, unsigned char* buff
+ 
+ 		uint8_t rpl[KISW_HEADER_SIZE + KISW_TRAILER];
+ 		size_t rpl_size = sizeof(rpl);
+-		irecv_error_t err = kisw_request(client, req, KISW_HEADER_SIZE + 12 + chunk, rpl, &rpl_size);
++		irecv_error_t err = kis_link_raw(client->kis, req, KISW_HEADER_SIZE + 12 + chunk, rpl, &rpl_size);
+ 		if (err != IRECV_E_SUCCESS) {
+ 			free(req);
+ 			debug("Failed to upload chunk, error %d\n", err);
+@@ -2803,11 +2909,6 @@ static irecv_error_t irecv_kis_init(irecv_client_t client)
+ 		return IRECV_E_SUCCESS;
+ 	}
+ #endif
+-#ifdef _WIN32
+-	if (client->kis_winusb) {
+-		return kisw_init(client);
+-	}
+-#endif
+ #ifdef HAVE_IOKIT
+ 	/* deviceinterfaced enables the device itself when it attaches. */
+ 	if (client->kis_dic) {
+@@ -2837,7 +2938,7 @@ static irecv_error_t irecv_kis_load_device_info(irecv_client_t client)
+ {
+ 	debug("Loading device info in KIS mode...\n");
+ #ifdef _WIN32
+-	if (client->kis_winusb) {
++	if (client->kis) {
+ 		return kisw_load_device_info(client);
+ 	}
+ #endif
+@@ -2990,8 +3091,20 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid,
+ 				free(details);
+ 				continue;
+ 			}
+-			/* pid 1 is AppleKIS's own device; 05ac:1881 itself means WinUSB. */
+-			int kis_winusb = (guids[k] == &GUID_DEVINTERFACE_KIS && pid == KIS_PRODUCT_ID);
++			/* pid 1 is AppleKIS's own device; 05ac:1881 itself means WinUSB,
++			 * reached through the device's link. */
++			if (guids[k] == &GUID_DEVINTERFACE_KIS && pid == KIS_PRODUCT_ID) {
++				struct kis_link *link = kis_link_get_path(details->DevicePath, KIS_OPEN_ATTEMPTS, 1);
++				irecv_client_t kis_client = NULL;
++				free(details);
++				if (link && kis_link_open_client(&kis_client, link, ecid) == IRECV_E_SUCCESS) {
++					irecv_close(_client);
++					_client = kis_client;
++					found = 1;
++					break;
++				}
++				continue;
++			}
+ 			if (guids[k] == &GUID_DEVINTERFACE_KIS) {
+ 				pid = KIS_PRODUCT_ID;
+ 			}
+@@ -3002,12 +3115,6 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid,
+ 				free(details);
+ 				continue;
+ 			}
+-			if (kis_winusb && !kisw_open(_client)) {
+-				CloseHandle(_client->handle);
+-				_client->handle = INVALID_HANDLE_VALUE;
+-				free(details);
+-				continue;
+-			}
+ 			_client->mode = pid;
+ 
+ 			if (ecid == IRECV_K_WTF_MODE) {
+@@ -3180,6 +3287,9 @@ int irecv_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, u
+ 	return libusb_control_transfer(client->handle, bm_request_type, b_request, w_value, w_index, data, w_length, timeout);
+ #endif
+ #else
++	if (client->rsm_session) {
++		return rsm_control(client->kis, client->rsm_session, bm_request_type, b_request, w_value, w_index, data, w_length, timeout);
++	}
+ 	DWORD count = 0;
+ 
+ 	if (data == NULL)
+@@ -3560,6 +3670,9 @@ int irecv_usb_bulk_transfer(irecv_client_t client,
+ 	}
+ #endif
+ #else
++	if (client->rsm_session) {
++		return rsm_bulk(client->kis, client->rsm_session, endpoint, data, length, transferred, timeout);
++	}
+ 	if (endpoint==0x4) {
+ 		DWORD count = 0;
+ 		ret = win32_device_io_control(client->handle, 0x2201B6, data, length, data, length, &count, timeout);
+@@ -4199,6 +4312,16 @@ irecv_error_t irecv_usb_set_interface(irecv_client_t client, int usb_interface,
+ 	}
+ #endif
+ #else
++	if (client->kis) {
++		if (client->rsm_session && usb_interface == 1) {
++			if (rsm_control(client->kis, client->rsm_session, 0x01, 0x0B, usb_alt_interface, usb_interface, NULL, 0, USB_TIMEOUT) < 0) {
++				return IRECV_E_USB_INTERFACE;
++			}
++		}
++		client->usb_interface = usb_interface;
++		client->usb_alt_interface = usb_alt_interface;
++		return IRECV_E_SUCCESS;
++	}
+ 	if (usb_interface == 1) {
+ 		if (irecv_usb_control_transfer(client, 0, 0x0B, usb_alt_interface, usb_interface, NULL, 0, USB_TIMEOUT) < 0) {
+ 			return IRECV_E_USB_INTERFACE;
+@@ -4244,7 +4367,9 @@ irecv_error_t irecv_reset(irecv_client_t client)
+ 	}
+ #endif
+ #else
+-	win32_device_io_control(client->handle, 0x22000C, NULL, 0, NULL, 0, NULL, USB_TIMEOUT);
++	if (!client->kis) {
++		win32_device_io_control(client->handle, 0x22000C, NULL, 0, NULL, 0, NULL, USB_TIMEOUT);
++	}
+ #endif
+ 
+ 	return IRECV_E_SUCCESS;
+@@ -4525,12 +4650,6 @@ static void* _irecv_handle_device_add(void *userdata)
+ 			free(client);
+ 			return NULL;
+ 		}
+-		/* Not AppleKIS's "kis#" device: WinUSB on 05ac:1881. */
+-		if (strncmp(result, "\\\\?\\kis#", 8) != 0 && !kisw_open(client)) {
+-			CloseHandle(client->handle);
+-			free(client);
+-			return NULL;
+-		}
+ 		client->mode = pid;
+ 	} else {
+ 		char* p = strchr(serial_str, '#');
+@@ -4738,8 +4857,13 @@ enum kis_hold {
+ /* A KIS device the event thread watches. Touched only by the event thread. */
+ struct kis_watch {
+ 	uint32_t location;
++#ifdef _WIN32
++	char *path;
++	int present;
++#else
+ 	uint8_t bus;
+ 	uint8_t address;
++#endif
+ 	unsigned int polls;
+ 	int enabled;
+ 	/* A link kept across a stage change, and until when. */
+@@ -4777,7 +4901,11 @@ static struct kis_watch* kis_watch_find(uint32_t location)
+ /* Whether link goes to the watched device. Caller holds kis_links_mutex. */
+ static int kis_watch_has(const struct kis_watch *watch, const struct kis_link *link)
+ {
++#ifdef _WIN32
++	return link->path && _stricmp(link->path, watch->path) == 0;
++#else
+ 	return link->location == watch->location;
++#endif
+ }
+ 
+ /* This process's link to the watched device, with a reference. */
+@@ -4849,6 +4977,9 @@ static void kis_watch_remove(uint32_t location)
+ 	if (left) {
+ 		kis_link_release_retained(left);
+ 	}
++#ifdef _WIN32
++	free(watch->path);
++#endif
+ 	free(watch);
+ }
+ 
+@@ -4907,7 +5038,11 @@ static void kis_watch_poll(void)
+ 				if ((watch->polls++ % KIS_LOOK_POLLS) != 0) {
+ 					continue;
+ 				}
++#ifdef _WIN32
++				link = kis_link_get_path(watch->path, 1, 0);
++#else
+ 				link = kis_link_get(watch->bus, watch->address, 1, 0);
++#endif
+ 				if (!link) {
+ 					continue;
+ 				}
+@@ -5003,6 +5138,9 @@ static void kis_watch_clear(void)
+ 		collection_remove(&kis_watches, watch);
+ 		/* The event subscription frees announced devices with the rest. */
+ 		kis_watch_release(watch);
++#ifdef _WIN32
++		free(watch->path);
++#endif
+ 		free(watch);
+ 	} ENDFOREACH
+ 	collection_init(&kept);
+@@ -5028,6 +5166,7 @@ static void kis_watch_start(void)
+ 	mutex_unlock(&kis_links_mutex);
+ }
+ 
++#ifndef _WIN32
+ static void kis_watch_add(libusb_device *device)
+ {
+ 	uint8_t bus = libusb_get_bus_number(device);
+@@ -5047,6 +5186,41 @@ static void kis_watch_add(libusb_device *device)
+ 	watch->view = KIS_STATE_EMPTY;
+ 	collection_add(&kis_watches, watch);
+ }
++#else
++/* A KIS device bound to WinUSB found by this pass of the device scan. */
++static void kis_watch_seen(const char *path, uint32_t location)
++{
++	struct kis_watch *watch = kis_watch_find(location);
++	if (!watch) {
++		watch = calloc(1, sizeof(struct kis_watch));
++		if (!watch) {
++			return;
++		}
++		watch->path = strdup(path);
++		if (!watch->path) {
++			free(watch);
++			return;
++		}
++		watch->location = location;
++		watch->state = KIS_STATE_FAILED;
++		watch->view = KIS_STATE_EMPTY;
++		collection_add(&kis_watches, watch);
++	}
++	watch->present = 1;
++}
++
++/* Forget the KIS devices this pass didn't find. */
++static void kis_watch_sweep(void)
++{
++	FOREACH(struct kis_watch *watch, &kis_watches) {
++		if (!watch->present) {
++			kis_watch_remove(watch->location);
++		} else {
++			watch->present = 0;
++		}
++	} ENDFOREACH
++}
++#endif
+ #endif
+ 
+ 
+@@ -5227,6 +5401,7 @@ static void *_irecv_event_handler(void* data)
+ 	int running = 1;
+ 
+ 	collection_init(&newDevices);
++	kis_watch_start();
+ 
+ 	mutex_lock(&(info->startup_mutex));
+ 	cond_signal(&(info->startup_cond));
+@@ -5254,6 +5429,8 @@ static void *_irecv_event_handler(void* data)
+ 					free(win_ctx);
+ 				} ENDFOREACH
+ 				collection_free(&newDevices);
++				kis_watch_clear();
++				collection_free(&kis_watches);
+ 				return NULL;
+ 			}
+ 
+@@ -5336,6 +5513,12 @@ static void *_irecv_event_handler(void* data)
+ 					skip = 1;
+ 				}
+ 
++				/* WinUSB on 05ac:1881: the KIS watch reads what is behind it. */
++				if (!skip && guids[k] == &GUID_DEVINTERFACE_KIS && pid == KIS_PRODUCT_ID) {
++					kis_watch_seen(details->DevicePath, location);
++					skip = 1;
++				}
++
+ 				if (!found && !skip) {
+ 					// Add device to newDevices list, and deliver the notification later, when removed devices are first handled.
+ 					struct irecv_win_dev_ctx *win_ctx = (struct irecv_win_dev_ctx*)malloc(sizeof(struct irecv_win_dev_ctx));
+@@ -5349,6 +5532,7 @@ static void *_irecv_event_handler(void* data)
+ 			SetupDiDestroyDeviceInfoList(usbDevices);
+ 		}
+ 
++		kis_watch_sweep();
+ 		_irecv_remove_dead_devices();
+ 
+ 		// handle newly added devices and remove from local list
+@@ -5360,7 +5544,10 @@ static void *_irecv_event_handler(void* data)
+ 			free(win_ctx);
+ 		} ENDFOREACH
+ 
+-		Sleep(500);
++		for (i = 0; i < 5; i++) {
++			kis_watch_poll();
++			Sleep(100);
++		}
+ 		mutex_lock(&listener_mutex);
+ 		if (collection_count(&listeners) == 0) {
+ 			running = 0;
+@@ -5369,6 +5556,8 @@ static void *_irecv_event_handler(void* data)
+ 	} while (running);
+ 
+ 	collection_free(&newDevices);
++	kis_watch_clear();
++	collection_free(&kis_watches);
+ #else /* !_WIN32 */
+ #ifdef HAVE_IOKIT
+ 	kern_return_t kr;
+@@ -5661,9 +5850,10 @@ static irecv_error_t irecv_cleanup(irecv_client_t client)
+ 		}
+ #endif
+ #else
+-		if (client->kis_winusb) {
+-			WinUsb_Free(client->kis_winusb);
+-			client->kis_winusb = NULL;
++		if (client->kis) {
++			kis_link_put_client(client->kis);
++			client->kis = NULL;
++			client->handle = INVALID_HANDLE_VALUE;
+ 		}
+ 		if (client->handle != NULL && client->handle != INVALID_HANDLE_VALUE) {
+ 			CloseHandle(client->handle);
+@@ -5893,7 +6083,7 @@ static irecv_error_t irecv_kis_send_buffer(irecv_client_t client, unsigned char*
+ 	}
+ #endif
+ #ifdef _WIN32
+-	if (client->kis_winusb) {
++	if (client->kis) {
+ 		return kisw_send_buffer(client, buffer, length, options);
+ 	}
+ #endif
