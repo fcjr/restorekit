@@ -311,6 +311,26 @@ extern "C" {
     fn restorekit_usbmuxd_run();
     fn restorekit_usbmuxd_stop();
     fn restorekit_usbmuxd_cleanup();
+    fn restorekit_usbmuxd_set_switch_running(on: c_int);
+    fn restorekit_usbmuxd_set_config_dir(path: *const c_char) -> c_int;
+}
+
+/// Let the embedded server switch running iPhones and iPads to the USB
+/// configuration with their mux interface, as a standalone usbmuxd does. It
+/// otherwise only takes devices whose active configuration already has one.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub fn usbmuxd_set_switch_running(on: bool) {
+    unsafe { restorekit_usbmuxd_set_switch_running(on.into()) }
+}
+
+/// Keep the embedded server's pair records and SystemBUID in `path` (created
+/// if missing). Call before [`usbmuxd_start`].
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub fn usbmuxd_set_config_dir(path: &std::ffi::CStr) -> std::result::Result<(), c_int> {
+    match unsafe { restorekit_usbmuxd_set_config_dir(path.as_ptr()) } {
+        0 => Ok(()),
+        rc => Err(rc),
+    }
 }
 
 /// Initialize the embedded usbmuxd server, binding a Unix socket at `path`.

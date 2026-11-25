@@ -1,0 +1,104 @@
+diff --git a/src/usb.c b/src/usb.c
+index 9f34b01..8fa7460 100644
+--- a/src/usb.c
++++ b/src/usb.c
+@@ -493,6 +493,21 @@ static void forget_no_active_mux(int bus, int address)
+ 	}
+ }
+ 
++static volatile int switch_running = 0;
++
++void usb_set_switch_running(int on)
++{
++	switch_running = on;
++}
++
++/* Whether this device's configuration may be switched to reach its mux: a
++ * running iPhone or iPad, while a caller has asked for that. Not a Mac. */
++static int may_switch(const struct libusb_device_descriptor *devdesc)
++{
++	return switch_running &&
++	       devdesc->idProduct >= PID_RANGE_LOW && devdesc->idProduct <= PID_RANGE_MAX;
++}
++
+ static int has_mux_interface(const struct libusb_config_descriptor *config)
+ {
+ 	int k;
+@@ -524,13 +539,34 @@ static void configure_mux(struct libusb_device *dev, struct libusb_device_handle
+ 		libusb_free_config_descriptor(config);
+ 		if (!mux)
+ 			continue;
+-		usbmuxd_log(LL_NOTICE, "Configuring unconfigured device %d-%d: %d", bus, address, value);
++		usbmuxd_log(LL_NOTICE, "Configuring device %d-%d: %d", bus, address, value);
+ 		if ((res = libusb_set_configuration(handle, value)) != 0)
+ 			usbmuxd_log(LL_WARNING, "Could not set configuration %d for device %d-%d: %s", value, bus, address, libusb_error_name(res));
+ 		return;
+ 	}
+ }
+ 
++/* Move a configured device to the configuration that carries its mux
++ * interface, unbinding the kernel drivers of its current one first (Linux
++ * refuses the change while any are bound). */
++static void switch_to_mux(struct libusb_device *dev, struct libusb_device_handle *handle, int bus, int address)
++{
++	struct libusb_config_descriptor *active;
++	int k, res;
++	if (libusb_get_active_config_descriptor(dev, &active) == 0) {
++		for (k = 0; k < active->bNumInterfaces; k++) {
++			int number = active->interface[k].altsetting[0].bInterfaceNumber;
++			if (libusb_kernel_driver_active(handle, number) == 1) {
++				usbmuxd_log(LL_INFO, "Detaching kernel driver for device %d-%d, interface %d", bus, address, number);
++				if ((res = libusb_detach_kernel_driver(handle, number)) != 0)
++					usbmuxd_log(LL_WARNING, "Could not detach kernel driver of interface %d for device %d-%d: %s", number, bus, address, libusb_error_name(res));
++			}
++		}
++		libusb_free_config_descriptor(active);
++	}
++	configure_mux(dev, handle, bus, address);
++}
++
+ /* Read only the active configuration. A missing mux can appear later without a hotplug. */
+ /* Returns 0 with the interface and endpoints set, -2 for an unconfigured
+  * device, -1 otherwise. */
+@@ -603,8 +639,11 @@ static void device_complete_initialization(struct mode_context *context, struct
+ 	int res;
+ 	struct libusb_transfer *transfer;
+ 
+-	if (find_active_mux(dev, usbdev) == -2)
++	res = find_active_mux(dev, usbdev);
++	if (res == -2)
+ 		configure_mux(dev, handle, bus, address);
++	else if (res == -1 && may_switch(&devdesc))
++		switch_to_mux(dev, handle, bus, address);
+ 	if((res = find_active_mux(dev, usbdev)) != 0) {
+ 		usbdev->alive = 0;
+ 		return;
+@@ -790,10 +829,11 @@ static int usb_device_add(libusb_device* dev)
+ 	   ((devdesc.idProduct < PID_RANGE_LOW) ||
+ 		(devdesc.idProduct > PID_RANGE_MAX)))
+ 		return -1;
+-	/* Leave a configured device without an active mux alone. An unconfigured
+-	 * one is given its mux configuration once opened. */
++	/* Leave a configured device without an active mux alone, unless it's a
++	 * running device we may switch. An unconfigured one is given its mux
++	 * configuration once opened. */
+ 	struct usb_device candidate = { .bus = bus, .address = address };
+-	if (find_active_mux(dev, &candidate) == -1) {
++	if (find_active_mux(dev, &candidate) == -1 && !may_switch(&devdesc)) {
+ 		note_no_active_mux(bus, address);
+ 		return -1;
+ 	}
+diff --git a/src/usb.h b/src/usb.h
+index 4e44cce..dd0c8cc 100644
+--- a/src/usb.h
++++ b/src/usb.h
+@@ -66,6 +66,9 @@ void usb_get_fds(struct fdlist *list);
+ int usb_get_timeout(void);
+ int usb_send(struct usb_device *dev, const unsigned char *buf, int length);
+ int usb_discover(void);
++/* Let the server switch a running iPhone or iPad to its mux configuration,
++ * as a standalone usbmuxd does when one is plugged in. Off by default. */
++void usb_set_switch_running(int on);
+ void usb_autodiscover(int enable);
+ int usb_process(void);
+ int usb_process_timeout(int msec);

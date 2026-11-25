@@ -144,6 +144,14 @@ compiles the patched copy.
   per device so a stall at restore mode says why. Linux can activate
   a new configuration at the same address without a hotplug event, so the
   periodic discovery pass stays on next to hotplug there.
+- `0002-switch-running-devices-on-request.patch` — with the first patch the
+  server never moves a running iPhone or iPad, which boots into a
+  configuration without its mux interface, so `recovery::enter` needed the
+  system usbmuxd on Linux. Add `usb_set_switch_running`, off by default: while
+  on, a configured device in the iPhone/iPad PID range (not a Mac) without an
+  active mux is opened, its kernel drivers unbound and its mux configuration
+  set, as upstream usbmuxd does. `recovery::enter` turns it on only while it
+  runs.
 
 ## Updating a patch
 
