@@ -1,6 +1,6 @@
 --- a/src/libirecovery.c
 +++ b/src/libirecovery.c
-@@ -55,6 +55,7 @@
+@@ -56,6 +56,7 @@
  #define WIN32_LEAN_AND_MEAN
  #include <windows.h>
  #include <setupapi.h>
@@ -8,7 +8,7 @@
  #ifndef sleep
  #define sleep(n) Sleep(1000 * n)
  #endif
-@@ -137,6 +138,7 @@
+@@ -150,6 +151,7 @@ struct irecv_client_private {
  #endif
  #else
  	HANDLE handle;
@@ -16,11 +16,10 @@
  #endif
  	irecv_event_cb_t progress_callback;
  	irecv_event_cb_t received_callback;
-@@ -1385,11 +1387,224 @@
- 		*transferred = count;
+@@ -2284,6 +2286,214 @@ static BOOL win32_device_io_control(HANDLE handle, DWORD code, void* in_buf, DWO
  	}
  	return ok;
-+}
+ }
 +
 +/*
 + * KIS over WinUSB. The KIS code above talks to Apple's AppleKIS driver, which
@@ -104,7 +103,7 @@
 +	}
 +	*rpl_size = rcvd;
 +	return IRECV_E_SUCCESS;
- }
++}
 +
 +static irecv_error_t kisw_write32(irecv_client_t client, uint8_t portal, uint16_t index, uint32_t value)
 +{
@@ -232,7 +231,10 @@
  #endif
  
  static irecv_error_t irecv_kis_init(irecv_client_t client)
- {
+@@ -2295,6 +2505,11 @@ static irecv_error_t irecv_kis_init(irecv_client_t client)
+ 		return IRECV_E_SUCCESS;
+ 	}
+ #endif
 +#ifdef _WIN32
 +	if (client->kis_winusb) {
 +		return kisw_init(client);
@@ -241,19 +243,19 @@
  #ifdef HAVE_IOKIT
  	/* deviceinterfaced enables the device itself when it attaches. */
  	if (client->kis_dic) {
-@@ -1419,6 +1634,11 @@
+@@ -2323,6 +2538,11 @@ static irecv_error_t irecv_kis_init(irecv_client_t client)
+ static irecv_error_t irecv_kis_load_device_info(irecv_client_t client)
  {
  	debug("Loading device info in KIS mode...\n");
- #ifdef _WIN32
++#ifdef _WIN32
 +	if (client->kis_winusb) {
 +		return kisw_load_device_info(client);
 +	}
 +#endif
-+#ifdef _WIN32
+ #ifdef _WIN32
  	KIS_device_info kisInfo;
  	DWORD transferred = 0;
- 	int ret = win32_device_io_control(client->handle, 0x220004, NULL, 0, &kisInfo, sizeof(kisInfo), &transferred, USB_TIMEOUT);
-@@ -1557,11 +1777,13 @@
+@@ -2462,11 +2682,13 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid)
  			if ((guids[k] == &GUID_DEVINTERFACE_DFU && pid != IRECV_K_DFU_MODE && pid != IRECV_K_WTF_MODE)
  			    || (guids[k] == &GUID_DEVINTERFACE_PORTDFU && pid != IRECV_K_PORT_DFU_MODE)
  			    || (guids[k] == &GUID_DEVINTERFACE_IBOOT && (pid < IRECV_K_RECOVERY_MODE_1 || pid > IRECV_K_RECOVERY_MODE_4))
@@ -268,20 +270,20 @@
  			if (guids[k] == &GUID_DEVINTERFACE_KIS) {
  				pid = KIS_PRODUCT_ID;
  			}
-@@ -1569,6 +1791,12 @@
- 			_client->handle = CreateFileA(details->DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
- 			if (_client->handle == INVALID_HANDLE_VALUE) {
- 				debug("%s: Failed to open device path %s: %d\n", __func__, details->DevicePath, (int)GetLastError());
-+				free(details);
-+				continue;
-+			}
-+			if (kis_winusb && !kisw_open(_client)) {
-+				CloseHandle(_client->handle);
-+				_client->handle = INVALID_HANDLE_VALUE;
+@@ -2477,6 +2699,12 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid)
  				free(details);
  				continue;
  			}
-@@ -2975,6 +3203,12 @@
++			if (kis_winusb && !kisw_open(_client)) {
++				CloseHandle(_client->handle);
++				_client->handle = INVALID_HANDLE_VALUE;
++				free(details);
++				continue;
++			}
+ 			_client->mode = pid;
+ 
+ 			if (ecid == IRECV_K_WTF_MODE) {
+@@ -4034,6 +4262,12 @@ static void* _irecv_handle_device_add(void *userdata)
  			free(client);
  			return NULL;
  		}
@@ -294,7 +296,7 @@
  		client->mode = pid;
  	} else {
  		char* p = strchr(serial_str, '#');
-@@ -3455,7 +3689,7 @@
+@@ -4836,7 +5070,7 @@ static void *_irecv_event_handler(void* data)
  				if ((guids[k] == &GUID_DEVINTERFACE_DFU && pid != IRECV_K_DFU_MODE && pid != IRECV_K_WTF_MODE)
  				    || (guids[k] == &GUID_DEVINTERFACE_PORTDFU && pid != IRECV_K_PORT_DFU_MODE)
  				    || (guids[k] == &GUID_DEVINTERFACE_IBOOT && (pid < IRECV_K_RECOVERY_MODE_1 || pid > IRECV_K_RECOVERY_MODE_4))
@@ -303,7 +305,7 @@
  				) {
  					skip = 1;
  				}
-@@ -3776,6 +4010,10 @@
+@@ -5166,6 +5400,10 @@ static irecv_error_t irecv_cleanup(irecv_client_t client)
  		}
  #endif
  #else
@@ -314,10 +316,10 @@
  		if (client->handle != NULL && client->handle != INVALID_HANDLE_VALUE) {
  			CloseHandle(client->handle);
  		}
-@@ -3998,6 +4236,11 @@
- 	if (client->mode != IRECV_K_DFU_MODE) {
- 		return IRECV_E_UNSUPPORTED;
+@@ -5476,6 +5714,11 @@ static irecv_error_t irecv_kis_send_buffer(irecv_client_t client, unsigned char*
+ 		kis_link_drove(client->kis);
  	}
+ #endif
 +#ifdef _WIN32
 +	if (client->kis_winusb) {
 +		return kisw_send_buffer(client, buffer, length, options);

@@ -1,6 +1,6 @@
 --- a/src/libirecovery.c
 +++ b/src/libirecovery.c
-@@ -1718,7 +1718,7 @@
+@@ -2623,7 +2623,7 @@ typedef struct usb_control_request {
  	char data[];
  } usb_control_request;
  
@@ -9,19 +9,19 @@
  {
  	int found = 0;
  	const GUID *guids[] = { &GUID_DEVINTERFACE_KIS, &GUID_DEVINTERFACE_PORTDFU, &GUID_DEVINTERFACE_DFU, &GUID_DEVINTERFACE_IBOOT, NULL };
-@@ -1775,6 +1775,11 @@
- 			    || (guids[k] == &GUID_DEVINTERFACE_IBOOT && (pid < IRECV_K_RECOVERY_MODE_1 || pid > IRECV_K_RECOVERY_MODE_4))
- 			    || (guids[k] == &GUID_DEVINTERFACE_KIS && pid != 1 && pid != KIS_PRODUCT_ID)
- 			) {
-+				free(details);
-+				continue;
-+			}
-+			if (guids[k] == &GUID_DEVINTERFACE_KIS && ecid != 0 && kis_skip > 0) {
-+				kis_skip--;
+@@ -2683,6 +2683,11 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid)
  				free(details);
  				continue;
  			}
-@@ -2458,7 +2463,7 @@
++			if (guids[k] == &GUID_DEVINTERFACE_KIS && ecid != 0 && kis_skip > 0) {
++				kis_skip--;
++				free(details);
++				continue;
++			}
+ 			/* pid 1 is AppleKIS's own device; 05ac:1881 itself means WinUSB. */
+ 			int kis_winusb = (guids[k] == &GUID_DEVINTERFACE_KIS && pid == KIS_PRODUCT_ID);
+ 			if (guids[k] == &GUID_DEVINTERFACE_KIS) {
+@@ -3386,7 +3391,7 @@ static io_iterator_t iokit_usb_get_iterator_for_pid(UInt16 pid)
  	return iterator;
  }
  
@@ -30,7 +30,7 @@
  {
  	io_service_t service, ret_service;
  	io_iterator_t iterator;
-@@ -2503,6 +2508,11 @@
+@@ -3431,6 +3436,11 @@ static irecv_error_t iokit_open_with_ecid(irecv_client_t* pclient, uint64_t ecid
  				}
  
  				if (pids[i] == KIS_PRODUCT_ID) {
@@ -42,7 +42,7 @@
  					// In KIS Mode, we have to open the device in order to get
  					// it's ECID
  					irecv_error_t err = iokit_usb_open_service(pclient, service);
-@@ -2584,7 +2594,7 @@
+@@ -3585,7 +3595,7 @@ static irecv_error_t libusb_usb_open_handle_with_descriptor_and_ecid(irecv_clien
  	return IRECV_E_SUCCESS;
  }
  
@@ -51,7 +51,7 @@
  {
  	irecv_error_t ret = IRECV_E_UNABLE_TO_CONNECT;
  	int i = 0;
-@@ -2622,6 +2632,11 @@
+@@ -3623,6 +3633,11 @@ static irecv_error_t libusb_open_with_ecid(irecv_client_t* pclient, uint64_t eci
  					continue;
  				}
  
@@ -62,8 +62,8 @@
 +
  				debug("opening device %04x:%04x...\n", usb_descriptor.idVendor, usb_descriptor.idProduct);
  
- 				struct libusb_device_handle* usb_handle = NULL;
-@@ -2651,7 +2666,11 @@
+ 				if (usb_descriptor.idProduct == KIS_PRODUCT_ID) {
+@@ -3661,7 +3676,11 @@ static irecv_error_t libusb_open_with_ecid(irecv_client_t* pclient, uint64_t eci
  #endif
  #endif
  
@@ -76,7 +76,7 @@
  {
  #ifdef USE_DUMMY
  	return IRECV_E_UNSUPPORTED;
-@@ -2664,12 +2683,12 @@
+@@ -3674,12 +3693,12 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  	}
  #ifndef _WIN32
  #ifdef HAVE_IOKIT
@@ -92,7 +92,7 @@
  #endif
  	irecv_client_t client = *pclient;
  	if (error != IRECV_E_SUCCESS) {
-@@ -2677,12 +2696,16 @@
+@@ -3687,12 +3706,16 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  		*pclient = NULL;
  		return error;
  	}
@@ -109,18 +109,15 @@
  		return error;
  	}
  
-@@ -2690,8 +2713,9 @@
- 	if (!client->kis_dic) {
- 		error = (*client->handle)->CreateDeviceAsyncEventSource(client->handle, &client->async_event_source);
+@@ -3702,6 +3725,7 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  		if (error != IRECV_E_SUCCESS) {
--			free(client);
-+			irecv_close(client);
+ 			irecv_close(client);
  			*pclient = NULL;
 +			*other_kis = kis;
  			return error;
  		}
  		CFRunLoopAddSource(CFRunLoopGetCurrent(), client->async_event_source, kCFRunLoopDefaultMode);
-@@ -2711,6 +2735,7 @@
+@@ -3721,6 +3745,7 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  		debug("Failed to set interface, error %d\n", error);
  		irecv_close(client);
  		*pclient = NULL;
@@ -128,7 +125,7 @@
  		return error;
  	}
  
-@@ -2720,6 +2745,7 @@
+@@ -3730,6 +3755,7 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  			debug("irecv_kis_init failed, error %d\n", error);
  			irecv_close(client);
  			*pclient = NULL;
@@ -136,7 +133,7 @@
  			return error;
  		}
  
-@@ -2728,11 +2754,13 @@
+@@ -3738,11 +3764,13 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  			debug("irecv_kis_load_device_info failed, error %d\n", error);
  			irecv_close(client);
  			*pclient = NULL;
@@ -150,7 +147,7 @@
  			return IRECV_E_NO_DEVICE; //wrong device
  		}
  		debug("found device with ECID %016" PRIx64 "\n", (uint64_t)client->device_info.ecid);
-@@ -2755,6 +2783,18 @@
+@@ -3765,6 +3793,18 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  #endif
  }
  

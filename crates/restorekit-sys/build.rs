@@ -65,7 +65,7 @@ fn main() {
         ("libplist", "2.7.0"),
         ("libimobiledevice-glue", "1.3.2"),
         ("libusbmuxd", "2.1.1"),
-        ("libirecovery", "1.3.1"),
+        ("libirecovery", "1.4.0"),
         ("libtatsu", "1.0.5"),
         ("libimobiledevice", "1.4.0"),
     ] {

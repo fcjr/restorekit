@@ -1,6 +1,6 @@
 --- a/src/libirecovery.c
 +++ b/src/libirecovery.c
-@@ -46,6 +46,10 @@
+@@ -47,6 +47,10 @@
  #include <CoreFoundation/CoreFoundation.h>
  #include <IOKit/usb/IOUSBLib.h>
  #include <IOKit/IOCFPlugIn.h>
@@ -11,7 +11,7 @@
  #endif
  #else
  #define WIN32_LEAN_AND_MEAN
-@@ -128,6 +132,8 @@
+@@ -141,6 +145,8 @@ struct irecv_client_private {
  	IOUSBDeviceInterface320 **handle;
  	IOUSBInterfaceInterface300 **usbInterface;
  	CFRunLoopSourceRef async_event_source;
@@ -20,7 +20,7 @@
  #endif
  #else
  	HANDLE handle;
-@@ -762,6 +768,10 @@
+@@ -438,6 +444,10 @@ INITIALIZER(_irecv_init)
  #ifdef HAVE_IOKIT
  static int iokit_get_string_descriptor_ascii(irecv_client_t client, uint8_t desc_index, unsigned char * buffer, int size)
  {
@@ -31,12 +31,10 @@
  	IOReturn result;
  	IOUSBDevRequest request;
  	unsigned char descriptor[256];
-@@ -1063,10 +1073,187 @@
- 	hdr->reqSize          = (uint32_t) reqSize;
- 
+@@ -1958,8 +1968,185 @@ static irecv_error_t irecv_kis_request_init(KIS_req_header *hdr, uint8_t portal,
  	return IRECV_E_SUCCESS;
-+}
-+
+ }
+ 
 +#ifdef HAVE_IOKIT
 +/*
 + * macOS only lets processes holding com.apple.private.debug-usb.access open a
@@ -78,8 +76,8 @@
 +	if (!dic.client) {
 +		debug("%s: could not connect to deviceinterfaced\n", __func__);
 +	}
- }
- 
++}
++
 +static int dic_available(void)
 +{
 +	pthread_once(&dic_once, dic_load_once);
@@ -216,13 +214,13 @@
 +		return dic_kis_request(client, req, reqSize, rpl, rplSize);
 +	}
 +#endif
- 	int endpoint = 0;
- 	switch (req->portal) {
- 		case KIS_PORTAL_CONFIG:
-@@ -1203,6 +1390,13 @@
- 
- static irecv_error_t irecv_kis_init(irecv_client_t client)
- {
+ #ifdef HAVE_KIS_LINKS
+ 	if (client->kis) {
+ 		return kis_link_raw(client->kis, req, reqSize, rpl, rplSize);
+@@ -2108,6 +2295,13 @@ static irecv_error_t irecv_kis_init(irecv_client_t client)
+ 		return IRECV_E_SUCCESS;
+ 	}
+ #endif
 +#ifdef HAVE_IOKIT
 +	/* deviceinterfaced enables the device itself when it attaches. */
 +	if (client->kis_dic) {
@@ -233,26 +231,24 @@
  #ifndef _WIN32
  	irecv_error_t err = irecv_kis_config_write32(client, KIS_PORTAL_CONFIG, KIS_INDEX_ENABLE_A, KIS_ENABLE_A_VAL);
  	if (err != IRECV_E_SUCCESS) {
-@@ -1479,9 +1673,17 @@
+@@ -2384,7 +2578,15 @@ static void iokit_cfdictionary_set_short(CFMutableDictionaryRef dict, const void
  
  static int check_context(irecv_client_t client)
  {
 -	if (client == NULL || client->handle == NULL) {
 +	if (client == NULL) {
- 		return IRECV_E_NO_DEVICE;
- 	}
++		return IRECV_E_NO_DEVICE;
++	}
 +#ifdef HAVE_IOKIT
 +	if (client->kis_dic) {
 +		return IRECV_E_SUCCESS;
 +	}
 +#endif
 +	if (client->handle == NULL) {
-+		return IRECV_E_NO_DEVICE;
-+	}
+ 		return IRECV_E_NO_DEVICE;
+ 	}
  
- 	return IRECV_E_SUCCESS;
- }
-@@ -1491,6 +1693,10 @@
+@@ -2396,6 +2598,10 @@ static int check_context(irecv_client_t client)
  #ifdef HAVE_IOKIT
  static int iokit_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index, unsigned char *data, uint16_t w_length, unsigned int timeout)
  {
@@ -263,7 +259,7 @@
  	IOReturn result;
  	IOUSBDevRequestTO req;
  
-@@ -1593,6 +1799,10 @@
+@@ -2501,6 +2707,10 @@ static void iokit_async_cb(void *refcon, kern_return_t ret, void *arg_0)
  
  static int iokit_async_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index, unsigned char *data, uint16_t w_length, struct irecv_async_transfer* transfer)
  {
@@ -274,7 +270,7 @@
  	IOReturn result;
  	IOUSBDevRequest req;
  
-@@ -1740,6 +1950,10 @@
+@@ -2660,6 +2870,10 @@ static int iokit_usb_bulk_transfer(irecv_client_t client,
  						int *transferred,
  						unsigned int timeout)
  {
@@ -285,7 +281,7 @@
  	IOReturn result;
  	IOUSBInterfaceInterface300 **intf = client->usbInterface;
  	UInt32 size = length;
-@@ -1952,6 +2166,10 @@
+@@ -2880,6 +3094,10 @@ static irecv_error_t iokit_usb_open_service(irecv_client_t *pclient, io_service_
  	IOCFPlugInInterface **plug = NULL;
  	CFStringRef serialString;
  
@@ -296,19 +292,19 @@
  	client = (irecv_client_t) calloc( 1, sizeof(struct irecv_client_private));
  
  	// Create the plug-in
-@@ -2245,13 +2463,15 @@
+@@ -3255,13 +3473,15 @@ irecv_error_t irecv_open_with_ecid(irecv_client_t* pclient, uint64_t ecid)
  	}
  
  #ifdef HAVE_IOKIT
 -	error = (*client->handle)->CreateDeviceAsyncEventSource(client->handle, &client->async_event_source);
 -	if (error != IRECV_E_SUCCESS) {
--		free(client);
+-		irecv_close(client);
 -		*pclient = NULL;
 -		return error;
 +	if (!client->kis_dic) {
 +		error = (*client->handle)->CreateDeviceAsyncEventSource(client->handle, &client->async_event_source);
 +		if (error != IRECV_E_SUCCESS) {
-+			free(client);
++			irecv_close(client);
 +			*pclient = NULL;
 +			return error;
 +		}
@@ -318,7 +314,7 @@
  #endif
  
  	if (client->mode == IRECV_K_DFU_MODE || client->mode == IRECV_K_PORT_DFU_MODE || client->mode == IRECV_K_WTF_MODE || client->mode == KIS_PRODUCT_ID) {
-@@ -2323,6 +2543,10 @@
+@@ -3333,6 +3553,10 @@ irecv_error_t irecv_usb_set_configuration(irecv_client_t client, int configurati
  	debug("Setting to configuration %d\n", configuration);
  
  #ifdef HAVE_IOKIT
@@ -329,7 +325,7 @@
  	IOReturn result;
  
  	result = (*client->handle)->SetConfiguration(client->handle, configuration);
-@@ -2440,6 +2664,11 @@
+@@ -3454,6 +3678,11 @@ irecv_error_t irecv_usb_set_interface(irecv_client_t client, int usb_interface,
  	debug("Setting to interface %d:%d\n", usb_interface, usb_alt_interface);
  #ifndef _WIN32
  #ifdef HAVE_IOKIT
@@ -341,7 +337,7 @@
  	if (iokit_usb_set_interface(client, usb_interface, usb_alt_interface) < 0) {
  		return IRECV_E_USB_INTERFACE;
  	}
-@@ -2478,6 +2707,9 @@
+@@ -3502,6 +3731,9 @@ irecv_error_t irecv_reset(irecv_client_t client)
  
  #ifndef _WIN32
  #ifdef HAVE_IOKIT
@@ -351,7 +347,7 @@
  	IOReturn result;
  
  	result = (*client->handle)->ResetDevice(client->handle);
-@@ -2770,12 +3002,12 @@
+@@ -3829,12 +4061,12 @@ static void* _irecv_handle_device_add(void *userdata)
  		debug("%s: ERROR: no device?!\n", __func__);
  		return NULL;
  	}
@@ -369,7 +365,7 @@
  	if (!product_id) {
  		debug("%s: ERROR: could not get product id?!\n", __func__);
  		return NULL;
-@@ -3011,6 +3243,17 @@
+@@ -4383,6 +4615,17 @@ static void iokit_device_added(void *refcon, io_iterator_t iterator)
  	SInt32 score;
  
  	while ((device = IOIteratorNext(iterator))) {

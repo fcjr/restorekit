@@ -1,5 +1,5 @@
 diff --git a/src/dfu.c b/src/dfu.c
-index 6ba23e7..bd3d693 100644
+index b7f61e0..7cd3a1a 100644
 --- a/src/dfu.c
 +++ b/src/dfu.c
 @@ -41,6 +41,35 @@ static int dfu_progress_callback(irecv_client_t client, const irecv_event_t* eve
@@ -39,7 +39,7 @@ index 6ba23e7..bd3d693 100644
  {
  	irecv_client_t dfu = NULL;
 @@ -54,7 +83,7 @@ int dfu_client_new(struct idevicerestore_client_t* client)
- 		}
+ 		memset(client->dfu, 0, sizeof(struct dfu_client_t));
  	}
  
 -	if (irecv_open_with_ecid_and_attempts(&dfu, client->ecid, 10) != IRECV_E_SUCCESS) {
