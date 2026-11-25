@@ -10,7 +10,7 @@
 //!   The DFU controller's `port-number` matches a `usb-drd` USB controller,
 //!   whose `locationID` is the base every device on that port enumerates under.
 
-use std::collections::HashMap;
+use nusb::MaybeFuture;
 use std::ffi::{c_char, c_void, CStr, CString};
 
 type IoObject = u32;
@@ -299,11 +299,10 @@ pub(crate) fn all_hpm_ports() -> Vec<(i32, Option<String>)> {
     out
 }
 
-/// The RID of the DFU-capable port the USB device with this serial is cabled to,
-/// or `None` if the device is on another port, isn't enumerated, or the topology
-/// couldn't be read.
-pub(crate) fn dfu_rid_for_serial(serial: &str) -> Option<i32> {
-    let base = *locations_by_serial().get(serial)? & 0xff00_0000;
+/// The RID of the DFU-capable port `dev` is cabled to, or `None` if it's on
+/// another port, isn't enumerated, or the topology couldn't be read.
+pub(crate) fn dfu_rid_for(dev: &crate::device::Device) -> Option<i32> {
+    let base = location_of(dev, &usb_devices())? & 0xff00_0000;
     host_ports()
         .iter()
         .find(|p| p.base == base && p.dfu)
@@ -318,24 +317,20 @@ pub(crate) fn dfu_port_location() -> Option<String> {
         .and_then(|p| p.location.clone())
 }
 
-/// Map every connected Apple USB device's serial to its `locationID`.
-fn locations_by_serial() -> HashMap<String, u32> {
-    let mut out = HashMap::new();
-    unsafe {
-        for_each_service("IOUSBHostDevice", |dev| {
-            let k = cfstr("kUSBSerialNumberString");
-            let v = IORegistryEntryCreateCFProperty(dev, k, std::ptr::null(), 0);
-            CFRelease(k);
-            let serial = as_string(v);
-            if !v.is_null() {
-                CFRelease(v);
-            }
-            if let (Some(serial), Some(loc)) = (serial, prop_u32(dev, "locationID")) {
-                out.insert(serial, loc);
-            }
-        });
-    }
-    out
+fn usb_devices() -> Vec<nusb::DeviceInfo> {
+    nusb::list_devices()
+        .wait()
+        .map(|it| it.collect())
+        .unwrap_or_default()
+}
+
+/// `dev`'s IOKit `locationID`, found by its bus entry rather than its serial,
+/// which in KIS mode is the identity read over KIS.
+fn location_of(dev: &crate::device::Device, infos: &[nusb::DeviceInfo]) -> Option<u32> {
+    infos
+        .iter()
+        .find(|i| dev.is_usb(i))
+        .map(|i| i.location_id())
 }
 
 /// Set each device's [`Port`](crate::device::Port) from its `locationID`.
@@ -345,9 +340,9 @@ pub(crate) fn mark_ports(devices: &mut [super::super::device::Device]) {
     if ports.is_empty() {
         return; // couldn't resolve topology — leave unknown
     }
-    let locs = locations_by_serial();
+    let infos = usb_devices();
     for d in devices.iter_mut() {
-        if let Some(loc) = locs.get(&d.serial) {
+        if let Some(loc) = location_of(d, &infos) {
             if let Some(p) = ports.iter().find(|p| loc & 0xff00_0000 == p.base) {
                 d.port = Some(Port {
                     dfu: p.dfu,

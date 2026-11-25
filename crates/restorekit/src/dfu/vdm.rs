@@ -416,7 +416,7 @@ fn resolve_rid(target: &DfuTarget) -> Result<Option<i32>> {
             let devices = crate::device::list()?;
             let mut rids: Vec<i32> = devices
                 .iter()
-                .filter_map(|d| super::port::dfu_rid_for_serial(&d.serial))
+                .filter_map(super::port::dfu_rid_for)
                 .collect();
             rids.sort_unstable();
             rids.dedup();
@@ -449,7 +449,7 @@ fn resolve_rid(target: &DfuTarget) -> Result<Option<i32>> {
                 .iter()
                 .find(|d| d.ecid == Some(*e))
                 .ok_or(Error::EcidNotConnected(*e))?;
-            super::port::dfu_rid_for_serial(&dev.serial)
+            super::port::dfu_rid_for(dev)
                 .map(Some)
                 .ok_or(Error::EcidNotOnDfuPort(*e))
         }
