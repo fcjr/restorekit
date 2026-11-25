@@ -1499,7 +1499,7 @@
                   <button class="btn ghost sm" disabled={dongleBusy === dg.serial || !dg.status?.target_attached}
                     onclick={() => dongleReboot(dg.serial)}>Reboot</button>
                   <button class="btn ghost sm" disabled={!!dongleBusy || !!fwUpdating || !dg.status?.target_attached}
-                    title="Cycle the target's USB connection to recover detection. Interrupts USB data. Requires firmware 0.1.3 or later."
+                    title="Cycle the target's USB connection to recover detection. Interrupts USB data. Needs Dongle-Lite/Pro firmware 0.1.3 or later (any Dongle-Pro v2 firmware)."
                     onclick={() => dongleReplug(dg.serial)}>Replug</button>
                 </td>
               </tr>

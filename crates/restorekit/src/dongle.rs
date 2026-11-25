@@ -588,7 +588,8 @@ impl Dongle {
     }
 
     /// Cycle target VBUS and CC to recover its USB connection.
-    /// Requires dongle firmware 0.1.3 or later. This interrupts target USB data.
+    /// Needs Dongle-Lite/Pro firmware 0.1.3 or later (any Dongle-Pro v2
+    /// firmware). This interrupts target USB data.
     pub fn replug(&self) -> Result<()> {
         self.open()?.replug()
     }
@@ -655,7 +656,8 @@ impl DongleHandle {
     }
 
     /// Cycle target VBUS and CC, then re-establish the connection.
-    /// Requires dongle firmware 0.1.3 or later. This interrupts target USB data.
+    /// Needs Dongle-Lite/Pro firmware 0.1.3 or later (any Dongle-Pro v2
+    /// firmware). This interrupts target USB data.
     pub fn replug(&self) -> Result<()> {
         self.command(proto::VCMD_REPLUG, "replug")
     }
@@ -813,7 +815,7 @@ impl DongleHandle {
             .map_err(|e| match e {
                 nusb::transfer::TransferError::Stall if code == proto::VCMD_REPLUG => {
                     Error::Dongle(
-                        "replug requires newer dongle firmware; update to 0.1.3 or later with \
+                        "replug requires newer dongle firmware (Dongle-Lite/Pro 0.1.3 or later); update with \
                          `restorekit dongle update`"
                             .into(),
                     )
