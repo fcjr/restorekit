@@ -83,6 +83,19 @@ jobs:
             build-essential autoconf automake libtool pkg-config cmake autoconf-archive \
             libusb-1.0-0-dev
 
+      # The runner image ships these dev packages preinstalled. Take them off
+      # so the build proves it only uses the bundled OpenSSL, curl and zlib.
+      - name: Remove system OpenSSL, curl and zlib dev packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get remove -y libssl-dev libcurl4-openssl-dev libcurl4-gnutls-dev zlib1g-dev
+          for pc in openssl libcurl zlib; do
+            if pkg-config --exists "$pc"; then
+              echo "::error::system $pc is still visible to pkg-config"
+              exit 1
+            fi
+          done
+
       - name: Install macOS build deps
         if: runner.os == 'macOS'
         run: brew install autoconf automake libtool pkg-config cmake autoconf-archive

@@ -49,17 +49,18 @@ sudo apt-get install -y \
 ### Other distributions
 
 Install the equivalents of: a C compiler + `make`, `autoconf`, `automake`,
-`libtool`, `autoconf-archive`, `pkgconf`/`pkg-config`, `cmake`, and the dev
-headers for `libusb-1.0`. For example:
+`libtool`, `autoconf-archive`, `pkgconf`/`pkg-config`, `cmake`, Perl with its
+core modules (the bundled OpenSSL's build needs it), and the dev headers for
+`libusb-1.0`. For example:
 
 ```sh
 # Fedora
 sudo dnf install gcc make autoconf automake libtool autoconf-archive pkgconf \
-  cmake libusb1-devel
+  cmake perl libusb1-devel
 
 # Arch
 sudo pacman -S base-devel autoconf automake libtool autoconf-archive pkgconf \
-  cmake libusb
+  cmake perl libusb
 ```
 
 Then:

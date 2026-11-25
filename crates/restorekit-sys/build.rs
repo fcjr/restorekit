@@ -30,18 +30,24 @@ fn main() {
 
     // Includes/libs exposed by the vendored -sys build dependencies.
     let openssl_include = env::var("DEP_OPENSSL_INCLUDE").ok();
+    let openssl_root = env::var("DEP_OPENSSL_ROOT").ok();
     let zlib_include = env::var("DEP_Z_INCLUDE").ok();
     let zlib_root = env::var("DEP_Z_ROOT").ok();
     let curl_include = env::var("DEP_CURL_INCLUDE").ok();
+    let curl_root = env::var("DEP_CURL_ROOT").ok();
 
     let deps = Deps {
         prefix: prefix.clone(),
         openssl_include,
+        openssl_root,
         zlib_include,
         zlib_root,
         curl_include,
+        curl_root,
         windows: env::var_os("CARGO_CFG_WINDOWS").is_some(),
     };
+
+    write_openssl_pc(&deps);
 
     // libzip (needs zlib) — from source via CMake.
     build_libzip(&vendor.join("libzip"), &deps);
@@ -93,10 +99,14 @@ fn main() {
 struct Deps {
     prefix: PathBuf,
     openssl_include: Option<String>,
+    /// openssl-src's install, with the static libssl/libcrypto in `lib/`.
+    openssl_root: Option<String>,
     zlib_include: Option<String>,
     /// libz-sys's build, with the static zlib in `lib/`.
     zlib_root: Option<String>,
     curl_include: Option<String>,
+    /// curl-sys's build, with the static libcurl in `build/`.
+    curl_root: Option<String>,
     /// Building for a Windows target (autotools run under MSYS2/MinGW, which
     /// wants POSIX-style paths).
     windows: bool,
@@ -155,6 +165,47 @@ impl Deps {
     fn ldflags(&self) -> String {
         format!("-L{}", self.path(&self.prefix.join("lib")))
     }
+
+    fn openssl_lib_dir(&self) -> Option<PathBuf> {
+        self.openssl_root.as_ref().map(|r| Path::new(r).join("lib"))
+    }
+
+    /// curl-sys compiles libcurl with `cc` into `build/`, not `lib/`.
+    fn curl_lib_dir(&self) -> Option<PathBuf> {
+        self.curl_root.as_ref().map(|r| Path::new(r).join("build"))
+    }
+}
+
+/// Stage an `openssl.pc` for the bundled OpenSSL.
+///
+/// configure is handed OpenSSL's flags directly, but libimobiledevice still
+/// writes `openssl >= 0.9.8` into its installed .pc's `Requires.private`, so
+/// without this a pkg-config query against the staging prefix fails on a host
+/// with no system OpenSSL.
+fn write_openssl_pc(deps: &Deps) {
+    let (Some(include), Some(lib_dir)) = (&deps.openssl_include, deps.openssl_lib_dir()) else {
+        return;
+    };
+    let header = std::fs::read_to_string(Path::new(include).join("openssl/opensslv.h"))
+        .expect("read bundled opensslv.h");
+    let version = header
+        .lines()
+        .find_map(|l| {
+            l.trim_start_matches(['#', ' '])
+                .strip_prefix("define OPENSSL_VERSION_STR")
+                .map(|v| v.trim().trim_matches('"').to_string())
+        })
+        .expect("OPENSSL_VERSION_STR in bundled opensslv.h");
+    let pc = format!(
+        "Name: OpenSSL\n\
+         Description: Bundled OpenSSL (openssl-src)\n\
+         Version: {version}\n\
+         Libs: -L{lib} -lssl -lcrypto\n\
+         Cflags: -I{inc}\n",
+        lib = deps.path(&lib_dir),
+        inc = deps.path(Path::new(include)),
+    );
+    std::fs::write(deps.prefix.join("lib/pkgconfig/openssl.pc"), pc).unwrap();
 }
 
 /// The libimobiledevice family decorates its public API with
@@ -282,18 +333,27 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
     // configure takes the bundled OpenSSL and curl as given rather than
     // looking for a system copy through pkg-config. curl-sys's own libcurl.pc
     // can't stand in: it leaves curl 8's `@LIBCURL_PC_*@` placeholders
-    // unfilled.
-    for (module, include, libs) in [
-        ("openssl", &deps.openssl_include, "-lssl -lcrypto"),
-        ("libcurl", &deps.curl_include, "-lcurl"),
+    // unfilled. The `-L` keeps a link through these flags (they end up in the
+    // libtool dependency libs) from finding a system libssl or libcurl.
+    for (module, include, lib_dir, libs) in [
+        (
+            "openssl",
+            &deps.openssl_include,
+            deps.openssl_lib_dir(),
+            "-lssl -lcrypto",
+        ),
+        ("libcurl", &deps.curl_include, deps.curl_lib_dir(), "-lcurl"),
     ] {
-        if let Some(include) = include {
+        if let (Some(include), Some(lib_dir)) = (include, lib_dir) {
             configure
                 .env(
                     format!("{module}_CFLAGS"),
                     format!("-I{}", deps.path(Path::new(include))),
                 )
-                .env(format!("{module}_LIBS"), libs);
+                .env(
+                    format!("{module}_LIBS"),
+                    format!("-L{} {libs}", deps.path(&lib_dir)),
+                );
         }
     }
     // A stale-timestamp maintainer-mode rebuild can re-invoke aclocal from
@@ -363,8 +423,8 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
 /// because libtool never checks, the member list comes back empty: the archive
 /// is created without them and the build limps on. libplist ships libcnary that
 /// way, so `libplist-2.0.a` loses node.o, and the first thing to link plist_*
-/// (its own plistutil, then everything downstream) dies on `undefined reference
-/// to 'node_first_child'`.
+/// dies on `undefined reference to 'node_first_child'`. With the projects'
+/// own tools no longer built, that's the final link of the Rust binary.
 ///
 /// The extraction directory only ever holds the members `ar x` just unpacked,
 /// so list every file instead and leave find nothing to glob. Not done
