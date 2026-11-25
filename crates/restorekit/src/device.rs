@@ -220,6 +220,20 @@ pub const MAC_MODELS: &[MacModel] = &[
     },
     MacModel {
         cpid: 0x6050,
+        bdid: 0x04,
+        board: "K114cAP",
+        identifier: "Mac17,11",
+        name: "MacBook Pro (14-inch PROLED, M5 Max, 2026)",
+    },
+    MacModel {
+        cpid: 0x6050,
+        bdid: 0x06,
+        board: "K116cAP",
+        identifier: "Mac17,10",
+        name: "MacBook Pro (16-inch PROLED, M5 Max, 2026)",
+    },
+    MacModel {
+        cpid: 0x6050,
         bdid: 0x08,
         board: "J714sAP",
         identifier: "Mac17,9",
@@ -259,6 +273,20 @@ pub const MAC_MODELS: &[MacModel] = &[
         board: "J775dAP",
         identifier: "Mac17,15",
         name: "Mac Studio (M5 Ultra, 2026)",
+    },
+    MacModel {
+        cpid: 0x6050,
+        bdid: 0x14,
+        board: "K114sAP",
+        identifier: "Mac17,13",
+        name: "MacBook Pro (14-inch PROLED, M5 Pro, 2026)",
+    },
+    MacModel {
+        cpid: 0x6050,
+        bdid: 0x16,
+        board: "K116sAP",
+        identifier: "Mac17,12",
+        name: "MacBook Pro (16-inch PROLED, M5 Pro, 2026)",
     },
     // Intel Macs with the Apple T2 (CPID 0x8012). In DFU the T2 reports this
     // CPID/BDID; `identifier` is the T2 bridge product type (`iBridge2,x`) — the
@@ -547,10 +575,24 @@ pub const MAC_MODELS: &[MacModel] = &[
     },
     MacModel {
         cpid: 0x8152,
+        bdid: 0x22,
+        board: "J804AP",
+        identifier: "Mac18,1",
+        name: "MacBook Pro (14-inch, M6, 2026)",
+    },
+    MacModel {
+        cpid: 0x8152,
         bdid: 0x24,
         board: "J873gAP",
         identifier: "Mac18,5",
         name: "Mac mini (M6, 2026)",
+    },
+    MacModel {
+        cpid: 0x8152,
+        bdid: 0x26,
+        board: "J833ctAP",
+        identifier: "Mac18,2",
+        name: "iMac (24-inch, M6, 2026)",
     },
 ];
 
