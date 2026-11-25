@@ -8,8 +8,21 @@ use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use openssl::asn1::Asn1Time;
+use openssl::bn::{BigNum, MsbOption};
+use openssl::error::ErrorStack;
+use openssl::hash::MessageDigest;
+use openssl::nid::Nid;
+use openssl::pkcs12::Pkcs12;
+use openssl::pkcs7::{Pkcs7, Pkcs7Flags};
+use openssl::pkey::{PKey, Private};
+use openssl::rsa::Rsa;
+use openssl::stack::Stack;
+use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use restorekit_sys as sys;
+use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 
@@ -31,14 +44,22 @@ const LABEL: &CStr = c"restorekit";
 /// to trust this computer: this returns [`Error::TrustPending`], and a call
 /// after the user taps Trust goes through. The pair record stays on the host.
 ///
+/// With a [`Supervisor`], a device that lists its certificate as a supervising
+/// host pairs without asking: in those same cases the host pairs as its
+/// supervisor and saves the new record. A device the identity doesn't
+/// supervise pairs as it would without one.
+///
 /// Returns once the device has accepted the request. It then leaves USB and
 /// comes back in recovery mode, which
 /// [`device::wait_where`](crate::device::wait_where) can wait for.
-pub fn enter(ecid: u64) -> Result<()> {
+pub fn enter(ecid: u64, supervisor: Option<&Supervisor>) -> Result<()> {
     let device = find(ecid)?;
     let code = Lockdown::connect(&device)?.enter_recovery();
     if code != sys::LOCKDOWN_E_SESSION_INACTIVE {
         return check(code);
+    }
+    if let Some(supervisor) = supervisor.filter(|_| !device.paired()) {
+        supervisor.pair(&device)?;
     }
     let lockdown = match Lockdown::handshake(&device) {
         // A pair record from before the device was erased.
@@ -46,12 +67,188 @@ pub fn enter(ecid: u64) -> Result<()> {
             code: sys::LOCKDOWN_E_INVALID_HOST_ID,
             ..
         }) => {
-            Lockdown::connect(&device)?.pair()?;
+            match supervisor {
+                Some(supervisor) => supervisor.pair(&device)?,
+                None => Lockdown::connect(&device)?.pair()?,
+            }
             Lockdown::handshake(&device)?
         }
         lockdown => lockdown?,
     };
     check(lockdown.enter_recovery())
+}
+
+/// A supervision identity: a certificate and its private key, made by
+/// [`Supervisor::generate`] or by Apple Configurator. A supervised device whose
+/// supervising host certificates include the certificate pairs with a host
+/// holding the key without asking its user whether to trust that host.
+pub struct Supervisor {
+    certificate: X509,
+    key: PKey<Private>,
+}
+
+impl Supervisor {
+    /// A new identity: an RSA key and a self-signed certificate with this
+    /// common name, valid for 20 years.
+    pub fn generate(name: &str) -> Result<Self> {
+        let build = || -> std::result::Result<Self, ErrorStack> {
+            let key = PKey::from_rsa(Rsa::generate(2048)?)?;
+            let mut subject = X509NameBuilder::new()?;
+            subject.append_entry_by_nid(Nid::COMMONNAME, name)?;
+            let subject = subject.build();
+            let mut serial = BigNum::new()?;
+            serial.rand(64, MsbOption::MAYBE_ZERO, false)?;
+            // A day early, for a device whose clock runs behind this host's.
+            let since = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .saturating_sub(Duration::from_secs(24 * 60 * 60));
+            let serial = serial.to_asn1_integer()?;
+            let not_before = Asn1Time::from_unix(since.as_secs() as i64)?;
+            let not_after = Asn1Time::days_from_now(20 * 365)?;
+            let mut certificate = X509Builder::new()?;
+            certificate.set_version(2)?;
+            certificate.set_serial_number(&serial)?;
+            certificate.set_subject_name(&subject)?;
+            certificate.set_issuer_name(&subject)?;
+            certificate.set_pubkey(&key)?;
+            certificate.set_not_before(&not_before)?;
+            certificate.set_not_after(&not_after)?;
+            certificate.sign(&key, MessageDigest::sha256())?;
+            Ok(Supervisor {
+                certificate: certificate.build(),
+                key,
+            })
+        };
+        build().map_err(unusable)
+    }
+
+    /// Read the identity from PEM holding its certificate and unencrypted
+    /// private key, as [`to_pem`](Self::to_pem) writes.
+    pub fn from_pem(pem: &[u8]) -> Result<Self> {
+        let invalid = |reason: &str| Error::SupervisionIdentity(reason.into());
+        let certificate = X509::from_pem(pem).map_err(|_| invalid("no certificate"))?;
+        // An empty passphrase fails an encrypted key instead of prompting.
+        let key = PKey::private_key_from_pem_passphrase(pem, b"")
+            .map_err(|_| invalid("no unencrypted private key"))?;
+        if !certificate
+            .public_key()
+            .is_ok_and(|public| public.public_eq(&key))
+        {
+            return Err(invalid("the private key does not match the certificate"));
+        }
+        Ok(Supervisor { certificate, key })
+    }
+
+    /// Read the identity from a PKCS #12 archive protected by this password.
+    ///
+    /// The bundled OpenSSL has no legacy algorithms, so it can't read an
+    /// archive encrypted with RC2, as macOS keychain exports are: convert one
+    /// to PEM for [`from_pem`](Self::from_pem).
+    pub fn from_pkcs12(der: &[u8], password: &str) -> Result<Self> {
+        let invalid = |reason: &str| Error::SupervisionIdentity(reason.into());
+        let archive = Pkcs12::from_der(der).map_err(|_| invalid("not a PKCS #12 archive"))?;
+        let parsed = archive.parse2(password).map_err(|error| {
+            let wrong = error
+                .errors()
+                .iter()
+                .any(|error| error.reason() == Some("mac verify failure"));
+            if wrong {
+                invalid("wrong password")
+            } else {
+                unusable(error)
+            }
+        })?;
+        let (Some(key), Some(certificate)) = (parsed.pkey, parsed.cert) else {
+            return Err(invalid("the archive holds no certificate and key"));
+        };
+        if !certificate
+            .public_key()
+            .is_ok_and(|public| public.public_eq(&key))
+        {
+            return Err(invalid("the private key does not match the certificate"));
+        }
+        Ok(Supervisor { certificate, key })
+    }
+
+    /// The identity as PEM: its unencrypted private key, then its certificate.
+    pub fn to_pem(&self) -> Result<Zeroizing<Vec<u8>>> {
+        let key = Zeroizing::new(self.key.private_key_to_pem_pkcs8().map_err(unusable)?);
+        let certificate = self.certificate.to_pem().map_err(unusable)?;
+        Ok(Zeroizing::new([key.as_slice(), &certificate].concat()))
+    }
+
+    /// The identity as a PKCS #12 archive protected by this password, with
+    /// OpenSSL's default AES-256 and PBKDF2 encryption.
+    pub fn to_pkcs12(&self, password: &str) -> Result<Vec<u8>> {
+        let mut builder = Pkcs12::builder();
+        if let Some(name) = self.name() {
+            builder.name(&name);
+        }
+        builder
+            .pkey(&self.key)
+            .cert(&self.certificate)
+            .build2(password)
+            .and_then(|archive| archive.to_der())
+            .map_err(unusable)
+    }
+
+    /// The certificate in DER, as a device enrollment profile lists it among
+    /// its supervising host certificates.
+    pub fn certificate(&self) -> Result<Vec<u8>> {
+        self.certificate.to_der().map_err(unusable)
+    }
+
+    /// The certificate's common name.
+    pub fn name(&self) -> Option<String> {
+        let entry = self
+            .certificate
+            .subject_name()
+            .entries_by_nid(Nid::COMMONNAME)
+            .next()?;
+        entry.data().to_string().ok()
+    }
+
+    /// Pair this host with the device as its supervisor. The device answers
+    /// the certificate with a challenge, and accepts this host once it gets
+    /// the challenge signed with the identity's key.
+    fn pair(&self, device: &Device) -> Result<()> {
+        let lockdown = Lockdown::connect(device)?;
+        let (code, response) = lockdown.pair_with(c"SupervisorCertificate", &self.certificate()?);
+        if code != sys::LOCKDOWN_E_MC_CHALLENGE_REQUIRED {
+            // Paired outright, as a device in Setup Assistant does, or
+            // answered as to any host, as one this identity doesn't supervise does.
+            return check(code);
+        }
+        let Some(challenge) = response.data(&[c"ExtendedResponse", c"PairingChallenge"]) else {
+            return check(code);
+        };
+        check(
+            lockdown
+                .pair_with(c"ChallengeResponse", &self.sign(&challenge)?)
+                .0,
+        )
+    }
+
+    /// The challenge as DER PKCS #7 signed data, its bytes as they are.
+    fn sign(&self, challenge: &[u8]) -> Result<Vec<u8>> {
+        Stack::new()
+            .and_then(|certs| {
+                Pkcs7::sign(
+                    &self.certificate,
+                    &self.key,
+                    &certs,
+                    challenge,
+                    Pkcs7Flags::BINARY,
+                )
+            })
+            .and_then(|signed| signed.to_der())
+            .map_err(unusable)
+    }
+}
+
+fn unusable(error: ErrorStack) -> Error {
+    Error::SupervisionIdentity(error.to_string())
 }
 
 /// Open the USB device whose lockdownd reports this ECID.
@@ -80,22 +277,41 @@ fn udids() -> Result<Vec<CString>> {
 }
 
 /// A USB device usbmuxd lists.
-struct Device(sys::idevice_t);
+struct Device {
+    handle: sys::idevice_t,
+    udid: CString,
+}
 
 impl Device {
     fn open(udid: &CStr) -> Option<Self> {
-        let mut device = ptr::null_mut();
-        if unsafe { sys::idevice_new(&mut device, udid.as_ptr()) } == sys::IDEVICE_E_SUCCESS {
-            Some(Device(device))
+        let mut handle = ptr::null_mut();
+        if unsafe { sys::idevice_new(&mut handle, udid.as_ptr()) } == sys::IDEVICE_E_SUCCESS {
+            Some(Device {
+                handle,
+                udid: udid.to_owned(),
+            })
         } else {
             None
         }
+    }
+
+    /// Whether the host has a pair record for the device.
+    fn paired(&self) -> bool {
+        let mut record = ptr::null_mut();
+        let mut size = 0;
+        if unsafe { sys::usbmuxd_read_pair_record(self.udid.as_ptr(), &mut record, &mut size) } != 0
+        {
+            return false;
+        }
+        // libusbmuxd allocates the record with malloc.
+        unsafe { sys::plist_mem_free(record.cast()) };
+        true
     }
 }
 
 impl Drop for Device {
     fn drop(&mut self) {
-        unsafe { sys::idevice_free(self.0) };
+        unsafe { sys::idevice_free(self.handle) };
     }
 }
 
@@ -121,7 +337,7 @@ impl<'a> Lockdown<'a> {
 
     fn open(device: &'a Device, new: NewClient) -> Result<Self> {
         let mut client = ptr::null_mut();
-        check(unsafe { new(device.0, &mut client, LABEL.as_ptr()) })?;
+        check(unsafe { new(device.handle, &mut client, LABEL.as_ptr()) })?;
         Ok(Lockdown {
             client,
             _device: PhantomData,
@@ -170,11 +386,60 @@ impl<'a> Lockdown<'a> {
     fn pair(&self) -> Result<()> {
         check(unsafe { sys::lockdownd_pair(self.client, ptr::null_mut()) })
     }
+
+    /// [`pair`](Self::pair) with lockdownd's detailed pairing errors and this
+    /// data as the pairing options, returning the device's response.
+    fn pair_with(&self, key: &CStr, data: &[u8]) -> (c_int, Plist) {
+        let mut response = ptr::null_mut();
+        let code = unsafe {
+            let options = Plist(sys::plist_new_dict());
+            sys::plist_dict_set_item(
+                options.0,
+                c"ExtendedPairingErrors".as_ptr(),
+                sys::plist_new_bool(1),
+            );
+            sys::plist_dict_set_item(
+                options.0,
+                key.as_ptr(),
+                sys::plist_new_data(data.as_ptr().cast(), data.len() as u64),
+            );
+            sys::lockdownd_pair_with_options(self.client, ptr::null_mut(), options.0, &mut response)
+        };
+        (code, Plist(response))
+    }
 }
 
 impl Drop for Lockdown<'_> {
     fn drop(&mut self) {
         unsafe { sys::lockdownd_client_free(self.client) };
+    }
+}
+
+/// An owned libplist node, possibly none.
+struct Plist(sys::plist_t);
+
+impl Plist {
+    /// The data at this path of dictionary keys.
+    fn data(&self, path: &[&CStr]) -> Option<Vec<u8>> {
+        let mut node = self.0;
+        for key in path {
+            if unsafe { sys::plist_get_node_type(node) } != sys::PLIST_DICT {
+                return None;
+            }
+            node = unsafe { sys::plist_dict_get_item(node, key.as_ptr()) };
+        }
+        let mut length = 0;
+        let bytes = unsafe { sys::plist_get_data_ptr(node, &mut length) };
+        if bytes.is_null() || length == 0 {
+            return None;
+        }
+        Some(unsafe { std::slice::from_raw_parts(bytes.cast::<u8>(), length as usize) }.to_vec())
+    }
+}
+
+impl Drop for Plist {
+    fn drop(&mut self) {
+        unsafe { sys::plist_free(self.0) };
     }
 }
 
@@ -216,6 +481,10 @@ mod tests {
         );
         assert_eq!(name(sys::LOCKDOWN_E_INVALID_HOST_ID), c"Invalid HostID");
         assert_eq!(name(sys::LOCKDOWN_E_SESSION_INACTIVE), c"Session inactive");
+        assert_eq!(
+            name(sys::LOCKDOWN_E_MC_CHALLENGE_REQUIRED),
+            c"MC challenge required"
+        );
 
         assert!(check(sys::LOCKDOWN_E_SUCCESS).is_ok());
         assert!(matches!(
@@ -246,8 +515,91 @@ mod tests {
         // No device has ECID 0. Without a usbmuxd, as on the Linux and Windows
         // CI runners, the lookup stops before listing devices.
         assert!(matches!(
-            enter(0),
+            enter(0, None),
             Err(Error::RunningDeviceNotFound(0) | Error::UsbmuxdUnreachable)
         ));
+    }
+
+    #[test]
+    fn a_generated_identity_reads_back_from_its_pem() {
+        let supervisor = Supervisor::generate("Example School").unwrap();
+        let read = Supervisor::from_pem(&supervisor.to_pem().unwrap()).unwrap();
+        assert_eq!(read.name().as_deref(), Some("Example School"));
+        assert_eq!(
+            read.certificate().unwrap(),
+            supervisor.certificate().unwrap()
+        );
+        assert!(read.certificate.not_before() < Asn1Time::days_from_now(0).unwrap());
+    }
+
+    #[test]
+    fn an_identity_moves_in_a_password_protected_pkcs12_archive() {
+        let supervisor = Supervisor::generate("Example School").unwrap();
+        let archive = supervisor.to_pkcs12("correct horse").unwrap();
+        let read = Supervisor::from_pkcs12(&archive, "correct horse").unwrap();
+        assert_eq!(read.name().as_deref(), Some("Example School"));
+        assert_eq!(
+            read.certificate().unwrap(),
+            supervisor.certificate().unwrap()
+        );
+        assert!(read.key.public_eq(&supervisor.key));
+        assert!(matches!(
+            Supervisor::from_pkcs12(&archive, "wrong"),
+            Err(Error::SupervisionIdentity(reason)) if reason == "wrong password"
+        ));
+        assert!(matches!(
+            Supervisor::from_pkcs12(b"not an archive", "correct horse"),
+            Err(Error::SupervisionIdentity(reason)) if reason == "not a PKCS #12 archive"
+        ));
+    }
+
+    #[test]
+    fn a_supervision_identity_is_its_certificate_and_own_unencrypted_key() {
+        let supervisor = Supervisor::generate("Example School").unwrap();
+        let other = Supervisor::generate("Elsewhere").unwrap();
+        let certificate = supervisor.certificate.to_pem().unwrap();
+        let unusable = |pem: &[&[u8]]| match Supervisor::from_pem(&pem.concat()) {
+            Err(Error::SupervisionIdentity(reason)) => reason,
+            _ => panic!("accepted"),
+        };
+        assert_eq!(
+            unusable(&[&other.key.private_key_to_pem_pkcs8().unwrap(), &certificate]),
+            "the private key does not match the certificate"
+        );
+        // Fails rather than asking for the passphrase.
+        let encrypted = supervisor
+            .key
+            .private_key_to_pem_pkcs8_passphrase(openssl::symm::Cipher::aes_256_cbc(), b"secret")
+            .unwrap();
+        assert_eq!(
+            unusable(&[&encrypted, &certificate]),
+            "no unencrypted private key"
+        );
+        assert_eq!(
+            unusable(&[&supervisor.key.private_key_to_pem_pkcs8().unwrap()]),
+            "no certificate"
+        );
+    }
+
+    #[test]
+    fn a_signed_challenge_carries_the_challenge_unchanged() {
+        let supervisor = Supervisor::generate("Example School").unwrap();
+        // Text signing would rewrite these line endings.
+        let challenge = b"\x00line\nnext\r\nlast\n";
+        let signed = Pkcs7::from_der(&supervisor.sign(challenge).unwrap()).unwrap();
+
+        let mut store = openssl::x509::store::X509StoreBuilder::new().unwrap();
+        store.add_cert(supervisor.certificate.clone()).unwrap();
+        let mut content = Vec::new();
+        signed
+            .verify(
+                &Stack::new().unwrap(),
+                &store.build(),
+                None,
+                Some(&mut content),
+                Pkcs7Flags::BINARY,
+            )
+            .unwrap();
+        assert_eq!(content, challenge);
     }
 }

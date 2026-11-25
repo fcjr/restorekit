@@ -222,9 +222,11 @@ pub const LOCKDOWN_E_USER_DENIED_PAIRING: c_int = -18;
 pub const LOCKDOWN_E_PAIRING_DIALOG_RESPONSE_PENDING: c_int = -19;
 pub const LOCKDOWN_E_INVALID_HOST_ID: c_int = -21;
 pub const LOCKDOWN_E_SESSION_INACTIVE: c_int = -23;
+pub const LOCKDOWN_E_MC_CHALLENGE_REQUIRED: c_int = -39;
 
-/// `PLIST_INT` in libplist's `plist_type`.
+// libplist's `plist_type`.
 pub const PLIST_INT: c_int = 1;
+pub const PLIST_DICT: c_int = 5;
 
 extern "C" {
     /// The UDIDs of the USB devices usbmuxd lists. Fails only when usbmuxd
@@ -263,9 +265,33 @@ extern "C" {
         client: lockdownd_client_t,
         pair_record: lockdownd_pair_record_t,
     ) -> c_int;
+    /// [`lockdownd_pair`] with these pairing options in place of its own,
+    /// returning the device's response.
+    pub fn lockdownd_pair_with_options(
+        client: lockdownd_client_t,
+        pair_record: lockdownd_pair_record_t,
+        options: plist_t,
+        response: *mut plist_t,
+    ) -> c_int;
     pub fn lockdownd_strerror(err: c_int) -> *const c_char;
+    /// Read the host's pair record for a device by UDID through usbmuxd;
+    /// returns 0 when there is one, which the caller frees.
+    pub fn usbmuxd_read_pair_record(
+        record_id: *const c_char,
+        record_data: *mut *mut c_char,
+        record_size: *mut u32,
+    ) -> c_int;
+    pub fn plist_new_dict() -> plist_t;
+    pub fn plist_new_bool(val: u8) -> plist_t;
+    pub fn plist_new_data(val: *const c_char, length: u64) -> plist_t;
+    /// Takes ownership of `item`.
+    pub fn plist_dict_set_item(node: plist_t, key: *const c_char, item: plist_t) -> c_int;
+    /// A borrowed child of `node`, or null.
+    pub fn plist_dict_get_item(node: plist_t, key: *const c_char) -> plist_t;
     pub fn plist_get_node_type(node: plist_t) -> c_int;
     pub fn plist_get_uint_val(node: plist_t, val: *mut u64);
+    /// A pointer into `node`'s own bytes.
+    pub fn plist_get_data_ptr(node: plist_t, length: *mut u64) -> *const c_char;
     pub fn plist_free(plist: plist_t);
     pub fn plist_mem_free(ptr: *mut c_void);
 }
