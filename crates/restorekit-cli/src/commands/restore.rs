@@ -474,10 +474,13 @@ fn restore_render(bar: &ProgressBar, event: Event, json: bool) {
             max_attempts,
             ..
         } => {
-            bar.println(format!(
-                "Connection to the target dropped; retrying restore ({}/{max_attempts})...",
-                attempt + 1
-            ));
+            // Not bar.println: a hidden bar (verbose, or no terminal) drops it.
+            bar.suspend(|| {
+                println!(
+                    "Connection to the target dropped; retrying restore ({}/{max_attempts})...",
+                    attempt + 1
+                )
+            });
         }
         Event::Done => bar.set_position(100),
         _ => {}
