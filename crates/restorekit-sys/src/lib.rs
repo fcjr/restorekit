@@ -281,6 +281,11 @@ extern "C" {
         record_data: *mut *mut c_char,
         record_size: *mut u32,
     ) -> c_int;
+    /// Point the calling thread's usbmuxd connections at `address`, in
+    /// `USBMUXD_SOCKET_ADDRESS`'s forms, or the platform's default usbmuxd when
+    /// null, ahead of that variable. `enable` 0 goes back to the variable. Our
+    /// patch to libusbmuxd (patches/libusbmuxd).
+    pub fn libusbmuxd_set_thread_socket_address(enable: c_int, address: *const c_char);
     pub fn plist_new_dict() -> plist_t;
     pub fn plist_new_bool(val: u8) -> plist_t;
     pub fn plist_new_data(val: *const c_char, length: u64) -> plist_t;

@@ -32,10 +32,12 @@ const LABEL: &CStr = c"restorekit";
 /// Ask the running iPhone or iPad with this ECID to reboot into recovery mode.
 ///
 /// The device is found by the `UniqueChipID` its lockdownd reports without
-/// pairing, among the USB devices listed by the usbmuxd this process is
-/// configured for (`USBMUXD_SOCKET_ADDRESS`, else the host's own). A running
-/// device is served by the host's own: Apple's on macOS, Apple Mobile Device
-/// Service on Windows, the system usbmuxd on Linux.
+/// pairing, among the USB devices listed by the host's usbmuxd: Apple's on
+/// macOS, Apple Mobile Device Service on Windows, the system usbmuxd on Linux.
+/// `USBMUXD_SOCKET_ADDRESS` picks another, unless it points at the embedded
+/// usbmuxd a restore in this process (or a parent's
+/// [`SharedUsbmuxd`](crate::SharedUsbmuxd)) serves, which only sees restore
+/// mode.
 ///
 /// The request goes out without pairing first; iOS 14.5 and later refuse that,
 /// so it is then sent in a paired session. Opening that session pairs the
@@ -53,6 +55,7 @@ const LABEL: &CStr = c"restorekit";
 /// comes back in recovery mode, which
 /// [`device::wait_where`](crate::device::wait_where) can wait for.
 pub fn enter(ecid: u64, supervisor: Option<&Supervisor>) -> Result<()> {
+    let _host = HostUsbmuxd::select();
     let device = find(ecid)?;
     let code = Lockdown::connect(&device)?.enter_recovery();
     if code != sys::LOCKDOWN_E_SESSION_INACTIVE {
@@ -245,6 +248,36 @@ impl Supervisor {
             .and_then(|signed| signed.to_der())
             .map_err(unusable)
     }
+}
+
+/// Points this thread's libusbmuxd at the host's usbmuxd while held, whatever
+/// `USBMUXD_SOCKET_ADDRESS` says for the rest of the process.
+struct HostUsbmuxd;
+
+impl HostUsbmuxd {
+    fn select() -> Self {
+        let address = host_socket_address();
+        let address = address.as_deref().map_or(ptr::null(), CStr::as_ptr);
+        unsafe { sys::libusbmuxd_set_thread_socket_address(1, address) };
+        HostUsbmuxd
+    }
+}
+
+impl Drop for HostUsbmuxd {
+    fn drop(&mut self) {
+        unsafe { sys::libusbmuxd_set_thread_socket_address(0, ptr::null()) };
+    }
+}
+
+/// `USBMUXD_SOCKET_ADDRESS` unless it's an embedded usbmuxd's, or `None` for
+/// the platform's default.
+fn host_socket_address() -> Option<CString> {
+    let address = std::env::var("USBMUXD_SOCKET_ADDRESS").ok()?;
+    #[cfg(target_os = "linux")]
+    if crate::usbmuxd::is_embedded_address(&address) {
+        return None;
+    }
+    CString::new(address).ok()
 }
 
 fn unusable(error: ErrorStack) -> Error {
@@ -518,6 +551,26 @@ mod tests {
             enter(0, None),
             Err(Error::RunningDeviceNotFound(0) | Error::UsbmuxdUnreachable)
         ));
+    }
+
+    #[test]
+    fn the_host_usbmuxd_is_chosen_for_this_thread_only() {
+        // Nothing listens on port 1, so a lookup that goes there can't list.
+        let refused = c"127.0.0.1:1";
+        std::thread::spawn(move || {
+            unsafe { sys::libusbmuxd_set_thread_socket_address(1, refused.as_ptr()) };
+            assert!(matches!(udids(), Err(Error::UsbmuxdUnreachable)));
+            let other = std::thread::spawn(udids).join().unwrap();
+            let host = {
+                let _host = HostUsbmuxd::select();
+                udids()
+            };
+            // Another thread, and this one inside the guard, reach the host's.
+            assert_eq!(other.is_ok(), host.is_ok());
+            unsafe { sys::libusbmuxd_set_thread_socket_address(0, ptr::null()) };
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
