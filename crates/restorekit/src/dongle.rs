@@ -562,6 +562,12 @@ impl Dongle {
         self.open()?.dfu()
     }
 
+    /// Tell the dongle the Mac reached DFU, so it drops a pending `dfu`
+    /// resend. Errors on firmware that predates the command.
+    pub fn dfu_seen(&self) -> Result<()> {
+        self.open()?.dfu_seen()
+    }
+
     /// Install a firmware image over USB. The Lite and Pro stage it through
     /// their vendor interface ([`DongleHandle::update`]). The Pro v2 has no
     /// room for a second image, so it drops into the CH32's ROM USB loader on
@@ -648,6 +654,11 @@ impl DongleHandle {
     /// Put the cabled Mac into DFU mode.
     pub fn dfu(&self) -> Result<()> {
         self.command(proto::VCMD_DFU, "dfu")
+    }
+
+    /// See [`Dongle::dfu_seen`].
+    pub fn dfu_seen(&self) -> Result<()> {
+        self.command(proto::VCMD_DFU_SEEN, "dfu-seen")
     }
 
     /// Reboot the cabled Mac.

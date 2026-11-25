@@ -91,6 +91,7 @@ impl Handler for Vendor {
             | proto::VCMD_SERIAL
             | proto::VCMD_DEBUGUSB
             | proto::VCMD_REPLUG
+            | proto::VCMD_DFU_SEEN
             | proto::VCMD_BOOTSEL => req.value as u8,
             _ => return Some(OutResponse::Rejected),
         };
@@ -702,8 +703,14 @@ impl Engine<'_> {
     }
 
     async fn command(&mut self, cmd: u16) {
+        // Anything else asked of the target ends a pending `dfu` resend: the
+        // hard resets that follow are the Mac doing what it was told.
+        if cmd != proto::VCMD_DFU && cmd != proto::VCMD_NOP {
+            self.dfu_sent_at = None;
+            self.dfu_retry_at = None;
+        }
         let res = match cmd {
-            proto::VCMD_NOP => proto::RES_OK,
+            proto::VCMD_NOP | proto::VCMD_DFU_SEEN => proto::RES_OK,
             proto::VCMD_DFU => {
                 self.dfu_retries = 0;
                 self.dfu().await

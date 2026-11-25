@@ -85,6 +85,11 @@ pub const VCMD_BOOTSEL: u16 = 5;
 /// Supported by Dongle-Lite and Dongle-Pro firmware 0.1.3 and later, and every
 /// Dongle-Pro v2 firmware.
 pub const VCMD_REPLUG: u16 = 6;
+/// The host saw the target enter DFU: drop any `dfu` resend still pending. A
+/// PD hard reset soon after `dfu` reads as the VDM being dropped, but the Mac
+/// acting on it, booting iBSS, or rebooting resets the port too, and a resend
+/// then lands it back in DFU. Firmware without this rejects it.
+pub const VCMD_DFU_SEEN: u16 = 7;
 
 // `VREQ_STATUS` response: [version, pd_state, flags, last_result, seq].
 /// Current status struct version (byte 0).
