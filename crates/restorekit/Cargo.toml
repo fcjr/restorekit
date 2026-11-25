@@ -21,6 +21,8 @@ history = ["dep:rusqlite", "dep:rusqlite_migration"]
 restorekit-sys = { path = "../restorekit-sys", version = "0.6.6" }
 restorekit-dongle-proto = { path = "../restorekit-dongle-proto", version = "0.6.6" }
 nusb = "0.2"
+openssl = "0.10.81"
+zeroize = "1"
 futures-core = "0.3"
 dunce = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }

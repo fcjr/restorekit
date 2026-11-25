@@ -110,6 +110,9 @@ pub enum Error {
     #[error("lockdown error {code}: {message}")]
     Lockdown { code: i32, message: String },
 
+    #[error("unusable supervision identity: {0}")]
+    SupervisionIdentity(String),
+
     #[error("WinUSB driver setup failed: {0}")]
     DriverInstall(String),
 
