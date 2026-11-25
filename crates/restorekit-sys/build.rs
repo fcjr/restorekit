@@ -22,6 +22,11 @@ fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let vendor = manifest.join("vendor");
     ensure_submodules(&manifest, &vendor);
+    // The whole tree, so a library's first patch directory reruns this too.
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("patches").display()
+    );
 
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let prefix = out.join("staging");

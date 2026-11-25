@@ -64,6 +64,16 @@ compiles the patched copy.
   `CRITICAL_SECTION` mutex, which behaves like pthreads. Built with autotools
   from a patched copy, like libirecovery.
 
+## libimobiledevice
+
+- `0001-answer-a-pairing-challenge-with-the-challenged-record.patch` — with no
+  pair record passed in, every `Pair` request generates a new one: a new
+  HostID and new root and host keys. Pairing with a supervised device takes two
+  requests, the second answering the challenge the first got, so the answer
+  went out with a record the device had never seen. Keep the record a request
+  was challenged with on the lockdownd client and send that one with the next
+  `Pair`, as pymobiledevice3 does.
+
 ## libirecovery
 
 - `0001-kis-via-deviceinterfaced-on-macos.patch` — macOS only lets processes

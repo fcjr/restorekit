@@ -1,0 +1,76 @@
+diff --git a/src/lockdown.c b/src/lockdown.c
+index 32389c9..76c6a51 100644
+--- a/src/lockdown.c
++++ b/src/lockdown.c
+@@ -306,6 +306,10 @@ static lockdownd_error_t lockdownd_client_free_simple(lockdownd_client_t client)
+ 		free(client->cu_key);
+ 		client->cu_key = NULL;
+ 	}
++	if (client->challenged_pair_record) {
++		plist_free(client->challenged_pair_record);
++		client->challenged_pair_record = NULL;
++	}
+ 
+ 	free(client);
+ 	client = NULL;
+@@ -636,6 +640,7 @@ lockdownd_error_t lockdownd_client_new(idevice_t device, lockdownd_client_t *cli
+ 	client_loc->device = device;
+ 	client_loc->cu_key = NULL;
+ 	client_loc->cu_key_len = 0;
++	client_loc->challenged_pair_record = NULL;
+ 
+ 	if (device->udid) {
+ 		debug_info("device udid: %s", device->udid);
+@@ -917,14 +922,20 @@ static lockdownd_error_t lockdownd_do_pair(lockdownd_client_t client, lockdownd_
+ 
+ 		pairing_mode = 1;
+ 	} else {
+-		/* generate a new pair record if pairing */
++		/* generate a new pair record if pairing, or answer a challenge with
++		 * the record that was challenged */
+ 		if (!strcmp("Pair", verb)) {
+-			ret = pair_record_generate(client, &pair_record_plist);
++			if (client->challenged_pair_record) {
++				pair_record_plist = client->challenged_pair_record;
++				client->challenged_pair_record = NULL;
++			} else {
++				ret = pair_record_generate(client, &pair_record_plist);
+ 
+-			if (ret != LOCKDOWN_E_SUCCESS) {
+-				if (pair_record_plist)
+-					plist_free(pair_record_plist);
+-				return ret;
++				if (ret != LOCKDOWN_E_SUCCESS) {
++					if (pair_record_plist)
++						plist_free(pair_record_plist);
++					return ret;
++				}
+ 			}
+ 
+ 			/* get wifi mac now, if we get it later we fail on iOS 7 which causes a reconnect */
+@@ -1041,6 +1052,11 @@ static lockdownd_error_t lockdownd_do_pair(lockdownd_client_t client, lockdownd_
+ 				free(value);
+ 			}
+ 		}
++		/* keep the record for the challenge response */
++		if (ret == LOCKDOWN_E_MC_CHALLENGE_REQUIRED && !pairing_mode && !strcmp("Pair", verb)) {
++			client->challenged_pair_record = pair_record_plist;
++			pair_record_plist = NULL;
++		}
+ 	}
+ 
+ 	if (pair_record_plist) {
+diff --git a/src/lockdown.h b/src/lockdown.h
+index ba291ec..97f4db7 100644
+--- a/src/lockdown.h
++++ b/src/lockdown.h
+@@ -37,6 +37,9 @@ struct lockdownd_client_private {
+ 	idevice_t device;
+ 	unsigned char* cu_key;
+ 	unsigned int cu_key_len;
++	/* The pair record of a Pair request the device answered with a challenge,
++	 * sent again with the challenge response. */
++	plist_t challenged_pair_record;
+ };
+ 
+ lockdownd_error_t lockdown_check_result(plist_t dict, const char *query_match);
