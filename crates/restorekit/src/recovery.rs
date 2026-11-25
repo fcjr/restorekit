@@ -215,6 +215,10 @@ impl Supervisor {
     /// Pair this host with the device as its supervisor. The device answers
     /// the certificate with a challenge, and accepts this host once it gets
     /// the challenge signed with the identity's key.
+    ///
+    /// Both requests go over one lockdownd client, which sends the response
+    /// with the pair record the device challenged (our libimobiledevice patch)
+    /// rather than a newly generated one.
     fn pair(&self, device: &Device) -> Result<()> {
         let lockdown = Lockdown::connect(device)?;
         let (code, response) = lockdown.pair_with(c"SupervisorCertificate", &self.certificate()?);
