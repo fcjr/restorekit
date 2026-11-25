@@ -92,6 +92,10 @@ const REDFU_SETTLE: Duration = Duration::from_secs(3);
 #[cfg(target_os = "windows")]
 const REDFU_ATTEMPTS: u32 = 2;
 
+/// How long after a `dfu` dongle firmware takes a PD hard reset for the VDM
+/// being dropped and sends it again (its `DFU_HARD_RESET_WINDOW`), plus margin.
+const DONGLE_DFU_RESEND_WINDOW: Duration = Duration::from_secs(6);
+
 /// Trigger DFU on the selected target, routing through a dongle or the host,
 /// retrying, and (when observable) waiting for the Mac to enter DFU.
 ///
@@ -285,12 +289,16 @@ fn trigger_via_dongle_once(
             },
         });
         d.dfu()?;
+        let sent = Instant::now();
         progress(Event::DfuTriggerStage {
             stage: "waiting for the target to enter DFU mode".into(),
         });
         let slice = attempt_slice(attempt, deadline);
         match wait_entered(&mut watch, want_ecid, slice) {
-            Ok(dev) => return Ok(DfuOutcome::Entered(dev)),
+            Ok(dev) => {
+                confirm_dfu(d, sent);
+                return Ok(DfuOutcome::Entered(dev));
+            }
             // The dongle fired; the Mac just isn't visible on this host to
             // confirm (its D+/D- aren't cabled here) — not an error.
             Err(Error::WaitTimeout) if attempt < TRIGGER_ATTEMPTS && Instant::now() < deadline => {}
@@ -299,6 +307,19 @@ fn trigger_via_dongle_once(
         }
     }
     Ok(DfuOutcome::Sent)
+}
+
+/// Stop the dongle answering the next PD hard reset with another `dfu`. That
+/// reset is the restore booting iBSS or a reboot, and a resend then puts the
+/// Mac back in DFU: mid-restore it fails iBEC, after `reboot` it undoes it.
+/// Firmware without `dfu-seen` only resends within a window of the `dfu`, so
+/// wait that out instead.
+fn confirm_dfu(d: &Dongle, sent: Instant) {
+    if d.dfu_seen().is_err() {
+        std::thread::sleep(
+            (sent + DONGLE_DFU_RESEND_WINDOW).saturating_duration_since(Instant::now()),
+        );
+    }
 }
 
 /// The wait budget for one attempt: a short slice for early attempts (so we

@@ -68,9 +68,9 @@ use {defmt_rtt as _, panic_probe as _};
 use restorekit_dongle_proto as proto;
 use restorekit_dongle_proto::{
     crc32, FLAG_POLARITY_CC2, FLAG_TARGET_ATTACHED, FW_CHUNK, RES_NONE, RES_NOTARGET, RES_OK,
-    RES_PENDING, STATUS_LEN, STATUS_VERSION, VCMD_BOOTSEL, VCMD_DEBUGUSB, VCMD_DFU, VCMD_NOP,
-    VCMD_REBOOT, VCMD_REPLUG, VCMD_SERIAL, VREQ_CMD, VREQ_FW_BEGIN, VREQ_FW_DATA, VREQ_FW_DONE,
-    VREQ_STATUS, VREQ_VERSION,
+    RES_PENDING, STATUS_LEN, STATUS_VERSION, VCMD_BOOTSEL, VCMD_DEBUGUSB, VCMD_DFU, VCMD_DFU_SEEN,
+    VCMD_NOP, VCMD_REBOOT, VCMD_REPLUG, VCMD_SERIAL, VREQ_CMD, VREQ_FW_BEGIN, VREQ_FW_DATA,
+    VREQ_FW_DONE, VREQ_STATUS, VREQ_VERSION,
 };
 
 use fusb302::*;
@@ -187,6 +187,7 @@ type Updater = BlockingFirmwareUpdater<'static, FlashPartition, FlashPartition>;
 enum Command {
     Nop,
     Dfu,
+    DfuSeen,
     Reboot,
     Serial,
     DebugUsb,
@@ -343,6 +344,7 @@ impl Handler for VendorHandler {
         let cmd = match req.value {
             VCMD_NOP => Command::Nop,
             VCMD_DFU => Command::Dfu,
+            VCMD_DFU_SEEN => Command::DfuSeen,
             VCMD_REBOOT => Command::Reboot,
             VCMD_SERIAL => Command::Serial,
             VCMD_DEBUGUSB => Command::DebugUsb,
@@ -1155,6 +1157,15 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
     }
 
     async fn handle_command(&mut self, cmd: Command) {
+        // Anything else asked of the target ends a pending `dfu` resend: the
+        // hard resets that follow are the Mac doing what it was told.
+        if !matches!(
+            cmd,
+            Command::Nop | Command::Dfu | Command::Status | Command::Help
+        ) {
+            self.dfu_sent_at = None;
+            self.dfu_retry_at = None;
+        }
         match cmd {
             // `nop` sends nothing; it just confirms the console is alive.
             Command::Nop => {
@@ -1165,6 +1176,10 @@ impl<'a, I2C: embedded_hal_async::i2c::I2c> Engine<'a, I2C> {
                 self.dfu_retries = 0;
                 self.dfu_retry_at = None;
                 self.dfu().await
+            }
+            Command::DfuSeen => {
+                logline!("ok dfu seen");
+                VENDOR_RESULT.store(RES_OK, Ordering::Relaxed);
             }
             Command::Reboot => self.action("reboot", &[&VDM_REBOOT], true).await,
             Command::DebugUsb => self.action("debugusb", &[&VDM_DEBUGUSB], true).await,
