@@ -253,6 +253,28 @@ pub fn windows_mux_check() -> Result<bool> {
     }
 }
 
+/// Check that a restore can get the USB mux it needs, so a setup that can't
+/// fails before the Mac is put into DFU and the firmware downloaded. Each
+/// restore process serves its own embedded usbmuxd on Linux and Windows unless
+/// a parent shares one ([`crate::start_shared_usbmuxd`]); two of those at once
+/// fight over every Mac in restore mode (Linux) or the one mux port (Windows).
+pub fn preflight() -> Result<()> {
+    if std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    windows_mux_check()?;
+    #[cfg(target_os = "linux")]
+    if let Some(pid) = crate::usbmuxd::other_embedded_server() {
+        return Err(Error::UsbmuxdFailed(format!(
+            "another restorekit restore (pid {pid}) is running its own USB mux, which would \
+             fight this one for each Mac in restore mode. Wait for it to finish, or run \
+             several restores from one process (the desktop app shares one mux)"
+        )));
+    }
+    Ok(())
+}
+
 /// Run a restore against the DFU device with the given ECID, streaming progress.
 ///
 /// This links libidevicerestore statically; there is no external binary.
@@ -317,7 +339,10 @@ fn run(
     let apple_usbmuxd =
         std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_none() && windows_mux_check()?;
     #[cfg(target_os = "linux")]
-    let apple_usbmuxd = false;
+    let apple_usbmuxd = {
+        preflight()?;
+        false
+    };
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let _usbmuxd = if apple_usbmuxd || std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
         None

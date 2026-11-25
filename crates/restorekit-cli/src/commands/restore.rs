@@ -123,6 +123,7 @@ pub struct Opts {
 /// Ensure a target is in DFU mode (triggering entry if the host can), then
 /// resolve → download → restore it.
 pub fn run(opts: Opts) -> Result<()> {
+    restorekit::restore::preflight()?;
     let device = super::dfu::ensure_present(
         opts.json,
         Duration::from_secs(120),
