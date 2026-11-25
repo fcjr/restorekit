@@ -174,9 +174,9 @@
 +	}
 +
 +	/* The daemon matches replies to requests by their first header word and
-+	 * uses 0xFFxx sequence numbers for its own requests. Stay in 1..0x7FFF;
-+	 * restorekit's own identity reads use 0x8000 and up. */
-+	req->sequence = (uint16_t)(__atomic_add_fetch(&dic_sequence, 1, __ATOMIC_RELAXED) % 0x7FFF + 1);
++	 * uses 0xFFxx for its own. Stay in 1..0x7FFF (restorekit's reads use 0x8000
++	 * up), starting each process elsewhere so two restores don't collide. */
++	req->sequence = (uint16_t)((__atomic_add_fetch(&dic_sequence, 1, __ATOMIC_RELAXED) + (uint32_t)getpid() * 0x9E37u) % 0x7FFF + 1);
 +
 +	/* The daemon writes scalars[1..] out as little-endian 32-bit words followed
 +	 * by the input bytes, so the header and arguments go in as scalars and any

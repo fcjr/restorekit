@@ -672,9 +672,12 @@ mod dic {
     pub fn request(id: u64, req: &[u8], reply_cap: usize) -> Result<Vec<u8>, String> {
         let c = client()?;
         // Replies are matched by the first header word and the daemon uses
-        // 0xFFxx itself; the patched libirecovery uses 1..0x8000.
+        // 0xFFxx itself; the patched libirecovery uses 1..0x8000. Start each
+        // process somewhere else, so two restores probing one Mac don't both
+        // send the same number.
         static SEQ: AtomicU16 = AtomicU16::new(0);
-        let seq = 0x8000 + SEQ.fetch_add(1, Ordering::Relaxed) % 0x7f00;
+        let start = (std::process::id() as u16).wrapping_mul(0x9e37);
+        let seq = 0x8000 + start.wrapping_add(SEQ.fetch_add(1, Ordering::Relaxed)) % 0x7f00;
         let mut req = req.to_vec();
         req[..2].copy_from_slice(&seq.to_le_bytes());
 
