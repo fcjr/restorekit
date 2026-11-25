@@ -608,20 +608,61 @@ pub fn lookup_identifier(identifier: &str) -> Option<&'static MacModel> {
 
 /// Resolve a Mac model from the USB `bcdDevice` release number. A booted Mac
 /// encodes its model identifier's numeric part there in BCD — e.g. `0x1701` →
-/// "17,1" → `MacBookPro17,1`, `0x1606` → "16,6" → `Mac16,6` — which is how
-/// Apple Configurator identifies a booted Mac's exact model. The numeric part
-/// is unique across identifiers, so it resolves the model regardless of the
-/// (varying) alphabetic prefix.
+/// "17,1" → `MacBookPro17,1`, `0x1606` → "16,6" → `Mac16,6`. The numeric part
+/// is not unique across prefixes (`MacBookPro18,1` and `Mac18,1` both read
+/// `0x1801`), so this returns `None` when it matches more than one model; use
+/// [`model_from_usb`] to break the tie with the product ID.
 pub fn model_from_device_version(bcd: u16) -> Option<&'static MacModel> {
+    match models_with_number(bcd).as_slice() {
+        [m] => Some(m),
+        _ => None,
+    }
+}
+
+/// Resolve a booted Mac's model from its USB product ID and `bcdDevice`. A
+/// unique numeric part resolves on its own; a clash is broken by the identifier
+/// prefix the product ID implies (see [`booted_pid_prefix`]), or `None` if that
+/// doesn't pick exactly one.
+pub fn model_from_usb(pid: u16, bcd: u16) -> Option<&'static MacModel> {
+    let candidates = models_with_number(bcd);
+    if let [m] = candidates.as_slice() {
+        return Some(m);
+    }
+    let prefix = booted_pid_prefix(pid)?;
+    let mut hits = candidates
+        .into_iter()
+        .filter(|m| identifier_prefix(m.identifier) == prefix);
+    match (hits.next(), hits.next()) {
+        (Some(m), None) => Some(m),
+        _ => None,
+    }
+}
+
+/// The model-identifier prefix of each booted-Mac product ID. Unverified
+/// against hardware for anything but `0x1902`; only used to break clashes.
+fn booted_pid_prefix(pid: u16) -> Option<&'static str> {
+    Some(match pid {
+        0x1901 => "Macmini",
+        0x1902 => "MacBookPro",
+        0x1903 => "MacBookAir",
+        0x1904 => "iMac",
+        0x1905 => "Mac",
+        _ => return None,
+    })
+}
+
+/// Split an identifier into its alphabetic prefix and numeric part.
+fn identifier_prefix(identifier: &str) -> &str {
+    identifier.trim_end_matches(|c: char| c.is_ascii_digit() || c == ',')
+}
+
+fn models_with_number(bcd: u16) -> Vec<&'static MacModel> {
     let bcd_byte = |b: u16| (b >> 4) * 10 + (b & 0xf);
     let number = format!("{},{}", bcd_byte(bcd >> 8), bcd_byte(bcd & 0xff));
-    MAC_MODELS.iter().find(|m| {
-        // The identifier's numeric suffix (after the alphabetic prefix).
-        match m.identifier.rfind(|c: char| c.is_ascii_alphabetic()) {
-            Some(i) => m.identifier[i + 1..] == number,
-            None => false,
-        }
-    })
+    MAC_MODELS
+        .iter()
+        .filter(|m| m.identifier[identifier_prefix(m.identifier).len()..] == number)
+        .collect()
 }
 
 /// Apple's USB vendor ID.
@@ -686,7 +727,7 @@ impl UsbMode {
             0x12ac => UsbMode::Restore,
             // The RemoteXPC/NCM gadget a booted macOS exposes to a USB host,
             // by model family: Mac mini, MacBook Pro, MacBook Air, iMac, then
-            // every MacNN,N.
+            // every MacNN,N (order unverified; see booted_pid_prefix).
             0x1901..=0x1905 => UsbMode::Booted,
             // The USB Billboard a Mac's USB-C port controller presents when an
             // alt mode (Thunderbolt) can't be entered over the link.
@@ -1171,8 +1212,8 @@ pub fn wait(target: Target, timeout: Duration) -> Result<Device> {
 ///
 /// - **Port** (macOS): which host port each device is on and whether it's the
 ///   DFU-capable one (`port`), from read-only IORegistry topology.
-/// - **Model** (booted Macs): the `bcdDevice` release number encodes the model
-///   identifier (see [`model_from_device_version`]); no device open needed.
+/// - **Model** (booted Macs): the product ID and `bcdDevice` release number
+///   encode the model identifier (see [`model_from_usb`]); no device open needed.
 /// - **Marketing name** (booted Macs): the exact Apple name from the serial's
 ///   config code (network, cached per serial).
 /// - **ECID** (booted Macs): advertised in a platform-capability descriptor in
@@ -1214,9 +1255,9 @@ pub fn identify(devices: &mut [Device]) {
         else {
             continue;
         };
-        // Model comes from the bcdDevice release number — no open needed.
+        // Model comes from the product ID and bcdDevice — no open needed.
         if d.identity.is_none() {
-            if let Some(m) = model_from_device_version(info.device_version()) {
+            if let Some(m) = model_from_usb(info.product_id(), info.device_version()) {
                 d.identity = Some(Identity {
                     cpid: m.cpid,
                     bdid: m.bdid,
@@ -1455,6 +1496,51 @@ mod tests {
             Some("Mac14,15")
         );
         assert_eq!(model_from_device_version(0x9999), None);
+    }
+
+    #[test]
+    fn device_version_clashes_need_the_pid() {
+        // Numeric parts shared by more than one identifier. A new clash fails
+        // here until model_from_usb is checked to resolve it.
+        let mut numbers: Vec<&str> = MAC_MODELS
+            .iter()
+            .map(|m| &m.identifier[identifier_prefix(m.identifier).len()..])
+            .collect();
+        numbers.sort();
+        let mut clashes: Vec<&str> = numbers
+            .windows(2)
+            .filter(|w| w[0] == w[1])
+            .map(|w| w[0])
+            .collect();
+        clashes.dedup();
+        assert_eq!(clashes, ["18,1", "18,2"]);
+
+        assert_eq!(model_from_device_version(0x1801), None);
+        let id = |pid, bcd| model_from_usb(pid, bcd).map(|m| m.identifier);
+        assert_eq!(id(0x1902, 0x1801), Some("MacBookPro18,1"));
+        assert_eq!(id(0x1905, 0x1801), Some("Mac18,1"));
+        assert_eq!(id(0x1902, 0x1802), Some("MacBookPro18,2"));
+        assert_eq!(id(0x1905, 0x1802), Some("Mac18,2"));
+        assert_eq!(id(0x1901, 0x1801), None);
+        // A unique number resolves whatever the PID says.
+        assert_eq!(id(0x1902, 0x1606), Some("Mac16,6"));
+    }
+
+    #[test]
+    fn model_from_usb_round_trips_every_model() {
+        let bcd = |n: u16| (n / 10) << 4 | (n % 10);
+        for m in MAC_MODELS {
+            let prefix = identifier_prefix(m.identifier);
+            let (major, minor) = m.identifier[prefix.len()..].split_once(',').unwrap();
+            let v = bcd(major.parse().unwrap()) << 8 | bcd(minor.parse().unwrap());
+            let pid = (0x1901..=0x1905)
+                .find(|&p| booted_pid_prefix(p) == Some(prefix))
+                .unwrap_or(0);
+            assert_eq!(
+                model_from_usb(pid, v).map(|m| m.identifier),
+                Some(m.identifier)
+            );
+        }
     }
 
     #[test]
