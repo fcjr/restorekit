@@ -802,6 +802,18 @@ pub struct Port {
 }
 
 impl Device {
+    /// Whether `info` is the bus entry this device was read from. Matches by
+    /// serial only for a device built without one.
+    pub(crate) fn is_usb(&self, info: &nusb::DeviceInfo) -> bool {
+        match self.usb_device {
+            Some(id) => info.id() == id,
+            None => {
+                info.vendor_id() == self.usb.vid
+                    && info.serial_number() == Some(self.serial.as_str())
+            }
+        }
+    }
+
     pub fn in_dfu(&self) -> bool {
         matches!(self.mode, UsbMode::Dfu | UsbMode::PortDfu | UsbMode::Kis)
     }

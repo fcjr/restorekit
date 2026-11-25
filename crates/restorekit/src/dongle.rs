@@ -495,10 +495,7 @@ pub fn connection_for(dev: &Device) -> Connection {
         Ok(it) => it.collect(),
         Err(_) => return Connection::Direct,
     };
-    let Some(me) = infos.iter().find(|i| match dev.usb_device {
-        Some(id) => i.id() == id,
-        None => i.vendor_id() == APPLE_VID && i.serial_number() == Some(dev.serial.as_str()),
-    }) else {
+    let Some(me) = infos.iter().find(|i| dev.is_usb(i)) else {
         return Connection::Direct;
     };
 
