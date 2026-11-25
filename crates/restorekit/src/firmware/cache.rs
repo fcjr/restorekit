@@ -22,16 +22,7 @@ pub fn default_cache_dir() -> Result<PathBuf> {
     // since other snaps (VS Code's terminal, say) leak their SNAP_* variables
     // into the processes they spawn.
     #[cfg(not(windows))]
-    if let Some(common) = std::env::var_os("SNAP_USER_COMMON")
-        .filter(|c| !c.is_empty())
-        .filter(|_| {
-            matches!(
-                std::env::var("SNAP_NAME").as_deref(),
-                Ok("restorekit" | "restorekit-cli")
-            )
-        })
-    {
-        let common = PathBuf::from(common);
+    if let Some(common) = snap_common() {
         if let Ok(legacy) = resolve_cache_dir(
             None,
             std::env::var_os("XDG_CONFIG_HOME"),
@@ -58,6 +49,40 @@ pub fn default_cache_dir() -> Result<PathBuf> {
             std::env::var_os("HOME"),
         )
     }
+}
+
+/// `$SNAP_USER_COMMON` when running as restorekit's own snap.
+#[cfg(not(windows))]
+fn snap_common() -> Option<PathBuf> {
+    std::env::var_os("SNAP_USER_COMMON")
+        .filter(|c| !c.is_empty())
+        .filter(|_| {
+            matches!(
+                std::env::var("SNAP_NAME").as_deref(),
+                Ok("restorekit" | "restorekit-cli")
+            )
+        })
+        .map(PathBuf::from)
+}
+
+/// restorekit's own data directory, which holds the default firmware cache:
+/// `$SNAP_USER_COMMON` in the snap, else `${XDG_CONFIG_HOME:-~/.config}/
+/// restorekit`. Unlike [`default_cache_dir`] it ignores `RESTOREKIT_CACHE_DIR`
+/// and moves nothing.
+#[cfg(target_os = "linux")]
+pub(crate) fn data_dir() -> Result<PathBuf> {
+    if let Some(common) = snap_common() {
+        return Ok(common);
+    }
+    let firmwares = resolve_cache_dir(
+        None,
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )?;
+    Ok(firmwares
+        .parent()
+        .expect("the cache dir sits under the data dir")
+        .to_path_buf())
 }
 
 /// Pure resolution logic behind [`default_cache_dir`] (testable without touching
