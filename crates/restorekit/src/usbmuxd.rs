@@ -282,12 +282,22 @@ impl Drop for RunningDevices {
     }
 }
 
-/// Where the embedded server keeps pair records and its SystemBUID: next to
-/// the firmware cache, as the system usbmuxd's own directory is root-only.
+/// Where the embedded server keeps pair records and its SystemBUID, as the
+/// system usbmuxd's own directory is root-only: `lockdown` in restorekit's data
+/// directory, next to the default firmware cache. Created here, private to the
+/// user since it holds the host's pairing keys; usbmuxd's own mkdir only makes
+/// the first missing parent.
 #[cfg(target_os = "linux")]
 fn pair_record_dir() -> Option<std::path::PathBuf> {
-    let firmwares = crate::firmware::default_cache_dir().ok()?;
-    Some(firmwares.parent()?.join("lockdown"))
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let dir = crate::firmware::data_dir().ok()?.join("lockdown");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .ok()?;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).ok()?;
+    Some(dir)
 }
 
 /// A running embedded usbmuxd server.

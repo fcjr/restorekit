@@ -18,6 +18,8 @@ use crate::error::{Error, Result};
 /// Longest IPSW name from the URL kept as the cache file name.
 const MAX_FILE_NAME: usize = 64;
 
+#[cfg(target_os = "linux")]
+pub(crate) use cache::data_dir;
 pub use cache::{cache_path, cached, default_cache_dir};
 pub use download::download;
 pub use resolve::resolve;
