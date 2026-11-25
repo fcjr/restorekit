@@ -184,8 +184,9 @@ fn kis_unreadable_message() -> &'static str {
 /// it is always Apple's.
 fn running_device_hint() -> &'static str {
     if cfg!(target_os = "linux") {
-        "\n\nOn Linux a running device is reached through the system usbmuxd (the \
-         `usbmuxd` package)."
+        "\n\nOn Linux a running device is reached through the system usbmuxd when one is \
+         running, else restorekit's own, which needs restorekit's udev rules \
+         (udev/51-restorekit.rules) to open the device."
     } else if cfg!(target_os = "windows") {
         "\n\nOn Windows a running device is reached through Apple Mobile Device \
          Service, which Apple Devices and iTunes install."

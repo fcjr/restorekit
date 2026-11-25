@@ -39,6 +39,7 @@
 #include "device.h"
 #include "log.h"
 #include "usb.h"
+#include "conf.h"
 
 /* ── globals that main.c normally provides ────────────────────────── */
 
@@ -364,4 +365,18 @@ void restorekit_usbmuxd_cleanup(void)
 #endif
     /* Leave Winsock initialized (no WSACleanup): other users (libcurl) hold
      * their own refs, and the process exits shortly anyway. */
+}
+
+/* Let the server switch running iPhones and iPads to their mux configuration
+ * (patches/usbmuxd/0002). Takes effect on the next discovery pass. */
+void restorekit_usbmuxd_set_switch_running(int on)
+{
+    usb_set_switch_running(on);
+}
+
+/* Where the server keeps pair records and its SystemBUID, in place of the
+ * root-only system directory. Call before restorekit_usbmuxd_start. */
+int restorekit_usbmuxd_set_config_dir(const char *path)
+{
+    return config_set_config_dir(path);
 }

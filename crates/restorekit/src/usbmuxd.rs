@@ -7,6 +7,7 @@
 //! client-side configuration is needed.
 
 use std::ffi::CString;
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 
 use crate::error::{Error, Result};
@@ -172,18 +173,6 @@ mod win {
     }
 }
 
-/// RAII guard that starts the embedded usbmuxd server and tears it down on drop.
-pub struct UsbmuxdGuard {
-    /// The Unix socket file to clean up (Linux only).
-    #[cfg(target_os = "linux")]
-    socket_path: std::path::PathBuf,
-    thread: Option<JoinHandle<()>>,
-    /// Binds WinUSB to each restore-mode Mac while the server runs. Apple's
-    /// driver claims that interface otherwise, and libusb can't open it.
-    #[cfg(target_os = "windows")]
-    _restore_mode: crate::driver::RestoreWatcherGuard,
-}
-
 /// Another restorekit process serving its own embedded usbmuxd, if any. Its
 /// server claims every Mac in restore mode, so a second one would fight it for
 /// each of them and either restore could stall.
@@ -204,11 +193,117 @@ pub fn other_embedded_server() -> Option<u32> {
     })
 }
 
+/// The embedded server, while any guard holds it. The C server is one per
+/// process, so a restore and `recovery::enter` share it rather than each
+/// starting their own.
+static SERVER: Mutex<Weak<Server>> = Mutex::new(Weak::new());
+
+/// How many callers want running iPhones and iPads switched to their mux
+/// configuration (see [`RunningDevices`]).
+#[cfg(target_os = "linux")]
+static SWITCHERS: Mutex<usize> = Mutex::new(0);
+
+/// Holds the embedded usbmuxd server, starting it if no other guard in this
+/// process has. The server stops when the last guard drops.
+pub struct UsbmuxdGuard {
+    server: Option<Arc<Server>>,
+}
+
 impl UsbmuxdGuard {
-    /// Start the embedded usbmuxd server and point libusbmuxd at it. On
-    /// Windows this also starts the restore-mode driver watcher, which asks
-    /// for elevation once unless the process already has it.
+    /// Start the embedded usbmuxd server, or join the one already running in
+    /// this process, and point libusbmuxd at it. On Windows starting it also
+    /// starts the restore-mode driver watcher, which asks for elevation once
+    /// unless the process already has it.
     pub fn start(progress: ProgressFn) -> Result<Self> {
+        let mut slot = SERVER.lock().unwrap_or_else(|e| e.into_inner());
+        let server = match slot.upgrade() {
+            Some(server) => server,
+            None => {
+                let server = Arc::new(Server::start(progress)?);
+                *slot = Arc::downgrade(&server);
+                server
+            }
+        };
+        Ok(Self {
+            server: Some(server),
+        })
+    }
+
+    /// Where libusbmuxd reaches the server, in `USBMUXD_SOCKET_ADDRESS`'s form.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn address(&self) -> String {
+        let server = self.server.as_ref().expect("held until drop");
+        format!("UNIX:{}", server.socket_path.display())
+    }
+}
+
+impl Drop for UsbmuxdGuard {
+    fn drop(&mut self) {
+        // Under the lock, so a server that's stopping is never joined or
+        // started over.
+        let _slot = SERVER.lock().unwrap_or_else(|e| e.into_inner());
+        self.server.take();
+    }
+}
+
+/// Holds the embedded server with running iPhones and iPads switched to the
+/// USB configuration with their mux interface, as a standalone usbmuxd does.
+/// Without this the server only takes devices whose active configuration
+/// already has one, which leaves the host's other Apple devices alone during
+/// a restore. Devices switched stay claimed by the server until it stops.
+#[cfg(target_os = "linux")]
+pub(crate) struct RunningDevices {
+    guard: UsbmuxdGuard,
+}
+
+#[cfg(target_os = "linux")]
+impl RunningDevices {
+    pub(crate) fn start() -> Result<Self> {
+        let guard = UsbmuxdGuard::start(&mut |_| {})?;
+        let mut switchers = SWITCHERS.lock().unwrap_or_else(|e| e.into_inner());
+        *switchers += 1;
+        restorekit_sys::usbmuxd_set_switch_running(true);
+        Ok(Self { guard })
+    }
+
+    pub(crate) fn address(&self) -> String {
+        self.guard.address()
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for RunningDevices {
+    fn drop(&mut self) {
+        let mut switchers = SWITCHERS.lock().unwrap_or_else(|e| e.into_inner());
+        *switchers -= 1;
+        if *switchers == 0 {
+            restorekit_sys::usbmuxd_set_switch_running(false);
+        }
+    }
+}
+
+/// Where the embedded server keeps pair records and its SystemBUID: next to
+/// the firmware cache, as the system usbmuxd's own directory is root-only.
+#[cfg(target_os = "linux")]
+fn pair_record_dir() -> Option<std::path::PathBuf> {
+    let firmwares = crate::firmware::default_cache_dir().ok()?;
+    Some(firmwares.parent()?.join("lockdown"))
+}
+
+/// A running embedded usbmuxd server.
+struct Server {
+    /// The Unix socket file to clean up (Linux only).
+    #[cfg(target_os = "linux")]
+    socket_path: std::path::PathBuf,
+    thread: Option<JoinHandle<()>>,
+    /// Binds WinUSB to each restore-mode Mac while the server runs. Apple's
+    /// driver claims that interface otherwise, and libusb can't open it.
+    #[cfg(target_os = "windows")]
+    _restore_mode: crate::driver::RestoreWatcherGuard,
+}
+
+impl Server {
+    fn start(progress: ProgressFn) -> Result<Self> {
         progress(Event::UsbmuxdStarting);
 
         // Without the watcher a restore runs for minutes and then stalls
@@ -236,6 +331,14 @@ impl UsbmuxdGuard {
         let start_arg = socket_path.to_string_lossy().into_owned();
         #[cfg(target_os = "windows")]
         let start_arg = String::from("127.0.0.1:27015");
+
+        // Only pairing needs it, so a restore goes ahead without it.
+        #[cfg(target_os = "linux")]
+        if let Some(dir) = pair_record_dir()
+            .and_then(|d| CString::new(d.into_os_string().into_encoded_bytes()).ok())
+        {
+            let _ = restorekit_sys::usbmuxd_set_config_dir(&dir);
+        }
 
         let path_c = CString::new(start_arg.as_bytes())
             .map_err(|_| Error::UsbmuxdFailed("socket path contains a NUL byte".into()))?;
@@ -281,7 +384,7 @@ impl UsbmuxdGuard {
     }
 }
 
-impl Drop for UsbmuxdGuard {
+impl Drop for Server {
     fn drop(&mut self) {
         // Signal the event loop to exit, then wait for the thread.
         restorekit_sys::usbmuxd_stop();

@@ -36,8 +36,14 @@ const LABEL: &CStr = c"restorekit";
 /// macOS, Apple Mobile Device Service on Windows, the system usbmuxd on Linux.
 /// `USBMUXD_SOCKET_ADDRESS` picks another, unless it points at the embedded
 /// usbmuxd a restore in this process (or a parent's
-/// [`SharedUsbmuxd`](crate::SharedUsbmuxd)) serves, which only sees restore
-/// mode.
+/// [`SharedUsbmuxd`](crate::SharedUsbmuxd)) serves.
+///
+/// On Linux with no system usbmuxd running, restorekit's embedded one serves
+/// instead (needing access from `udev/51-restorekit.rules`). While this runs it
+/// switches every running iPhone and iPad on the host to the USB configuration
+/// with its mux interface, as the system usbmuxd would, and keeps the pair
+/// records next to the firmware cache. With another restorekit process
+/// serving its own embedded usbmuxd, this fails rather than fight it.
 ///
 /// The request goes out without pairing first; iOS 14.5 and later refuse that,
 /// so it is then sent in a paired session. Opening that session pairs the
@@ -55,8 +61,10 @@ const LABEL: &CStr = c"restorekit";
 /// comes back in recovery mode, which
 /// [`device::wait_where`](crate::device::wait_where) can wait for.
 pub fn enter(ecid: u64, supervisor: Option<&Supervisor>) -> Result<()> {
-    let _host = HostUsbmuxd::select();
-    let device = find(ecid)?;
+    let host = HostUsbmuxd::select()?;
+    let device = host
+        .settle(|| find(ecid))?
+        .ok_or(Error::RunningDeviceNotFound(ecid))?;
     let code = Lockdown::connect(&device)?.enter_recovery();
     if code != sys::LOCKDOWN_E_SESSION_INACTIVE {
         return check(code);
@@ -262,15 +270,73 @@ impl Supervisor {
 
 /// Points this thread's libusbmuxd at the host's usbmuxd while held, whatever
 /// `USBMUXD_SOCKET_ADDRESS` says for the rest of the process.
-struct HostUsbmuxd;
+struct HostUsbmuxd {
+    /// The embedded server, when it serves in place of a system usbmuxd.
+    #[cfg(target_os = "linux")]
+    embedded: Option<crate::usbmuxd::RunningDevices>,
+}
+
+/// How long a running device takes to show up once the embedded usbmuxd
+/// switches its configuration: the server's next discovery pass, then the
+/// switch and the mux handshake.
+#[cfg(target_os = "linux")]
+const SWITCH_SETTLE: Duration = Duration::from_secs(10);
 
 impl HostUsbmuxd {
-    fn select() -> Self {
-        let address = host_socket_address();
-        let address = address.as_deref().map_or(ptr::null(), CStr::as_ptr);
-        unsafe { sys::libusbmuxd_set_thread_socket_address(1, address) };
-        HostUsbmuxd
+    fn select() -> Result<Self> {
+        #[allow(unused_mut)]
+        let mut address = host_socket_address();
+        #[cfg(target_os = "linux")]
+        let mut embedded = None;
+        #[cfg(target_os = "linux")]
+        if address.is_none() && !system_usbmuxd_running() {
+            if let Some(pid) = crate::usbmuxd::other_embedded_server() {
+                return Err(Error::UsbmuxdFailed(format!(
+                    "no system usbmuxd is running, and another restorekit process (pid {pid}) \
+                     serves its own USB mux, which would fight this one for the device. Wait \
+                     for it to finish, or install usbmuxd"
+                )));
+            }
+            let running = crate::usbmuxd::RunningDevices::start()?;
+            address = CString::new(running.address()).ok();
+            embedded = Some(running);
+        }
+        let pointer = address.as_deref().map_or(ptr::null(), CStr::as_ptr);
+        unsafe { sys::libusbmuxd_set_thread_socket_address(1, pointer) };
+        Ok(HostUsbmuxd {
+            #[cfg(target_os = "linux")]
+            embedded,
+        })
     }
+
+    /// Run `look` until it finds something. With the embedded server, devices
+    /// it's switching get [`SWITCH_SETTLE`] to appear; otherwise one look.
+    fn settle<T>(&self, mut look: impl FnMut() -> Result<Option<T>>) -> Result<Option<T>> {
+        #[cfg(target_os = "linux")]
+        let deadline = self
+            .embedded
+            .is_some()
+            .then(|| std::time::Instant::now() + SWITCH_SETTLE);
+        #[cfg(not(target_os = "linux"))]
+        let deadline: Option<std::time::Instant> = None;
+        loop {
+            if let Some(found) = look()? {
+                return Ok(Some(found));
+            }
+            match deadline {
+                Some(deadline) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(250))
+                }
+                _ => return Ok(None),
+            }
+        }
+    }
+}
+
+/// Whether the system usbmuxd is up to serve running devices.
+#[cfg(target_os = "linux")]
+fn system_usbmuxd_running() -> bool {
+    std::os::unix::net::UnixStream::connect("/var/run/usbmuxd").is_ok()
 }
 
 impl Drop for HostUsbmuxd {
@@ -307,30 +373,34 @@ pub struct RunningDevice {
 
 /// The running iPhones and iPads on USB that [`enter`] can reach.
 pub fn devices() -> Result<Vec<RunningDevice>> {
-    let _host = HostUsbmuxd::select();
-    Ok(udids()?
-        .iter()
-        .filter_map(|udid| {
-            let device = Device::open(udid)?;
-            let lockdown = Lockdown::connect(&device).ok()?;
-            Some(RunningDevice {
-                ecid: lockdown.unique_chip_id()?,
-                udid: udid.to_string_lossy().into_owned(),
-                product_type: lockdown.string_value(c"ProductType"),
+    let host = HostUsbmuxd::select()?;
+    let list = || -> Result<Vec<RunningDevice>> {
+        Ok(udids()?
+            .iter()
+            .filter_map(|udid| {
+                let device = Device::open(udid)?;
+                let lockdown = Lockdown::connect(&device).ok()?;
+                Some(RunningDevice {
+                    ecid: lockdown.unique_chip_id()?,
+                    udid: udid.to_string_lossy().into_owned(),
+                    product_type: lockdown.string_value(c"ProductType"),
+                })
             })
-        })
-        .collect())
+            .collect())
+    };
+    Ok(host
+        .settle(|| list().map(|found| (!found.is_empty()).then_some(found)))?
+        .unwrap_or_default())
 }
 
 /// Open the USB device whose lockdownd reports this ECID.
-fn find(ecid: u64) -> Result<Device> {
-    udids()?
+fn find(ecid: u64) -> Result<Option<Device>> {
+    Ok(udids()?
         .iter()
         .filter_map(|udid| Device::open(udid))
         .find(|device| {
             Lockdown::connect(device).is_ok_and(|lockdown| lockdown.unique_chip_id() == Some(ecid))
-        })
-        .ok_or(Error::RunningDeviceNotFound(ecid))
+        }))
 }
 
 /// The UDIDs of the USB devices usbmuxd lists.
@@ -593,30 +663,45 @@ mod tests {
         ));
     }
 
+    /// Held by the tests that pick a usbmuxd: on Linux one may start the
+    /// embedded server, which repoints `USBMUXD_SOCKET_ADDRESS` for the process.
+    static USBMUXD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn an_absent_ecid_is_not_found() {
-        // No device has ECID 0. Without a usbmuxd, as on the Linux and Windows
-        // CI runners, the lookup stops before listing devices.
+        let _usbmuxd = USBMUXD.lock().unwrap_or_else(|e| e.into_inner());
+        // No device has ECID 0. Without a usbmuxd, as on the Windows CI
+        // runners, the lookup stops before listing devices; on Linux the
+        // embedded one serves, if the runner lets it reach USB at all.
         assert!(matches!(
             enter(0, None),
-            Err(Error::RunningDeviceNotFound(0) | Error::UsbmuxdUnreachable)
+            Err(Error::RunningDeviceNotFound(0)
+                | Error::UsbmuxdUnreachable
+                | Error::UsbmuxdFailed(_))
         ));
     }
 
     #[test]
     fn the_host_usbmuxd_is_chosen_for_this_thread_only() {
+        let _usbmuxd = USBMUXD.lock().unwrap_or_else(|e| e.into_inner());
+        let baseline = std::thread::spawn(udids).join().unwrap();
         // Nothing listens on port 1, so a lookup that goes there can't list.
         let refused = c"127.0.0.1:1";
         std::thread::spawn(move || {
             unsafe { sys::libusbmuxd_set_thread_socket_address(1, refused.as_ptr()) };
             assert!(matches!(udids(), Err(Error::UsbmuxdUnreachable)));
+            // Another thread isn't affected.
             let other = std::thread::spawn(udids).join().unwrap();
-            let host = {
-                let _host = HostUsbmuxd::select();
-                udids()
-            };
-            // Another thread, and this one inside the guard, reach the host's.
-            assert_eq!(other.is_ok(), host.is_ok());
+            assert_eq!(other.is_ok(), baseline.is_ok());
+            // Inside the guard this thread reaches the host's usbmuxd again,
+            // or on Linux without one, the embedded server.
+            let host = HostUsbmuxd::select().map(|_host| udids());
+            #[cfg(not(target_os = "linux"))]
+            assert_eq!(host.unwrap().is_ok(), baseline.is_ok());
+            #[cfg(target_os = "linux")]
+            if let Ok(host) = host {
+                assert!(host.is_ok());
+            }
             unsafe { sys::libusbmuxd_set_thread_socket_address(0, ptr::null()) };
         })
         .join()
