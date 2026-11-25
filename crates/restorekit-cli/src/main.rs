@@ -36,6 +36,23 @@ enum Command {
     Dfu(TargetArgs),
     /// Reboot the cabled target Mac back into normal mode (dongle or host).
     Reboot(TargetArgs),
+    /// Put a running iPhone or iPad into recovery mode. Not for Macs: put a Mac
+    /// in DFU mode with `dfu`.
+    ///
+    /// Pairs with the device first if it needs it (iOS 14.5 and later), which
+    /// asks its user to trust this computer unless --supervisor is given.
+    Recovery {
+        /// The device's ECID (hex like 0x1a2b3c4d5e6f, or decimal). Defaults to
+        /// the sole running iPhone or iPad.
+        #[arg(value_parser = parse_ecid)]
+        ecid: Option<u64>,
+        /// Pair as this supervision identity, so a device it supervises skips
+        /// the trust prompt: a PEM file with the certificate and unencrypted
+        /// key, or a PKCS #12 archive whose password is in
+        /// RESTOREKIT_SUPERVISOR_PASSWORD.
+        #[arg(long)]
+        supervisor: Option<PathBuf>,
+    },
     /// Stream the target Mac's debug serial console (Apple Silicon macOS host +
     /// SuperSpeed USB-C cable). Muxes the UART onto the SBU pins like macvdmtool.
     Serial(TargetArgs),
@@ -327,6 +344,9 @@ fn main() {
         Command::List { watch } => commands::list::run(cli.json, watch),
         Command::Dfu(t) => commands::dfu::enter(cli.json, t.dongle, t.ecid, t.port),
         Command::Reboot(t) => commands::dfu::reboot(cli.json, t.dongle, t.ecid, t.port),
+        Command::Recovery { ecid, supervisor } => {
+            commands::recovery::enter(cli.json, ecid, supervisor.as_deref())
+        }
         Command::Serial(t) => commands::dfu::serial(cli.json, t.dongle, t.ecid, t.port),
         Command::ProbePorts => commands::dfu::probe_ports(cli.json),
         Command::KisProbe => {

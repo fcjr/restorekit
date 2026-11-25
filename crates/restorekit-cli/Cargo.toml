@@ -27,6 +27,7 @@ restorekit = { path = "../restorekit", version = "0.6.6", default-features = fal
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.17"
 serde_json = "1"
+zeroize = "1"
 clap_complete = "4"
 # Cross-platform serial for the `serial` console (COM ports on Windows, tty on
 # unix). No default features → no libudev on Linux, keeping the static build.

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error("no Mac in DFU mode found")]
     NoDeviceFound,
@@ -93,10 +94,21 @@ pub enum Error {
     UsbmuxdUnreachable,
 
     #[error(
-        "no running iPhone or iPad with ECID {0:#x} is visible to usbmuxd{hint}",
+        "no running iPhone or iPad with ECID {0:#x} is visible to usbmuxd. A Mac can't be \
+         reached this way: put it in DFU mode instead{hint}",
         hint = running_device_hint()
     )]
     RunningDeviceNotFound(u64),
+
+    #[error(
+        "no running iPhone or iPad is visible to usbmuxd. A Mac can't be reached this way: put \
+         it in DFU mode instead{hint}",
+        hint = running_device_hint()
+    )]
+    NoRunningDevice,
+
+    #[error("{0} running iPhones and iPads are connected; select one by its ECID")]
+    MultipleRunningDevices(usize),
 
     #[error("the device is locked; unlock it and retry")]
     DeviceLocked,
@@ -167,7 +179,8 @@ fn kis_unreadable_message() -> &'static str {
 }
 
 /// Which usbmuxd reaches a running iPhone or iPad on this host, appended to
-/// [`Error::UsbmuxdUnreachable`] and [`Error::RunningDeviceNotFound`]. On macOS
+/// [`Error::UsbmuxdUnreachable`], [`Error::RunningDeviceNotFound`] and
+/// [`Error::NoRunningDevice`]. On macOS
 /// it is always Apple's.
 fn running_device_hint() -> &'static str {
     if cfg!(target_os = "linux") {

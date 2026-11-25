@@ -1195,6 +1195,7 @@ dependencies = [
  "serde_json",
  "serialport",
  "windows-sys 0.60.2",
+ "zeroize",
 ]
 
 [[package]]
