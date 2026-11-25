@@ -1,6 +1,6 @@
 --- a/src/libirecovery.c
 +++ b/src/libirecovery.c
-@@ -117,7 +117,7 @@ struct irecv_async_transfer {
+@@ -125,7 +125,7 @@ struct irecv_async_transfer {
  
  #endif
  
@@ -9,7 +9,7 @@
  #define HAVE_KIS_LINKS 1
  struct kis_link;
  #endif
-@@ -143,7 +143,6 @@ struct irecv_client_private {
+@@ -151,7 +151,6 @@ struct irecv_client_private {
  #endif
  #else
  	HANDLE handle;
@@ -17,7 +17,7 @@
  #endif
  	irecv_event_cb_t progress_callback;
  	irecv_event_cb_t received_callback;
-@@ -1198,7 +1197,14 @@ struct kis_link {
+@@ -896,7 +895,14 @@ struct kis_link {
  	uint16_t packet;
  	uint8_t *out;
  	uint8_t *in;
@@ -32,7 +32,7 @@
  	/* The recovery session, while session is nonzero: changed under xfer and
  	 * lock, read under either. xfer: one recovery transfer at a time. */
  	mutex_t xfer;
-@@ -1236,14 +1242,22 @@ static void kis_put32(uint8_t *p, uint32_t v)
+@@ -934,14 +940,22 @@ static void kis_put32(uint8_t *p, uint32_t v)
  
  static uint64_t kis_now_ms(void)
  {
@@ -55,7 +55,7 @@
  }
  
  /* Caller holds link->lock. */
-@@ -1257,6 +1271,40 @@ static void kis_link_set_dead(struct kis_link *link)
+@@ -955,6 +969,44 @@ static void kis_link_set_dead(struct kis_link *link)
  /* Caller holds link->lock. */
  static irecv_error_t kis_link_bulk(struct kis_link *link, uint8_t ep, uint8_t *buf, int len, int *done, unsigned int timeout)
  {
@@ -65,11 +65,14 @@
 +	if (timeout != link->pipe_timeout) {
 +		ULONG t = timeout;
 +		UCHAR pipes[] = { 0x01, 0x81, 0x03, 0x83 };
-+		int i;
++		int i, set = 1;
 +		for (i = 0; i < (int)sizeof(pipes); i++) {
-+			WinUsb_SetPipePolicy(link->winusb, pipes[i], PIPE_TRANSFER_TIMEOUT, sizeof(t), &t);
++			if (!WinUsb_SetPipePolicy(link->winusb, pipes[i], PIPE_TRANSFER_TIMEOUT, sizeof(t), &t)) {
++				set = 0;
++			}
 +		}
-+		link->pipe_timeout = timeout;
++		/* Retry on the next transfer if any pipe kept its old timeout. */
++		link->pipe_timeout = set ? timeout : (unsigned int)-1;
 +	}
 +	if (ep & 0x80) {
 +		ok = WinUsb_ReadPipe(link->winusb, ep, buf, (ULONG)len, &n, NULL);
@@ -83,7 +86,8 @@
 +		if (err == ERROR_SEM_TIMEOUT) {
 +			return IRECV_E_TIMEOUT;
 +		}
-+		if (err == ERROR_DEVICE_NOT_CONNECTED || err == ERROR_FILE_NOT_FOUND || err == ERROR_BAD_COMMAND) {
++		if (err == ERROR_DEVICE_NOT_CONNECTED || err == ERROR_FILE_NOT_FOUND || err == ERROR_BAD_COMMAND
++		    || err == ERROR_NO_SUCH_DEVICE || err == ERROR_INVALID_HANDLE) {
 +			kis_link_set_dead(link);
 +			return IRECV_E_NO_DEVICE;
 +		}
@@ -96,7 +100,7 @@
  	int ret = libusb_bulk_transfer(link->handle, ep, buf, len, done, timeout);
  	switch (ret) {
  	case 0:
-@@ -1273,6 +1321,7 @@ static irecv_error_t kis_link_bulk(struct kis_link *link, uint8_t ep, uint8_t *b
+@@ -971,6 +1023,7 @@ static irecv_error_t kis_link_bulk(struct kis_link *link, uint8_t ep, uint8_t *b
  		}
  		return IRECV_E_USB_STATUS;
  	}
@@ -104,7 +108,7 @@
  }
  
  /* Send the request built in link->out and read its reply, at most reply_max
-@@ -1957,10 +2006,20 @@ static irecv_error_t rsm_attach(struct kis_link *link, const struct kis_look *lo
+@@ -1655,10 +1708,20 @@ static irecv_error_t rsm_attach(struct kis_link *link, const struct kis_look *lo
  
  static void kis_link_free(struct kis_link *link)
  {
@@ -125,7 +129,7 @@
  	mutex_destroy(&link->lock);
  	mutex_destroy(&link->xfer);
  	free(link->out);
-@@ -1978,6 +2037,9 @@ static struct kis_link* kis_link_new(uint32_t location)
+@@ -1676,6 +1739,9 @@ static struct kis_link* kis_link_new(uint32_t location)
  	link->location = location;
  	link->refs = 1;
  	link->packet = 512;
@@ -135,7 +139,7 @@
  	mutex_init(&link->lock);
  	mutex_init(&link->xfer);
  	link->out = malloc(KIS_LINK_BUFFER);
-@@ -2050,6 +2112,7 @@ static void kis_link_put_client(struct kis_link *link)
+@@ -1748,6 +1814,7 @@ static void kis_link_put_client(struct kis_link *link)
  	kis_link_put(link);
  }
  
@@ -143,7 +147,7 @@
  /* This process's link to the device at location, with a reference. */
  static struct kis_link* kis_link_find(uint32_t location)
  {
-@@ -2167,6 +2230,101 @@ static struct kis_link* kis_link_get(uint8_t bus, uint8_t address, int attempts,
+@@ -1865,6 +1932,101 @@ static struct kis_link* kis_link_get(uint8_t bus, uint8_t address, int attempts,
  	}
  	return link;
  }
@@ -245,7 +249,7 @@
  
  static uint64_t kis_serial_ecid(const char *serial)
  {
-@@ -2224,7 +2382,11 @@ static irecv_error_t kis_link_open_client(irecv_client_t *pclient, struct kis_li
+@@ -1922,7 +2084,11 @@ static irecv_error_t kis_link_open_client(irecv_client_t *pclient, struct kis_li
  		return err;
  	}
  	client->kis = link;
@@ -257,7 +261,7 @@
  	if (look.state == KIS_STATE_DFU) {
  		client->mode = KIS_PRODUCT_ID;
  	} else {
-@@ -2591,7 +2753,7 @@ static BOOL win32_device_io_control(HANDLE handle, DWORD code, void* in_buf, DWO
+@@ -2289,7 +2455,7 @@ static BOOL win32_device_io_control(HANDLE handle, DWORD code, void* in_buf, DWO
   * "\\?\kis#vid_05ac&pid_0001". With plain WinUSB bound to 05ac:1881 instead
   * (as restorekit does), the device shows up as a regular "\\?\usb#" interface
   * and has to be spoken to the way the libusb and IOKit backends do: raw KIS
@@ -266,7 +270,7 @@
   * Requests are built as bytes so the layout doesn't depend on the AppleKIS
   * structs defined for Windows.
   */
-@@ -2600,21 +2762,6 @@ static BOOL win32_device_io_control(HANDLE handle, DWORD code, void* in_buf, DWO
+@@ -2298,21 +2464,6 @@ static BOOL win32_device_io_control(HANDLE handle, DWORD code, void* in_buf, DWO
  #define KISW_TRAILER     8
  #define KISW_CHUNK       0x4000
  
@@ -288,7 +292,7 @@
  static void kisw_put32(uint8_t *p, uint32_t v)
  {
  	p[0] = v & 0xff;
-@@ -2642,33 +2789,6 @@ static void kisw_header(uint8_t *h, uint8_t portal, uint16_t index, size_t arg_c
+@@ -2340,33 +2491,6 @@ static void kisw_header(uint8_t *h, uint8_t portal, uint16_t index, size_t arg_c
  	kisw_put32(h + 8, (uint32_t)(payload_size + (arg_count << 2)));
  }
  
@@ -322,7 +326,7 @@
  static irecv_error_t kisw_write32(irecv_client_t client, uint8_t portal, uint16_t index, uint32_t value)
  {
  	uint8_t req[KISW_HEADER_SIZE + 4];
-@@ -2676,21 +2796,7 @@ static irecv_error_t kisw_write32(irecv_client_t client, uint8_t portal, uint16_
+@@ -2374,21 +2498,7 @@ static irecv_error_t kisw_write32(irecv_client_t client, uint8_t portal, uint16_
  	size_t rpl_size = sizeof(rpl);
  	kisw_header(req, portal, index, 1, 0, 1);
  	kisw_put32(req + KISW_HEADER_SIZE, value);
@@ -345,7 +349,7 @@
  }
  
  /* A USB string descriptor at word offset `word` of the info block, as ASCII. */
-@@ -2717,7 +2823,7 @@ static irecv_error_t kisw_load_device_info(irecv_client_t client)
+@@ -2415,7 +2525,7 @@ static irecv_error_t kisw_load_device_info(irecv_client_t client)
  	uint8_t rpl[KISW_HEADER_SIZE + KISW_INFO_SIZE + KISW_TRAILER];
  	size_t rpl_size = sizeof(rpl);
  	kisw_header(req, KIS_PORTAL_RSM, KIS_INDEX_GET_INFO, 0, 0, KISW_INFO_SIZE / 4);
@@ -354,7 +358,7 @@
  	if (err != IRECV_E_SUCCESS) {
  		return err;
  	}
-@@ -2762,7 +2868,7 @@ static irecv_error_t kisw_send_buffer(irecv_client_t client, unsigned char* buff
+@@ -2460,7 +2570,7 @@ static irecv_error_t kisw_send_buffer(irecv_client_t client, unsigned char* buff
  
  		uint8_t rpl[KISW_HEADER_SIZE + KISW_TRAILER];
  		size_t rpl_size = sizeof(rpl);
@@ -363,7 +367,7 @@
  		if (err != IRECV_E_SUCCESS) {
  			free(req);
  			debug("Failed to upload chunk, error %d\n", err);
-@@ -2803,11 +2909,6 @@ static irecv_error_t irecv_kis_init(irecv_client_t client)
+@@ -2501,11 +2611,6 @@ static irecv_error_t irecv_kis_init(irecv_client_t client)
  		return IRECV_E_SUCCESS;
  	}
  #endif
@@ -375,7 +379,7 @@
  #ifdef HAVE_IOKIT
  	/* deviceinterfaced enables the device itself when it attaches. */
  	if (client->kis_dic) {
-@@ -2837,7 +2938,7 @@ static irecv_error_t irecv_kis_load_device_info(irecv_client_t client)
+@@ -2535,7 +2640,7 @@ static irecv_error_t irecv_kis_load_device_info(irecv_client_t client)
  {
  	debug("Loading device info in KIS mode...\n");
  #ifdef _WIN32
@@ -384,7 +388,7 @@
  		return kisw_load_device_info(client);
  	}
  #endif
-@@ -2990,8 +3091,20 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid,
+@@ -2688,8 +2793,20 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid,
  				free(details);
  				continue;
  			}
@@ -407,7 +411,7 @@
  			if (guids[k] == &GUID_DEVINTERFACE_KIS) {
  				pid = KIS_PRODUCT_ID;
  			}
-@@ -3002,12 +3115,6 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid,
+@@ -2700,12 +2817,6 @@ static irecv_error_t win32_open_with_ecid(irecv_client_t* client, uint64_t ecid,
  				free(details);
  				continue;
  			}
@@ -420,7 +424,7 @@
  			_client->mode = pid;
  
  			if (ecid == IRECV_K_WTF_MODE) {
-@@ -3180,6 +3287,9 @@ int irecv_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, u
+@@ -2878,6 +2989,9 @@ int irecv_usb_control_transfer(irecv_client_t client, uint8_t bm_request_type, u
  	return libusb_control_transfer(client->handle, bm_request_type, b_request, w_value, w_index, data, w_length, timeout);
  #endif
  #else
@@ -430,7 +434,7 @@
  	DWORD count = 0;
  
  	if (data == NULL)
-@@ -3560,6 +3670,9 @@ int irecv_usb_bulk_transfer(irecv_client_t client,
+@@ -3260,6 +3374,9 @@ int irecv_usb_bulk_transfer(irecv_client_t client,
  	}
  #endif
  #else
@@ -440,7 +444,7 @@
  	if (endpoint==0x4) {
  		DWORD count = 0;
  		ret = win32_device_io_control(client->handle, 0x2201B6, data, length, data, length, &count, timeout);
-@@ -4199,6 +4312,16 @@ irecv_error_t irecv_usb_set_interface(irecv_client_t client, int usb_interface,
+@@ -3972,6 +4089,16 @@ irecv_error_t irecv_usb_set_interface(irecv_client_t client, int usb_interface,
  	}
  #endif
  #else
@@ -457,7 +461,7 @@
  	if (usb_interface == 1) {
  		if (irecv_usb_control_transfer(client, 0, 0x0B, usb_alt_interface, usb_interface, NULL, 0, USB_TIMEOUT) < 0) {
  			return IRECV_E_USB_INTERFACE;
-@@ -4244,7 +4367,9 @@ irecv_error_t irecv_reset(irecv_client_t client)
+@@ -4017,7 +4144,9 @@ irecv_error_t irecv_reset(irecv_client_t client)
  	}
  #endif
  #else
@@ -468,7 +472,7 @@
  #endif
  
  	return IRECV_E_SUCCESS;
-@@ -4525,12 +4650,6 @@ static void* _irecv_handle_device_add(void *userdata)
+@@ -4298,12 +4427,6 @@ static void* _irecv_handle_device_add(void *userdata)
  			free(client);
  			return NULL;
  		}
@@ -481,13 +485,14 @@
  		client->mode = pid;
  	} else {
  		char* p = strchr(serial_str, '#');
-@@ -4738,8 +4857,13 @@ enum kis_hold {
+@@ -4524,8 +4647,14 @@ enum kis_hold {
  /* A KIS device the event thread watches. Touched only by the event thread. */
  struct kis_watch {
  	uint32_t location;
 +#ifdef _WIN32
 +	char *path;
-+	int present;
++	int seen;
++	unsigned int missed;
 +#else
  	uint8_t bus;
  	uint8_t address;
@@ -495,7 +500,7 @@
  	unsigned int polls;
  	int enabled;
  	/* A link kept across a stage change, and until when. */
-@@ -4777,7 +4901,11 @@ static struct kis_watch* kis_watch_find(uint32_t location)
+@@ -4563,7 +4692,11 @@ static struct kis_watch* kis_watch_find(uint32_t location)
  /* Whether link goes to the watched device. Caller holds kis_links_mutex. */
  static int kis_watch_has(const struct kis_watch *watch, const struct kis_link *link)
  {
@@ -507,7 +512,7 @@
  }
  
  /* This process's link to the watched device, with a reference. */
-@@ -4849,6 +4977,9 @@ static void kis_watch_remove(uint32_t location)
+@@ -4635,6 +4768,9 @@ static void kis_watch_remove(uint32_t location)
  	if (left) {
  		kis_link_release_retained(left);
  	}
@@ -517,7 +522,7 @@
  	free(watch);
  }
  
-@@ -4907,7 +5038,11 @@ static void kis_watch_poll(void)
+@@ -4693,7 +4829,11 @@ static void kis_watch_poll(void)
  				if ((watch->polls++ % KIS_LOOK_POLLS) != 0) {
  					continue;
  				}
@@ -529,7 +534,7 @@
  				if (!link) {
  					continue;
  				}
-@@ -5003,6 +5138,9 @@ static void kis_watch_clear(void)
+@@ -4789,6 +4929,9 @@ static void kis_watch_clear(void)
  		collection_remove(&kis_watches, watch);
  		/* The event subscription frees announced devices with the rest. */
  		kis_watch_release(watch);
@@ -539,7 +544,7 @@
  		free(watch);
  	} ENDFOREACH
  	collection_init(&kept);
-@@ -5028,6 +5166,7 @@ static void kis_watch_start(void)
+@@ -4814,6 +4957,7 @@ static void kis_watch_start(void)
  	mutex_unlock(&kis_links_mutex);
  }
  
@@ -547,7 +552,7 @@
  static void kis_watch_add(libusb_device *device)
  {
  	uint8_t bus = libusb_get_bus_number(device);
-@@ -5047,6 +5186,41 @@ static void kis_watch_add(libusb_device *device)
+@@ -4833,6 +4977,46 @@ static void kis_watch_add(libusb_device *device)
  	watch->view = KIS_STATE_EMPTY;
  	collection_add(&kis_watches, watch);
  }
@@ -571,17 +576,22 @@
 +		watch->view = KIS_STATE_EMPTY;
 +		collection_add(&kis_watches, watch);
 +	}
-+	watch->present = 1;
++	watch->seen = 1;
 +}
 +
-+/* Forget the KIS devices this pass didn't find. */
++/* Passes a KIS device can go unseen before it counts as removed: one pass
++ * can miss a device that is still there when a SetupDi call fails. */
++#define KIS_WATCH_MISSES 3
++
++/* Forget the KIS devices the last few passes didn't find. */
 +static void kis_watch_sweep(void)
 +{
 +	FOREACH(struct kis_watch *watch, &kis_watches) {
-+		if (!watch->present) {
++		if (watch->seen) {
++			watch->seen = 0;
++			watch->missed = 0;
++		} else if (++watch->missed >= KIS_WATCH_MISSES) {
 +			kis_watch_remove(watch->location);
-+		} else {
-+			watch->present = 0;
 +		}
 +	} ENDFOREACH
 +}
@@ -589,7 +599,7 @@
  #endif
  
  
-@@ -5227,6 +5401,7 @@ static void *_irecv_event_handler(void* data)
+@@ -5013,6 +5197,7 @@ static void *_irecv_event_handler(void* data)
  	int running = 1;
  
  	collection_init(&newDevices);
@@ -597,7 +607,7 @@
  
  	mutex_lock(&(info->startup_mutex));
  	cond_signal(&(info->startup_cond));
-@@ -5254,6 +5429,8 @@ static void *_irecv_event_handler(void* data)
+@@ -5040,6 +5225,8 @@ static void *_irecv_event_handler(void* data)
  					free(win_ctx);
  				} ENDFOREACH
  				collection_free(&newDevices);
@@ -606,7 +616,7 @@
  				return NULL;
  			}
  
-@@ -5336,6 +5513,12 @@ static void *_irecv_event_handler(void* data)
+@@ -5122,6 +5309,12 @@ static void *_irecv_event_handler(void* data)
  					skip = 1;
  				}
  
@@ -619,7 +629,7 @@
  				if (!found && !skip) {
  					// Add device to newDevices list, and deliver the notification later, when removed devices are first handled.
  					struct irecv_win_dev_ctx *win_ctx = (struct irecv_win_dev_ctx*)malloc(sizeof(struct irecv_win_dev_ctx));
-@@ -5349,6 +5532,7 @@ static void *_irecv_event_handler(void* data)
+@@ -5135,6 +5328,7 @@ static void *_irecv_event_handler(void* data)
  			SetupDiDestroyDeviceInfoList(usbDevices);
  		}
  
@@ -627,7 +637,7 @@
  		_irecv_remove_dead_devices();
  
  		// handle newly added devices and remove from local list
-@@ -5360,7 +5544,10 @@ static void *_irecv_event_handler(void* data)
+@@ -5146,7 +5340,10 @@ static void *_irecv_event_handler(void* data)
  			free(win_ctx);
  		} ENDFOREACH
  
@@ -639,7 +649,7 @@
  		mutex_lock(&listener_mutex);
  		if (collection_count(&listeners) == 0) {
  			running = 0;
-@@ -5369,6 +5556,8 @@ static void *_irecv_event_handler(void* data)
+@@ -5155,6 +5352,8 @@ static void *_irecv_event_handler(void* data)
  	} while (running);
  
  	collection_free(&newDevices);
@@ -648,7 +658,7 @@
  #else /* !_WIN32 */
  #ifdef HAVE_IOKIT
  	kern_return_t kr;
-@@ -5661,9 +5850,10 @@ static irecv_error_t irecv_cleanup(irecv_client_t client)
+@@ -5447,9 +5646,11 @@ static irecv_error_t irecv_cleanup(irecv_client_t client)
  		}
  #endif
  #else
@@ -658,11 +668,12 @@
 +		if (client->kis) {
 +			kis_link_put_client(client->kis);
 +			client->kis = NULL;
++			client->rsm_session = 0;
 +			client->handle = INVALID_HANDLE_VALUE;
  		}
  		if (client->handle != NULL && client->handle != INVALID_HANDLE_VALUE) {
  			CloseHandle(client->handle);
-@@ -5893,7 +6083,7 @@ static irecv_error_t irecv_kis_send_buffer(irecv_client_t client, unsigned char*
+@@ -5762,7 +5963,7 @@ static irecv_error_t irecv_kis_send_buffer(irecv_client_t client, unsigned char*
  	}
  #endif
  #ifdef _WIN32
