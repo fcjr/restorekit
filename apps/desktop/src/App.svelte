@@ -631,11 +631,11 @@
       configuratorErr = String(e);
     }
   }
-  async function autoEnterDfu(dongle?: string) {
+  async function autoEnterDfu(target: Device) {
     if (autoTriggering) return;
     autoTriggering = true;
     try {
-      await api.triggerDfu(dongle);
+      await api.triggerDfu(target);
       await refresh();
     } catch {
       /* best-effort; user can trigger manually */
@@ -657,7 +657,7 @@
     );
     if (!target) return;
     autoTriggered.add(target.serial);
-    void autoEnterDfu(target.via_dongle ?? undefined);
+    void autoEnterDfu(target);
   });
 
   const JOB_COLOR: Record<string, string> = {
@@ -801,11 +801,12 @@
   }
 
   async function enterDfu() {
+    if (!selected) return;
     error = "";
-    const dongle = selected?.via_dongle ?? undefined;
+    const dongle = selected.via_dongle;
     busy = "Triggering DFU…";
     try {
-      const dfuDev = await api.triggerDfu(dongle);
+      const dfuDev = await api.triggerDfu(selected);
       await refresh();
       if (dfuDev) selectedKey = dfuDev.ecid || dfuDev.serial;
     } catch (e) {
@@ -818,11 +819,12 @@
   }
 
   async function rebootTarget() {
+    if (!selected) return;
     error = "";
-    const dongle = selected?.via_dongle ?? undefined;
+    const dongle = selected.via_dongle;
     busy = "Rebooting…";
     try {
-      await api.rebootTarget(dongle);
+      await api.rebootTarget(selected);
       await refresh();
     } catch (e) {
       if (!dongle && String(e).includes(APPROVAL_REQUIRED)) requestApproval("reboot");

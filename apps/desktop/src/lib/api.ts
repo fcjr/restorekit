@@ -11,6 +11,8 @@ export interface Port {
   dfu: boolean;
   /** Firmware location label, e.g. "left-back", when available. */
   location: string | null;
+  /** The port's AppleHPM RID, which aims the host trigger at this port. */
+  rid: number;
 }
 
 export interface Device {
@@ -170,16 +172,21 @@ function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 /// one-time approval; the UI matches it to show the approval screen.
 export const APPROVAL_REQUIRED = "helper-approval-required";
 
+/** The RID of the DFU-capable port `d` is on, to aim the host trigger at it. */
+const dfuRid = (d: Device) => (d.port?.dfu ? d.port.rid : null);
+
 export const api = {
   hostCanTrigger: () => call<boolean>("host_can_trigger"),
   historyEnabled: () => call<boolean>("history_enabled"),
   manualInstructions: () => call<string>("manual_instructions"),
   listDevices: () => call<Device[]>("list_devices"),
-  /** Trigger DFU. Pass a dongle id to route over that dongle (any host OS, no
-   *  helper); omit to use the host's electronic trigger (Apple Silicon macOS). */
-  triggerDfu: (dongle?: string) => call<Device>("trigger_dfu", { dongle: dongle ?? null }),
-  /** Reboot the target. Pass a dongle id to route over it; omit for the host. */
-  rebootTarget: (dongle?: string) => call<void>("reboot_target", { dongle: dongle ?? null }),
+  /** Trigger DFU on `d`: over its dongle when it's behind one (any host OS, no
+   *  helper), else with the host's electronic trigger aimed at its port (Apple
+   *  Silicon macOS). */
+  triggerDfu: (d: Device) =>
+    call<Device>("trigger_dfu", { dongle: d.via_dongle, port: dfuRid(d), ecid: d.ecid || null }),
+  /** Reboot `d`, over its dongle when it's behind one, else from the host. */
+  rebootTarget: (d: Device) => call<void>("reboot_target", { dongle: d.via_dongle, port: dfuRid(d) }),
   listDongles: () => call<Dongle[]>("list_dongles"),
   dongleDfu: (serial: string) => call<void>("dongle_dfu", { serial }),
   dongleReboot: (serial: string) => call<void>("dongle_reboot", { serial }),
@@ -265,8 +272,8 @@ export const exportSeenCsv = () => saveCsv("export_seen_csv", "restorekit-device
 
 function browserMock(cmd: string): Promise<unknown> {
   const devices: Device[] = [
-    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", serial_number: null, restorable: true, port: { dfu: true, location: "left-back" }, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: true },
-    { mode: "booted", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: true, location: "left-back" }, driver_ready: true, connection: "dongle", via_dongle: "DL-1A2B3C4D", host_dfu_capable: false },
+    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", serial_number: null, restorable: true, port: { dfu: true, location: "left-back", rid: 0 }, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: true },
+    { mode: "booted", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: true, location: "left-back", rid: 0 }, driver_ready: true, connection: "dongle", via_dongle: "DL-1A2B3C4D", host_dfu_capable: false },
     { mode: "other", name: "Apple device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", serial_number: null, restorable: false, port: null, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: false },
   ];
   const history: HistoryEntry[] = [
