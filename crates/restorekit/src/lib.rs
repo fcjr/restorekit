@@ -105,8 +105,9 @@ pub use nusb;
 /// `RESTOREKIT_SHARED_USBMUXD` for its restores does the same with
 /// `driver::spawn_restore_mode_watcher`.
 ///
-/// A no-op on macOS, where the system usbmuxd is always available, and on
-/// Windows when Apple's own usbmuxd already serves the port.
+/// A no-op on macOS, where the system usbmuxd is always available, on
+/// Windows when Apple's own usbmuxd already serves the port, and on Linux
+/// when the system usbmuxd runs.
 pub struct SharedUsbmuxd {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     _guard: Option<usbmuxd::UsbmuxdGuard>,
@@ -130,6 +131,11 @@ pub fn start_shared_usbmuxd(progress: progress::ProgressFn) -> Result<SharedUsbm
         // Apple's usbmuxd there, each restore uses it directly.
         #[cfg(target_os = "windows")]
         if restore::windows_mux_check()? {
+            return Ok(SharedUsbmuxd { _guard: None });
+        }
+        // With the system usbmuxd there, each restore uses it directly.
+        #[cfg(target_os = "linux")]
+        if recovery::system_usbmuxd_running() {
             return Ok(SharedUsbmuxd { _guard: None });
         }
         let guard = usbmuxd::UsbmuxdGuard::start(progress)?;
