@@ -7,6 +7,12 @@ cd "$(dirname "$0")"
 
 triple="$(rustc -Vv | awk '/^host:/ {print $2}')"
 cargo build --release -p helper --manifest-path ../../Cargo.toml
+# Wherever cargo put it: CARGO_TARGET_DIR or a configured target-dir moves it
+# out of ../../target, which would otherwise stage a stale helper.
+target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path ../../Cargo.toml |
+  node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => console.log(JSON.parse(s).target_directory))')"
+# MSYS2 (Windows): cargo reports a C:\ path.
+if command -v cygpath >/dev/null; then target_dir="$(cygpath -u "$target_dir")"; fi
 
 # Tauri names sidecars with the target triple and the host's executable
 # extension — `.exe` on Windows, none elsewhere.
@@ -14,7 +20,7 @@ ext=""
 case "$triple" in *windows*) ext=".exe" ;; esac
 
 mkdir -p src-tauri/binaries
-cp "../../target/release/helper${ext}" \
+cp "${target_dir}/release/helper${ext}" \
   "src-tauri/binaries/helper-${triple}${ext}"
 echo "staged helper-${triple}${ext}"
 
@@ -25,7 +31,7 @@ echo "staged helper-${triple}${ext}"
 # helper.exe), so stage the same binary under both names.
 if [[ "$triple" == *windows-gnu* ]]; then
   alt="${triple%-gnu}-msvc"
-  cp "../../target/release/helper${ext}" \
+  cp "${target_dir}/release/helper${ext}" \
     "src-tauri/binaries/helper-${alt}${ext}"
   echo "staged helper-${alt}${ext}"
 fi
