@@ -99,13 +99,14 @@ BaseSystem → recovered. The restore-mode phase needed three pieces:
 
 - **Driverless with Apple's stack.** Windows Update installs Apple's drivers
   for DFU (`WUDFRd`), recovery and KIS (`AppleKIS`) on first plug-in, and
-  libirecovery's native Windows backend talks to them directly. When Apple
-  Mobile Device Service (iTunes or Apple Devices) is running, it holds
+  libirecovery's native Windows backend talks to them directly. When Apple's
+  usbmuxd is running, it holds
   `127.0.0.1:27015` and muxes the restore-mode interface through Apple's
   driver, so restorekit uses it instead of starting the embedded usbmuxd and the
-  WinUSB watcher. It's recognized by matching the port's listener pid against the
-  service's pid from the service manager; any other listener on the port fails
-  the restore up front with its name. restorekit reads a KIS Mac's identity
+  WinUSB watcher. RestoreKit recognizes the Apple Mobile Device Service by its
+  service PID and the Microsoft Store version of Apple Devices by the mux
+  executable in its installed package. Any other listener on the port fails
+  the restore up front. restorekit reads a KIS Mac's identity
   through AppleKIS's GET_INFO ioctl and counts Apple's drivers as ready.
   Hardware-tested: a full revive of an M4 mac mini (KIS DFU via a dongle) on
   Windows 11 ARM64 with no RestoreKit driver package, no UAC prompt and no test
