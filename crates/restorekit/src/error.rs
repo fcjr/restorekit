@@ -15,7 +15,7 @@ pub enum Error {
     #[error("multiple devices in DFU mode found ({0}); select one with --ecid (see `restorekit list`) or disconnect the others")]
     MultipleDfuDevices(usize),
 
-    #[error("no device in DFU mode with ECID {0:#x}")]
+    #[error("no device with ECID {0:#x} is connected")]
     EcidNotFound(u64),
 
     #[error("no Mac with ECID {0:#x} is connected to this host")]

@@ -74,6 +74,8 @@ fn run_once(json: bool) -> Result<()> {
                 let host_dfu = conn.host_reachable() && d.port.as_ref().is_some_and(|p| p.dfu);
                 let mut v = serde_json::to_value(d).unwrap_or_else(|_| json!({}));
                 if let Some(obj) = v.as_object_mut() {
+                    obj.insert("name".into(), json!(d.display_name()));
+                    obj.insert("mode_label".into(), json!(d.mode_label()));
                     obj.insert("connection".into(), json!(conn.kind()));
                     obj.insert("via_dongle".into(), json!(conn.dongle()));
                     obj.insert("host_dfu_capable".into(), json!(host_dfu));
@@ -112,7 +114,10 @@ fn run_once(json: bool) -> Result<()> {
         if !restorekit::host_can_trigger_dfu() {
             println!("\n{}", restorekit::manual_dfu_instructions());
         } else {
-            println!("Cable a target Mac to the DFU port and run `restorekit dfu`.");
+            println!(
+                "Cable a Mac to the DFU port and run `restorekit dfu`, or an iPhone or iPad to \
+                 any port."
+            );
         }
         print_ports();
         print_dongles();
@@ -128,12 +133,7 @@ fn run_once(json: bool) -> Result<()> {
     for d in &devices {
         // A running iPhone or iPad that lockdownd identified.
         let running = d.mode == UsbMode::Other && d.ecid.is_some();
-        let mode = if running {
-            "normal".to_string()
-        } else {
-            d.mode.to_string()
-        };
-        println!("  {} [{mode} mode]", d.display_name());
+        println!("  {} [{} mode]", d.display_name(), d.mode_label());
         println!("    usb: {}", d.usb.summary());
         if let Some(id) = d.identifier() {
             println!("    identifier: {id}");

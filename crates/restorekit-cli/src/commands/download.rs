@@ -6,8 +6,9 @@ use restorekit::{firmware, Error, Result};
 
 use super::render;
 
-/// Resolve and download firmware. With no `identifier`, detects the DFU device
-/// and resolves firmware for it automatically.
+/// Resolve and download firmware. With no `identifier`, detects the device (one
+/// ready to restore, else a running iPhone or iPad) and resolves firmware for
+/// it automatically.
 pub fn run(
     identifier: Option<String>,
     os_version: Option<String>,
@@ -18,7 +19,12 @@ pub fn run(
     let identifier = match identifier {
         Some(id) => id,
         None => {
-            let device = super::dfu::select_device(ecid, json)?;
+            // A running iPhone or iPad isn't ready to restore, but its model is
+            // known, which is all a download needs.
+            let device = match super::dfu::select_device(ecid, json) {
+                Ok(device) => device,
+                Err(e) => super::restore::running_ios_target(ecid)?.ok_or(e)?,
+            };
             let identity = device
                 .identity
                 .as_ref()
@@ -34,7 +40,7 @@ pub fn run(
                 println!(
                     "Detected {} in {} mode.",
                     device.display_name(),
-                    device.mode
+                    device.mode_label()
                 );
             }
             id

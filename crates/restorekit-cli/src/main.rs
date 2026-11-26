@@ -5,7 +5,11 @@ use clap::{Parser, Subcommand};
 mod commands;
 
 #[derive(Parser)]
-#[command(name = "restorekit", version, about = "DFU-restore Apple Silicon Macs")]
+#[command(
+    name = "restorekit",
+    version,
+    about = "Restore Macs, iPhones and iPads over USB"
+)]
 struct Cli {
     /// Emit machine-readable JSON lines instead of human output.
     #[arg(long, global = true)]
@@ -80,14 +84,16 @@ enum Command {
     },
     /// Resolve and download firmware for the detected (or specified) device.
     Download {
-        /// Model identifier (e.g. MacBookPro17,1). Defaults to the DFU device.
+        /// Model identifier (e.g. iPhone16,1 or MacBookPro17,1). Defaults to
+        /// the connected device's: one ready to restore, else a running iPhone
+        /// or iPad.
         #[arg(long)]
         identifier: Option<String>,
         /// Pin an OS version (e.g. 26.5.2). Defaults to the latest signed build.
         #[arg(long)]
         os_version: Option<String>,
         /// Detect the model from a specific device by ECID (hex like
-        /// 0xc60a812345678, or decimal) when several are in DFU mode. See
+        /// 0xc60a812345678, or decimal) when several are connected. See
         /// `restorekit list`.
         #[arg(long, value_parser = parse_ecid)]
         ecid: Option<u64>,
@@ -157,8 +163,9 @@ struct TargetArgs {
     /// or any unambiguous fragment of it. See `restorekit dongle list`.
     #[arg(long, conflicts_with_all = ["ecid", "port"])]
     dongle: Option<String>,
-    /// Target the Mac with this ECID (hex like 0xc60a812345678, or decimal).
-    /// Auto-routes through the dongle it's cabled to, else the host DFU port.
+    /// Target the device with this ECID (hex like 0xc60a812345678, or
+    /// decimal). A Mac auto-routes through the dongle it's cabled to, else the
+    /// host DFU port; an iPhone or iPad in recovery mode reboots over USB.
     #[arg(long, value_parser = parse_ecid, conflicts_with = "port")]
     ecid: Option<u64>,
     /// Target a specific host DFU-capable port by its RID (host trigger only).
@@ -252,7 +259,7 @@ struct FirmwareArgs {
     #[arg(long)]
     identifier: Option<String>,
     /// Target a specific device by ECID (hex like 0xc60a812345678, or decimal)
-    /// when several are in DFU mode. See `restorekit list`.
+    /// when several are connected. See `restorekit list`.
     #[arg(long, value_parser = parse_ecid)]
     ecid: Option<u64>,
     /// Trigger DFU entry via a specific dongle by its id (USB serial, or any

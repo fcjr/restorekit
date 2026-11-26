@@ -992,7 +992,28 @@ impl Device {
     /// What to call this device: "Mac", "iPhone", "iPad", and so on (see
     /// [`kind`]), or "device" when its model is unknown.
     pub fn kind(&self) -> &'static str {
-        self.identifier().map_or("device", kind)
+        match self.identifier() {
+            Some(identifier) => kind(identifier),
+            // An iPhone or iPad in restore mode, or on its way down to
+            // recovery, has no model to go by, but its USB product string
+            // still names it.
+            None => match self.product.as_str() {
+                "iPhone" => "iPhone",
+                "iPad" => "iPad",
+                "iPod" => "iPod",
+                _ => "device",
+            },
+        }
+    }
+
+    /// The mode to show a person: "normal" for a running device lockdownd
+    /// identified (an iPhone or iPad), else its USB mode.
+    pub fn mode_label(&self) -> String {
+        if self.mode == UsbMode::Other && self.ecid.is_some() {
+            "normal".to_string()
+        } else {
+            self.mode.to_string()
+        }
     }
 
     /// Whether this is an iPhone, iPad or iPod, by its model.
@@ -1808,6 +1829,18 @@ mod tests {
             driver_ready: true,
             usb_device: None,
         }
+    }
+
+    #[test]
+    fn kind_falls_back_to_the_usb_product_string() {
+        let mut d = dev(UsbMode::Restore, 0x1234);
+        d.identity = None;
+        d.product = "iPhone".into();
+        assert_eq!(d.kind(), "iPhone");
+        assert!(d.is_ios());
+        d.product = "Apple Mobile Device".into();
+        assert_eq!(d.kind(), "device");
+        assert!(!d.is_ios());
     }
 
     #[test]
