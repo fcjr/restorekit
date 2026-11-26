@@ -490,7 +490,7 @@ fn report_wipe(json: bool, verbose: bool, failed: bool, wipe: Option<&(String, S
         "unconfirmed" if failed => say(
             json,
             "Note: the restore failed, and no encryption-key obliteration signal appeared in \
-             the device log. The key can be intact: do not treat the data as erased.",
+             the device log. The key may be intact: do not treat the data as erased.",
         ),
         "unconfirmed" => {
             let hint = if verbose {
