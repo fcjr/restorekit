@@ -58,14 +58,34 @@ impl PhaseTimer {
         }
     }
 
+    /// The phases with repeats folded together, in first-seen order:
+    /// idevicerestore switches back and forth between steps (an iPhone restore
+    /// alternates "uploading filesystem", "uploading image" and "flashing
+    /// firmware updater"). A stretch that never topped out was moving data
+    /// throughout, so it counts as active.
+    fn merged(&self) -> Vec<(String, Duration, Option<Duration>)> {
+        let mut merged: Vec<(String, Duration, Option<Duration>)> = Vec::new();
+        for (name, dur, active) in &self.phases {
+            match merged.iter_mut().find(|(n, ..)| n == name) {
+                Some((_, d, a)) => {
+                    let active_so_far = a.unwrap_or(*d);
+                    *d += *dur;
+                    *a = Some(active_so_far + active.unwrap_or(*dur));
+                }
+                None => merged.push((name.clone(), *dur, *active)),
+            }
+        }
+        merged
+    }
+
     fn report(&self, json: bool) {
         if self.phases.is_empty() {
             return;
         }
         let total = self.start.elapsed();
+        let phases = self.merged();
         if json {
-            let phases: Vec<_> = self
-                .phases
+            let phases: Vec<_> = phases
                 .iter()
                 .map(|(n, d, a)| {
                     serde_json::json!({
@@ -82,20 +102,23 @@ impl PhaseTimer {
             return;
         }
         eprintln!("\nRestore phase timing (active = data moving, wait = device working):");
-        for (name, dur, active) in &self.phases {
+        for (name, dur, active) in &phases {
+            if dur.as_secs() == 0 {
+                continue;
+            }
             match active {
                 // Meaningful active/wait split (>2s idle after topping out).
                 Some(a) if *dur > *a + Duration::from_secs(2) => eprintln!(
-                    "  {:<20} {:>7}   ({} active, {} device-side)",
+                    "  {:<26} {:>7}   ({} active, {} device-side)",
                     name,
                     fmt_dur(*dur),
                     fmt_dur(*a),
                     fmt_dur(*dur - *a)
                 ),
-                _ => eprintln!("  {:<20} {:>7}", name, fmt_dur(*dur)),
+                _ => eprintln!("  {:<26} {:>7}", name, fmt_dur(*dur)),
             }
         }
-        eprintln!("  {:<20} {:>7}", "total", fmt_dur(total));
+        eprintln!("  {:<26} {:>7}", "total", fmt_dur(total));
     }
 }
 
@@ -571,3 +594,38 @@ fn restore_render(bar: &ProgressBar, event: Event, json: bool) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merged_folds_repeated_phases_in_first_seen_order() {
+        let secs = Duration::from_secs;
+        let mut timer = PhaseTimer::new();
+        timer.phases = vec![
+            ("preparing".into(), secs(45), Some(secs(29))),
+            ("uploading filesystem".into(), secs(210), None),
+            ("uploading image".into(), secs(1), None),
+            ("uploading filesystem".into(), secs(36), Some(secs(6))),
+            (
+                "flashing firmware updater".into(),
+                secs(230),
+                Some(secs(10)),
+            ),
+        ];
+        assert_eq!(
+            timer.merged(),
+            vec![
+                ("preparing".into(), secs(45), Some(secs(29))),
+                // 210s never topped out (all active) + 6s of the 36s stretch.
+                ("uploading filesystem".into(), secs(246), Some(secs(216))),
+                ("uploading image".into(), secs(1), None),
+                (
+                    "flashing firmware updater".into(),
+                    secs(230),
+                    Some(secs(10))
+                ),
+            ]
+        );
+    }
+}
