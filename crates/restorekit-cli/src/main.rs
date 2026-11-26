@@ -92,17 +92,18 @@ enum Command {
         #[arg(long, value_parser = parse_ecid)]
         ecid: Option<u64>,
     },
-    /// Restore the target device: puts a Mac into DFU mode if needed (an iPhone
-    /// or iPad must already be in DFU), then downloads firmware and restores.
-    /// This wipes all data on the target.
+    /// Restore the target device: puts a Mac into DFU mode, or a running iPhone
+    /// or iPad into recovery mode, if needed, then downloads firmware and
+    /// restores. This wipes all data on the target.
     Restore(RestoreArgs),
-    /// Revive the target Mac: reinstall firmware without erasing user data —
-    /// use this to recover a Mac bricked by a failed update.
+    /// Revive the target device: reinstall firmware without erasing user data —
+    /// use this to recover a device bricked by a failed update.
     Revive(ReviveArgs),
-    /// Obliterate the target Mac's encryption key and stop, without reinstalling
-    /// the OS: destroys the effaceable media key (cryptographically shredding all
-    /// data) then halts, leaving the Mac wiped and OS-less. Fast decommissioning
-    /// wipe; run `restore` afterward to make it usable again.
+    /// Obliterate the target device's encryption key and stop, without
+    /// reinstalling the OS: destroys the effaceable media key (cryptographically
+    /// shredding all data) then halts, leaving the device wiped and OS-less.
+    /// Fast decommissioning wipe; run `restore` afterward to make it usable
+    /// again.
     Obliterate(RestoreArgs),
     /// Show or manage the firmware cache.
     Cache {
@@ -259,6 +260,11 @@ struct FirmwareArgs {
     /// `restorekit dongle list`.
     #[arg(long)]
     dongle: Option<String>,
+    /// Pair as this supervision identity when taking a running iPhone or iPad
+    /// to recovery, so a device it supervises skips the trust prompt (see
+    /// `restorekit recovery --help`).
+    #[arg(long)]
+    supervisor: Option<PathBuf>,
 }
 
 #[derive(clap::Args)]
@@ -310,6 +316,7 @@ impl FirmwareArgs {
             identifier: self.identifier,
             ecid: self.ecid,
             dongle: self.dongle,
+            supervisor: self.supervisor,
             yes,
             cache_dir,
             json,

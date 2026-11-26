@@ -61,8 +61,7 @@ fn view(d: Device) -> DeviceView {
         connection,
         via_dongle,
         host_dfu_capable,
-        restorable: d.restorable()
-            || (d.is_ios() && d.mode == UsbMode::Recovery && d.ecid.is_some()),
+        restorable: d.ready_to_restore(),
         kind: d.kind().to_string(),
         driver_ready: d.driver_ready,
         mode: d.mode.to_string(),

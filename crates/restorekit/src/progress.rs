@@ -12,6 +12,10 @@ pub enum Event {
     DfuTriggerStage {
         stage: String,
     },
+    /// A stage of taking a running iPhone or iPad to recovery mode.
+    RecoveryStage {
+        stage: String,
+    },
     /// A Mac in DFU mode was detected.
     DeviceDetected {
         device: Device,

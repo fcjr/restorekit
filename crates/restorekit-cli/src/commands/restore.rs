@@ -114,21 +114,29 @@ pub struct Opts {
     pub identifier: Option<String>,
     pub ecid: Option<u64>,
     pub dongle: Option<String>,
+    pub supervisor: Option<PathBuf>,
     pub yes: bool,
     pub cache_dir: Option<PathBuf>,
     pub json: bool,
     pub verbose: bool,
 }
 
-/// Ensure a target is in DFU mode (triggering entry if the host can), then
-/// resolve → download → restore it.
+/// Ensure a target is ready to restore (a Mac in DFU, triggering entry if the
+/// host can, or an iPhone or iPad in DFU or recovery), then resolve → download
+/// → restore it.
 pub fn run(opts: Opts) -> Result<()> {
     restorekit::restore::preflight()?;
+    let supervisor = opts
+        .supervisor
+        .as_deref()
+        .map(super::recovery::load_supervisor)
+        .transpose()?;
     let device = super::dfu::ensure_present(
         opts.json,
         Duration::from_secs(120),
         opts.dongle.clone(),
         opts.ecid,
+        supervisor.as_ref(),
     )?;
     restore_device(&device, opts)
 }
@@ -262,7 +270,12 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
                 record_restore_history(device, mode, wipe.as_ref(), checkpoints.as_ref(), false);
                 Err(result.err().unwrap_or(Error::RestoreFailed {
                     status: -1,
-                    log_tail: "obliterate did not confirm the encryption-key wipe".into(),
+                    // The wipe checkpoint never showed, so nothing stopped the
+                    // erase restore: it reinstalled the OS.
+                    log_tail: "obliterate did not confirm the encryption-key wipe; the erase \
+                               restore ran to the end instead, so the device was erased and \
+                               reinstalled without proof its key was destroyed"
+                        .into(),
                 }))
             }
         };

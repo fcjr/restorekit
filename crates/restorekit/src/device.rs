@@ -957,6 +957,15 @@ impl Device {
         self.in_dfu() && self.identity.is_some()
     }
 
+    /// Whether a restore can start from where this device is now: a mode
+    /// [`restorable`](Self::restorable) takes, or recovery mode for an iPhone
+    /// or iPad, which the restore engine takes as is. A Mac in recovery goes
+    /// to DFU first.
+    pub fn ready_to_restore(&self) -> bool {
+        self.restorable()
+            || (self.mode == UsbMode::Recovery && self.is_ios() && self.ecid.is_some())
+    }
+
     /// A Mac in Debug USB DFU whose identity couldn't be read. It's in DFU, but
     /// restorekit can't restore it.
     pub fn kis_unreadable(&self) -> bool {
@@ -1224,8 +1233,9 @@ pub fn list() -> Result<Vec<Device>> {
 /// Which device to pick.
 #[derive(Debug, Clone, Copy)]
 pub enum Target {
-    /// The only Mac in DFU mode — the implied restore target; it is an error
-    /// if several are connected.
+    /// The only device in DFU mode — the implied restore target; it is an
+    /// error if several are connected. An iPhone or iPad in recovery mode
+    /// doesn't count (see [`Device::ready_to_restore`]).
     One,
     /// The device with this ECID, in any mode that exposes one.
     Ecid(u64),
@@ -1239,7 +1249,7 @@ fn select(devices: Vec<Device>, target: Target) -> Result<Option<Device>> {
             let mut dfu: Vec<Device> = devices.into_iter().filter(|d| d.restorable()).collect();
             match dfu.len() {
                 0 | 1 => Ok(dfu.pop()),
-                n => Err(Error::MultipleDevices(n)),
+                n => Err(Error::MultipleDfuDevices(n)),
             }
         }
         Target::Ecid(e) => Ok(devices.into_iter().find(|d| d.ecid == Some(e))),
@@ -1250,7 +1260,7 @@ fn select(devices: Vec<Device>, target: Target) -> Result<Option<Device>> {
 pub fn find(target: Target) -> Result<Device> {
     select(list()?, target)?.ok_or(match target {
         Target::Ecid(e) => Error::EcidNotFound(e),
-        Target::One => Error::NoDeviceFound,
+        Target::One => Error::NoDfuDevice,
     })
 }
 
@@ -1841,7 +1851,7 @@ mod tests {
                 vec![dev(UsbMode::Dfu, 1), dev(UsbMode::Dfu, 2)],
                 Target::One
             ),
-            Err(Error::MultipleDevices(2))
+            Err(Error::MultipleDfuDevices(2))
         ));
     }
 
