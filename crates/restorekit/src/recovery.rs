@@ -5,11 +5,13 @@
 //! [`restore`]: crate::restore
 //! [`dfu`]: crate::dfu
 
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
@@ -186,6 +188,17 @@ impl Supervisor {
             return Err(invalid("the private key does not match the certificate"));
         }
         Ok(Supervisor { certificate, key })
+    }
+
+    /// Read the identity from a file's contents: PEM with the certificate and
+    /// unencrypted key ([`from_pem`](Self::from_pem)), else a PKCS #12 archive
+    /// protected by `password` ([`from_pkcs12`](Self::from_pkcs12)).
+    pub fn load(bytes: &[u8], password: &str) -> Result<Self> {
+        if bytes.windows(11).any(|w| w == b"-----BEGIN ") {
+            Self::from_pem(bytes)
+        } else {
+            Self::from_pkcs12(bytes, password)
+        }
     }
 
     /// Read the identity from a PKCS #12 archive protected by this password.
@@ -454,34 +467,91 @@ pub fn devices() -> Result<Vec<RunningDevice>> {
 
 /// Fill in the ECID and model of each running iPhone and iPad in `devices`
 /// that [`devices()`] reaches, matched to its USB serial by UDID. Best-effort,
-/// and it asks usbmuxd nothing unless one is on USB.
+/// and cheap enough to call on every poll: it asks usbmuxd nothing unless a
+/// running device it hasn't matched yet is on USB, and then at most every
+/// [`ASK_AGAIN`].
 pub fn identify(devices: &mut [device::Device]) {
     let running = |d: &device::Device| {
         d.mode == UsbMode::Other && d.ecid.is_none() && RUNNING_PIDS.contains(&d.usb.pid)
     };
-    if !devices.iter().any(running) {
-        return;
-    }
-    let Ok(found) = self::devices() else {
-        return;
-    };
     let mut candidates: Vec<&mut device::Device> =
         devices.iter_mut().filter(|d| running(d)).collect();
+    if candidates.is_empty() {
+        return;
+    }
+    let lock = || LEARNED.lock().unwrap_or_else(|e| e.into_inner());
+    let fill = |d: &mut device::Device, ecid: u64, identity: &Option<Identity>| {
+        d.ecid = Some(ecid);
+        if d.identity.is_none() {
+            d.identity = identity.clone();
+        }
+    };
+
+    // A running device's ECID and model don't change, so one match lasts.
+    {
+        let learned = lock();
+        for d in candidates.iter_mut() {
+            if let Some((ecid, identity)) = learned.by_serial.get(&udid_key(&d.serial)) {
+                fill(d, *ecid, identity);
+            }
+        }
+    }
+    candidates.retain(|d| d.ecid.is_none());
+    if candidates.is_empty() {
+        return;
+    }
+    {
+        let mut learned = lock();
+        if learned.asking || learned.asked.is_some_and(|t| t.elapsed() < ASK_AGAIN) {
+            return;
+        }
+        learned.asking = true;
+    }
+    let found = self::devices();
+    let mut learned = lock();
+    learned.asking = false;
+    learned.asked = Some(Instant::now());
+    let Ok(found) = found else {
+        return;
+    };
+    for r in &found {
+        let key = udid_key(&r.udid);
+        if !key.is_empty() {
+            learned.by_serial.insert(key, (r.ecid, r.identity.clone()));
+        }
+    }
+    // A device whose USB serial this host can't read is matched when it's the
+    // only one on either side.
     let lone = candidates.len() == 1 && found.len() == 1;
-    for d in candidates.iter_mut() {
+    for d in candidates {
         let serial = udid_key(&d.serial);
-        let Some(r) = found
+        if let Some(r) = found
             .iter()
             .find(|r| (!serial.is_empty() && udid_key(&r.udid) == serial) || lone)
-        else {
-            continue;
-        };
-        d.ecid = Some(r.ecid);
-        if d.identity.is_none() {
-            d.identity = r.identity.clone();
+        {
+            fill(d, r.ecid, &r.identity);
         }
     }
 }
+
+/// How long [`identify`] waits before asking usbmuxd again about a running
+/// device it couldn't match.
+pub const ASK_AGAIN: Duration = Duration::from_secs(5);
+
+/// What [`identify`] has learned, by USB serial, and when it last asked.
+struct Learned {
+    by_serial: HashMap<String, (u64, Option<Identity>)>,
+    asked: Option<Instant>,
+    asking: bool,
+}
+
+static LEARNED: LazyLock<Mutex<Learned>> = LazyLock::new(|| {
+    Mutex::new(Learned {
+        by_serial: HashMap::new(),
+        asked: None,
+        asking: false,
+    })
+});
 
 /// The product IDs of a running iPhone, iPad or iPod's USB configurations.
 const RUNNING_PIDS: std::ops::RangeInclusive<u16> = 0x1290..=0x12af;

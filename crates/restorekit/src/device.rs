@@ -986,6 +986,11 @@ impl Device {
         self.identifier().map_or("device", kind)
     }
 
+    /// Whether this is an iPhone, iPad or iPod, by its model.
+    pub fn is_ios(&self) -> bool {
+        matches!(self.kind(), "iPhone" | "iPad" | "iPod")
+    }
+
     /// iBoot version (`SRTG`), if the serial carried one.
     pub fn srtg(&self) -> Option<&str> {
         self.identity.as_ref()?.srtg.as_deref()
