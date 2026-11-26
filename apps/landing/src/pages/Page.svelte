@@ -19,8 +19,8 @@
     </a>
     <div class="grow"></div>
     <div class="hidden items-center gap-6 text-[15px] text-silk2 md:flex">
-      <a href="/#devices" class="hover:text-silk">Devices</a>
       <a href="/#dongle" class="hover:text-silk">Dongle</a>
+      <a href="/#devices" class="hover:text-silk">Devices</a>
       <a href="/#how" class="hover:text-silk">How it works</a>
       <a href="/#desktop" class="hover:text-silk">App</a>
       <a href="/#cli" class="hover:text-silk">CLI</a>

@@ -82,7 +82,7 @@ body {
     color: var(--color-silk);
   }
   .t-display {
-    font-size: clamp(38px, 5.4vw, 68px);
+    font-size: clamp(36px, 4.2vw, 56px);
     line-height: 1.02;
     font-weight: 800;
   }

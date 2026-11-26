@@ -260,20 +260,20 @@
     </svg>
 
     <div
-      class="relative mx-auto grid max-w-6xl items-center gap-12 px-5 pt-14 pb-16 md:pt-20 md:pb-24 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-14"
+      class="relative mx-auto grid max-w-6xl items-center gap-10 px-5 pt-10 pb-12 md:pt-12 md:pb-14 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:gap-12"
     >
       <div>
         <h1 class="t-display">Reformat modern Apple products from any platform.</h1>
-        <p class="t-lead mt-6 max-w-[46ch]">
+        <p class="t-lead mt-5 max-w-[52ch]">
           Wipe, revive or obliterate T2 and Apple Silicon macs, iPhones and iPads from macOS, linux or windows, without Apple Configurator or iTunes. It's free and open source.
         </p>
 
-        <div class="mt-8 flex flex-col gap-3 sm:flex-row">
+        <div class="mt-6 flex flex-col gap-3 sm:flex-row">
           <a href={appDownloads[heroHost.dl].url} class="btn-pad">Download for {heroHost.label}</a>
-          <a href="#dongle" class="btn-line">Reserve a dongle</a>
+          <a href="#install" class="btn-line">Other ways to install</a>
         </div>
 
-        <div class="mt-8 max-w-md">
+        <div class="mt-6 max-w-md">
           <div class="mb-2 flex items-center gap-1" role="group" aria-label="Install the cli on">
             <span class="mr-2 text-[14px] text-silk3">Or the cli on</span>
             {#each hosts as h (h.id)}
@@ -292,14 +292,163 @@
         </div>
       </div>
 
-      <img
-        src={shotRestoreDark}
-        alt="restorekit desktop app restoring a MacBook Pro, 42% through sending the filesystem, with two more macs queued"
-        class="block w-full rounded-lg border border-silk/15 shadow-[0_30px_60px_-20px_rgba(4,20,14,0.8)] lg:w-[128%] lg:max-w-none"
-        width="1720"
-        height="1240"
-        fetchpriority="high"
-      />
+      <div>
+        <img
+          src={shotRestoreDark}
+          alt="restorekit desktop app restoring a MacBook Pro, 42% through sending the filesystem, with two more macs queued"
+          class="block w-full rounded-lg border border-silk/15 shadow-[0_30px_60px_-20px_rgba(4,20,14,0.8)] lg:w-[135%] lg:max-w-none"
+          width="1720"
+          height="1240"
+          fetchpriority="high"
+        />
+        <a
+          href="#dongle"
+          class="group mt-6 flex items-center gap-4 rounded-lg border border-copper-hi bg-mask-deep/80 p-3 pr-5 transition-colors hover:border-gold"
+        >
+          <span class="h-14 w-28 shrink-0 overflow-hidden rounded-[5px] bg-mask-deep">
+            <img src={sceneDongle} alt="" class="h-full w-full scale-110 object-cover object-[50%_52%]" width="1208" height="956" />
+          </span>
+          <span class="t-data">
+            <strong class="font-semibold text-silk">No second mac for DFU.</strong>
+            dongle-pro puts a mac into DFU from any computer, even windows.
+            <span class="whitespace-nowrap text-gold group-hover:text-gold-hi">Join the batch 2 list</span>
+          </span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- dongle-pro -->
+  <section id="dongle" class="bg-mask-deep">
+    <div class="mx-auto grid max-w-6xl items-start gap-10 px-5 py-20 lg:grid-cols-[1fr_1.3fr]">
+      <div>
+        <h2 class="t-h2">Automatic DFU for macs from any computer. Yes, even windows.</h2>
+        <p class="mt-5 max-w-[56ch]">
+          Putting a mac into DFU takes a USB-PD message that normal PC ports can't send, so you've always needed a second mac. dongle-pro sends it for you, passes USB 3 straight through to the mac, and exposes apple's serial console so you can see why a restore failed. (iPhones and iPads don't need one, they enter recovery over regular USB.)
+        </p>
+        <p class="mt-4 max-w-[56ch]">
+          Buying one from me is what keeps restorekit going, so I'd love it if you did. But it's
+          open hardware, so if you'd rather fire up the soldering iron, the
+          <a href="{GITHUB}/tree/main/hardware/dongle-pro-v2" class="lnk">schematics and fab files</a>
+          are all in the repo. I won't be offended. Much.
+        </p>
+
+        <dl class="mt-7 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 t-data">
+          <dt class="text-silk3">Ports</dt>
+          <dd class="text-silk">Two usb-c, one to your computer and one to the mac</dd>
+          <dt class="text-silk3">Chip</dt>
+          <dd class="text-silk">CH32X035 running rust firmware</dd>
+          <dt class="text-silk3">USB</dt>
+          <dd class="text-silk">USB 3 passthrough to the mac</dd>
+          <dt class="text-silk3">Size</dt>
+          <dd class="text-silk">48 × 21 mm</dd>
+        </dl>
+
+        <div class="mt-9 rounded-lg border border-copper bg-mask p-5">
+          <p class="t-data text-silk">
+            Batch 1 is gone. Get one email when batch 2 is ready.
+          </p>
+          <div class="mt-4">
+            {#if reserveState === "done"}
+              <p class="text-ok">You're on the batch 2 list. Talk soon.</p>
+            {:else}
+              <form onsubmit={reserve} class="flex flex-col gap-2.5 sm:flex-row">
+                <label class="sr-only" for="reserve-email">Email</label>
+                <input
+                  id="reserve-email"
+                  type="email"
+                  required
+                  placeholder="you@example.com"
+                  autocomplete="email"
+                  bind:value={reserveEmail}
+                  class="grow rounded-[5px] border border-copper-hi bg-mask-deep px-4 py-2.5 text-silk placeholder:text-silk3/70 focus:border-gold focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={reserveState === "busy"}
+                  class="btn-pad shrink-0 disabled:opacity-60"
+                >
+                  {reserveState === "busy" ? "Saving..." : "Join the batch 2 list"}
+                </button>
+              </form>
+              {#if reserveState === "error"}
+                <p class="t-small mt-2 !text-danger">{reserveError}</p>
+              {/if}
+            {/if}
+          </div>
+        </div>
+      </div>
+
+      <figure>
+        <div
+          bind:this={dongleHost}
+          class="relative h-[300px] overflow-hidden rounded-lg border border-copper bg-mask-deep sm:h-[380px] lg:h-[480px]"
+          aria-hidden="true"
+        >
+          {#if showDongle}
+            {#await import("./components/DongleScene.svelte") then Mod}
+              <Mod.default />
+            {:catch}
+              {@render still(sceneDongle)}
+            {/await}
+          {:else if !webgl}
+            {@render still(sceneDongle)}
+          {/if}
+        </div>
+        <figcaption class="t-small mt-3">
+          The actual board, straight from the KiCad files.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- dongle vs hubs -->
+  <section id="hubs" class="bg-mask">
+    <div class="mx-auto max-w-6xl px-5 py-20">
+      <h2 class="t-h2 max-w-3xl">Compared to DFU hubs</h2>
+      <p class="mt-5 max-w-[62ch]">
+        <a href="https://acroname.com/store/s106-usbhub-3c-kit" class="lnk">Acroname</a>
+        and
+        <a href="https://www.cambrionix.com/products/thundersync5-c16-pd" class="lnk">Cambrionix</a>
+        make hubs that work at scale, for racks of macs. They've also had DFU hardware to
+        themselves for years, and they price like it. Acroname charges $400 for the software
+        license that switches DFU on. Cambrionix's DFU hub is £1,999. Triggering DFU is one USB-PD
+        message. It shouldn't cost that much. dongle-pro does it from the computer you already
+        have, with nothing to license.
+      </p>
+
+      <div class="mt-10 overflow-x-auto">
+        <table class="w-full min-w-[720px] border-collapse text-left t-data">
+          <thead>
+            <tr>
+              <th class="w-[22%] pb-3"></th>
+              {#each hubCols as col, i (col)}
+                <th class="pb-3 pr-4 align-bottom font-semibold {i === 0 ? 'wide text-gold' : 'text-silk'}">
+                  {col}
+                </th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each hubRows as [label, ...cells] (label)}
+              <tr class="border-t border-copper">
+                <th scope="row" class="py-3.5 pr-4 font-normal text-silk3">{label}</th>
+                {#each cells as cell, i (i)}
+                  <td class="py-3.5 pr-4 {i === 0 ? 'text-silk' : 'text-silk2'}">{cell}</td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="mt-6 max-w-[78ch] t-small">
+        Prices from vendor sites, August 2026. Acroname sells the
+        <a href="https://acroname.com/store/t99-pd-log" class="lnk">PD-logging license</a> on its
+        own, and their
+        <a href="https://acroname.com/store/s106-usbhub-3c-kit" class="lnk">Apple restore kit</a>
+        includes it. Cambrionix doesn't publish what Connect Premium costs after the first three years.
+      </p>
     </div>
   </section>
 
@@ -362,140 +511,6 @@
           </ul>
         </div>
       </div>
-    </div>
-  </section>
-
-  <!-- dongle-pro -->
-  <section id="dongle" class="bg-mask">
-    <div class="mx-auto grid max-w-6xl items-start gap-10 px-5 py-20 lg:grid-cols-[1fr_1.3fr]">
-      <div>
-        <h2 class="t-h2">Automatic DFU for macs from any computer. Yes, even windows.</h2>
-        <p class="mt-5 max-w-[56ch]">
-          Putting a mac into DFU takes a USB-PD message that normal PC ports can't send, so you've always needed a second mac. dongle-pro sends it for you, passes USB 3 straight through to the mac, and exposes apple's serial console so you can see why a restore failed. (iPhones and iPads don't need one, they enter recovery over regular USB.)
-        </p>
-        <p class="mt-4 max-w-[56ch]">
-          Buying one from me is what keeps restorekit going, so I'd love it if you did. But it's
-          open hardware, so if you'd rather fire up the soldering iron, the
-          <a href="{GITHUB}/tree/main/hardware/dongle-pro-v2" class="lnk">schematics and fab files</a>
-          are all in the repo. I won't be offended. Much.
-        </p>
-
-        <dl class="mt-7 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 t-data">
-          <dt class="text-silk3">Ports</dt>
-          <dd class="text-silk">Two usb-c, one to your computer and one to the mac</dd>
-          <dt class="text-silk3">Chip</dt>
-          <dd class="text-silk">CH32X035 running rust firmware</dd>
-          <dt class="text-silk3">USB</dt>
-          <dd class="text-silk">USB 3 passthrough to the mac</dd>
-          <dt class="text-silk3">Size</dt>
-          <dd class="text-silk">48 × 21 mm</dd>
-        </dl>
-
-        <div class="mt-9 rounded-lg border border-copper bg-mask-deep p-5">
-          <p class="t-data text-silk">
-            Batch 1 is gone. Get one email when batch 2 is ready.
-          </p>
-          <div class="mt-4">
-            {#if reserveState === "done"}
-              <p class="text-ok">You're on the batch 2 list. Talk soon.</p>
-            {:else}
-              <form onsubmit={reserve} class="flex flex-col gap-2.5 sm:flex-row">
-                <label class="sr-only" for="reserve-email">Email</label>
-                <input
-                  id="reserve-email"
-                  type="email"
-                  required
-                  placeholder="you@example.com"
-                  autocomplete="email"
-                  bind:value={reserveEmail}
-                  class="grow rounded-[5px] border border-copper-hi bg-mask px-4 py-2.5 text-silk placeholder:text-silk3/70 focus:border-gold focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={reserveState === "busy"}
-                  class="btn-pad shrink-0 disabled:opacity-60"
-                >
-                  {reserveState === "busy" ? "Saving..." : "Join the batch 2 list"}
-                </button>
-              </form>
-              {#if reserveState === "error"}
-                <p class="t-small mt-2 !text-danger">{reserveError}</p>
-              {/if}
-            {/if}
-          </div>
-        </div>
-      </div>
-
-      <figure>
-        <div
-          bind:this={dongleHost}
-          class="relative h-[300px] overflow-hidden rounded-lg border border-copper bg-mask-deep sm:h-[380px] lg:h-[480px]"
-          aria-hidden="true"
-        >
-          {#if showDongle}
-            {#await import("./components/DongleScene.svelte") then Mod}
-              <Mod.default />
-            {:catch}
-              {@render still(sceneDongle)}
-            {/await}
-          {:else if !webgl}
-            {@render still(sceneDongle)}
-          {/if}
-        </div>
-        <figcaption class="t-small mt-3">
-          The actual board, straight from the KiCad files.
-        </figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <!-- dongle vs hubs -->
-  <section id="hubs" class="bg-mask-deep">
-    <div class="mx-auto max-w-6xl px-5 py-20">
-      <h2 class="t-h2 max-w-3xl">Compared to DFU hubs</h2>
-      <p class="mt-5 max-w-[62ch]">
-        <a href="https://acroname.com/store/s106-usbhub-3c-kit" class="lnk">Acroname</a>
-        and
-        <a href="https://www.cambrionix.com/products/thundersync5-c16-pd" class="lnk">Cambrionix</a>
-        make hubs that work at scale, for racks of macs. They've also had DFU hardware to
-        themselves for years, and they price like it. Acroname charges $400 for the software
-        license that switches DFU on. Cambrionix's DFU hub is £1,999. Triggering DFU is one USB-PD
-        message. It shouldn't cost that much. dongle-pro does it from the computer you already
-        have, with nothing to license.
-      </p>
-
-      <div class="mt-10 overflow-x-auto">
-        <table class="w-full min-w-[720px] border-collapse text-left t-data">
-          <thead>
-            <tr>
-              <th class="w-[22%] pb-3"></th>
-              {#each hubCols as col, i (col)}
-                <th class="pb-3 pr-4 align-bottom font-semibold {i === 0 ? 'wide text-gold' : 'text-silk'}">
-                  {col}
-                </th>
-              {/each}
-            </tr>
-          </thead>
-          <tbody>
-            {#each hubRows as [label, ...cells] (label)}
-              <tr class="border-t border-copper">
-                <th scope="row" class="py-3.5 pr-4 font-normal text-silk3">{label}</th>
-                {#each cells as cell, i (i)}
-                  <td class="py-3.5 pr-4 {i === 0 ? 'text-silk' : 'text-silk2'}">{cell}</td>
-                {/each}
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-
-      <p class="mt-6 max-w-[78ch] t-small">
-        Prices from vendor sites, August 2026. Acroname sells the
-        <a href="https://acroname.com/store/t99-pd-log" class="lnk">PD-logging license</a> on its
-        own, and their
-        <a href="https://acroname.com/store/s106-usbhub-3c-kit" class="lnk">Apple restore kit</a>
-        includes it. Cambrionix doesn't publish what Connect Premium costs after the first three years.
-      </p>
     </div>
   </section>
 

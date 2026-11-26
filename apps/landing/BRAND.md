@@ -40,7 +40,7 @@ darker gold `#8a6414` so it passes contrast on white. Tokens live in
 
 | Class       | Size                   | Use                                   |
 | ----------- | ---------------------- | ------------------------------------- |
-| `t-display` | 38 to 68px, 800        | the hero headline, once per page      |
+| `t-display` | 36 to 56px, 800        | the hero headline, once per page      |
 | `t-h2`      | 26 to 38px, 700        | every section heading                 |
 | `t-h3`      | 19px, 700              | sub-headings, step titles             |
 | `t-step`    | 44px, 800, gold        | numbers on steps that are a sequence  |
