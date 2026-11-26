@@ -55,7 +55,8 @@ fn main() {
     write_openssl_pc(&deps);
 
     // libzip (needs zlib) — from source via CMake.
-    build_libzip(&vendor.join("libzip"), &deps);
+    let libzip_rev = source_revision(&vendor.join("libzip"));
+    build_libzip(&vendor.join("libzip"), &libzip_rev, &deps);
 
     // The libimobiledevice family, in dependency order. The version is the
     // release tag each submodule is pinned at (see `git submodule status`); it
@@ -69,16 +70,19 @@ fn main() {
         ("libtatsu", "1.1.1"),
         ("libimobiledevice", "1.4.0"),
     ] {
+        let rev = source_revision(&vendor.join(lib));
         let src = if manifest.join("patches").join(lib).is_dir() {
-            patch_autotools_sources(&manifest, lib, &vendor.join(lib), &out, &deps)
+            patch_autotools_sources(&manifest, lib, &vendor.join(lib), &rev, &out, &deps)
         } else {
             vendor.join(lib)
         };
-        build_autotools(&src, lib, version, &deps);
+        build_autotools(&src, lib, version, &rev, &deps);
     }
 
     // idevicerestore: compile its sources directly (no library upstream),
     // after copying them aside and applying our patches (see patches/).
+    // Recompiled on every run; this just reruns the script when its pin moves.
+    source_revision(&vendor.join("idevicerestore"));
     let idevicerestore_src =
         patch_idevicerestore_sources(&manifest, &vendor.join("idevicerestore"), &out);
     compile_idevicerestore(&idevicerestore_src, &deps);
@@ -93,10 +97,18 @@ fn main() {
         // embedded usbmuxd uses it there (libirecovery talks to Windows
         // directly), so it goes after the libimobiledevice family.
         if deps.windows {
-            build_autotools(&vendor.join("libusb"), "libusb", "1.0.30", &deps);
+            let rev = source_revision(&vendor.join("libusb"));
+            build_autotools(&vendor.join("libusb"), "libusb", "1.0.30", &rev, &deps);
         }
-        let usbmuxd_src =
-            patch_autotools_sources(&manifest, "usbmuxd", &vendor.join("usbmuxd"), &out, &deps);
+        let rev = source_revision(&vendor.join("usbmuxd"));
+        let usbmuxd_src = patch_autotools_sources(
+            &manifest,
+            "usbmuxd",
+            &vendor.join("usbmuxd"),
+            &rev,
+            &out,
+            &deps,
+        );
         compile_usbmuxd(&usbmuxd_src, &deps);
         // The marker patch_autotools_sources checks before reusing the copy;
         // build_autotools writes it for the other libraries.
@@ -245,6 +257,26 @@ fn to_msys(p: &Path) -> String {
     }
 }
 
+/// The commit a vendored submodule is checked out at, read from its git
+/// metadata (`None` outside a git checkout, as in the published crate). The
+/// `.built-*` markers record it, so moving a submodule pin rebuilds that
+/// library instead of linking the copy built from the old pin. Also registers
+/// the submodule's HEAD with cargo, which otherwise wouldn't rerun this script
+/// when only the pin moves.
+fn source_revision(src: &Path) -> Option<String> {
+    let dotgit = src.join(".git");
+    let gitdir = if dotgit.is_file() {
+        let link = std::fs::read_to_string(&dotgit).ok()?;
+        src.join(link.trim().strip_prefix("gitdir:")?.trim())
+    } else {
+        dotgit
+    };
+    let head = gitdir.join("HEAD");
+    let rev = std::fs::read_to_string(&head).ok()?.trim().to_string();
+    println!("cargo:rerun-if-changed={}", head.display());
+    Some(rev)
+}
+
 fn ensure_submodules(manifest: &Path, vendor: &Path) {
     // If the pinned sources are missing (fresh clone without --recurse), fetch them.
     if vendor.join("idevicerestore/src/idevicerestore.c").exists() {
@@ -280,9 +312,10 @@ fn ensure_submodules(manifest: &Path, vendor: &Path) {
 const MSYS_ACLOCAL_PATH: &str = "/usr/share/aclocal:/mingw64/share/aclocal";
 
 /// Run autogen + configure + make + make install into the staging prefix.
-fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
+fn build_autotools(src: &Path, name: &str, version: &str, rev: &Option<String>, deps: &Deps) {
     let marker = deps.prefix.join(format!(".built-{name}"));
-    if marker.exists() {
+    let built_from = format!("{version} {}", rev.as_deref().unwrap_or(""));
+    if std::fs::read_to_string(&marker).is_ok_and(|s| s == built_from) {
         return;
     }
     println!("cargo:warning=building {name} from source");
@@ -412,7 +445,7 @@ fn build_autotools(src: &Path, name: &str, version: &str, deps: &Deps) {
         make_install.env("ACLOCAL_PATH", MSYS_ACLOCAL_PATH);
     }
     run(&mut make_install, &format!("{name} make install"));
-    std::fs::write(&marker, "").unwrap();
+    std::fs::write(&marker, built_from).unwrap();
 }
 
 /// Take the file globs out of the generated `libtool` script's
@@ -452,9 +485,10 @@ fn drop_libtool_globs(libtool: &Path) {
     }
 }
 
-fn build_libzip(src: &Path, deps: &Deps) {
+fn build_libzip(src: &Path, rev: &Option<String>, deps: &Deps) {
     let marker = deps.prefix.join(".built-libzip");
-    if marker.exists() {
+    let built_from = rev.as_deref().unwrap_or("");
+    if std::fs::read_to_string(&marker).is_ok_and(|s| s == built_from) {
         return;
     }
     println!("cargo:warning=building libzip from source");
@@ -479,7 +513,7 @@ fn build_libzip(src: &Path, deps: &Deps) {
     let dst = cfg.build();
     // cmake crate installs into <dst>; mirror into our prefix if separate.
     let _ = dst;
-    std::fs::write(&marker, "").unwrap();
+    std::fs::write(&marker, built_from).unwrap();
 }
 
 /// Copy idevicerestore's `src/` into OUT_DIR and apply the `.patch` files from
@@ -531,13 +565,14 @@ fn patch_idevicerestore_sources(manifest: &Path, vendor_src: &Path, out: &Path) 
 
 /// Copy an autotools library into OUT_DIR and apply `patches/<name>/` to it,
 /// for the same reason as [`patch_idevicerestore_sources`]. It's only re-copied
-/// and rebuilt when the patches change.
+/// and rebuilt when the patches or the pinned source revision change.
 /// The stamp lives in the staging prefix next to build_autotools' marker, so a
 /// CI cache that restores only the prefix still skips the rebuild.
 fn patch_autotools_sources(
     manifest: &Path,
     name: &str,
     vendor_src: &Path,
+    rev: &Option<String>,
     out: &Path,
     deps: &Deps,
 ) -> PathBuf {
@@ -553,6 +588,7 @@ fn patch_autotools_sources(
     patches.sort();
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    rev.hash(&mut hasher);
     for patch in &patches {
         println!("cargo:rerun-if-changed={}", patch.display());
         std::fs::read(patch).unwrap().hash(&mut hasher);
