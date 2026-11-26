@@ -1,4 +1,4 @@
-use std::ffi::{c_void, CString};
+use std::ffi::{c_void, CStr, CString};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -127,18 +127,31 @@ impl ObliterationScan {
     }
 }
 
+/// The `RestoreStep` of the filesystem streaming to the device: progress 0
+/// when the stream starts, 1 once the last chunk is out.
+pub const FILESYSTEM_STREAM_STEP: u32 = sys::RESTORE_STEP_SEND_FS as u32;
+
 /// Human name for an idevicerestore progress step.
 fn step_name(step: i32) -> &'static str {
     match step {
         sys::RESTORE_STEP_DETECT => "detecting device",
         sys::RESTORE_STEP_PREPARE => "preparing",
-        sys::RESTORE_STEP_UPLOAD_FS => "uploading filesystem",
+        sys::RESTORE_STEP_UPLOAD_FS | sys::RESTORE_STEP_SEND_FS => "uploading filesystem",
         sys::RESTORE_STEP_VERIFY_FS => "verifying filesystem",
         sys::RESTORE_STEP_FLASH_FW => "flashing firmware",
         sys::RESTORE_STEP_FLASH_BB => "flashing baseband",
         sys::RESTORE_STEP_FUD => "flashing firmware updater",
         sys::RESTORE_STEP_UPLOAD_IMG => "uploading image",
         _ => "restoring",
+    }
+}
+
+/// "Updating baseband" -> "updating baseband", leaving "NAND" or "SE" be.
+fn lowercase_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 
@@ -158,6 +171,17 @@ unsafe extern "C" fn progress_trampoline(step: i32, step_progress: f64, userdata
         return;
     }
     let tx = &*(userdata as *const std::sync::mpsc::Sender<Event>);
+    if step >= sys::RESTORE_STEP_OPERATION {
+        let code = (step - sys::RESTORE_STEP_OPERATION) as u32;
+        let name = CStr::from_ptr(sys::restore_progress_string(code)).to_string_lossy();
+        if name != "Unknown operation" {
+            let _ = tx.send(Event::DeviceOperation {
+                code,
+                name: lowercase_first(&name),
+            });
+        }
+        return;
+    }
     let _ = tx.send(Event::RestoreStep {
         step: step.max(0) as u32,
         name: step_name(step).to_string(),
@@ -591,6 +615,12 @@ mod tests {
             "uploading filesystem"
         );
         assert_eq!(step_name(999), "restoring");
+    }
+
+    #[test]
+    fn device_operation_names_keep_their_acronyms() {
+        assert_eq!(lowercase_first("Waiting for NAND"), "waiting for NAND");
+        assert_eq!(lowercase_first(""), "");
     }
 
     #[test]

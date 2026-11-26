@@ -128,6 +128,9 @@ pub const RESTORE_STEP_FLASH_FW: c_int = 4;
 pub const RESTORE_STEP_FLASH_BB: c_int = 5;
 pub const RESTORE_STEP_FUD: c_int = 6;
 pub const RESTORE_STEP_UPLOAD_IMG: c_int = 7;
+pub const RESTORE_STEP_SEND_FS: c_int = 8;
+/// Plus the device's operation code: the device started that operation.
+pub const RESTORE_STEP_OPERATION: c_int = 0x100;
 
 /// Opaque idevicerestore client handle.
 #[repr(C)]
@@ -152,6 +155,8 @@ extern "C" {
         userdata: *mut c_void,
     );
     pub fn idevicerestore_start(client: *mut idevicerestore_client_t) -> c_int;
+    /// Name of a device operation code ("Unknown operation" when there's none).
+    pub fn restore_progress_string(operation: u32) -> *const c_char;
     /// libtatsu's TSS logging. At 1 it prints why a TSS request failed (Apple's
     /// status code and message) to stderr; at 0 (the default) it prints nothing.
     pub fn tss_set_debug_level(level: c_int);

@@ -48,6 +48,13 @@ pub enum Event {
         name: String,
         progress: f32,
     },
+    /// The device started an operation it names ("Updating baseband",
+    /// "Creating filesystem", ...). The device runs these one at a time; the
+    /// host's transfers (the `RestoreStep`s) can overlap them.
+    DeviceOperation {
+        code: u32,
+        name: String,
+    },
     /// One line of idevicerestore's log, streamed live for a log window.
     LogLine {
         level: i32,

@@ -66,6 +66,14 @@ compiles the patched copy.
   capture, cluttered non-verbose runs, and, stdout being block-buffered when
   piped, came out after the restore's final status line. Serialize the plist
   and hand it to the callback like any other message.
+- `0014-report-device-operations-and-the-filesystem-stream.patch` — the
+  progress callback only got idevicerestore's coarse steps, and the device's
+  progress messages for one step (the firmware updater, say) keep arriving
+  while the filesystem streams for another, so a timing breakdown built on them
+  put a four-minute upload down to the firmware updater. Report each operation
+  the device starts (`RESTORE_STEP_OPERATION` plus its code, named by
+  `restore_progress_string()`), and the ASR stream as its own step,
+  `RESTORE_STEP_SEND_FS`, from 0 when it starts to 1 once the last chunk is out.
 
 ## libimobiledevice-glue
 

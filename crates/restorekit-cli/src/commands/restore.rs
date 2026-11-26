@@ -10,69 +10,81 @@ use restorekit::{firmware, recovery, restore, Device, Error, Result};
 
 use super::render;
 
-/// Times each restore phase (idevicerestore's `RestoreStep`s) so we can see
-/// where a restore's wall-clock actually goes — the USB filesystem upload vs the
-/// device-side install/seal work that no cable speed affects. Each phase is
-/// split into *active* (progress climbing 0→100%) and *waiting* (progress pinned
-/// at 100% while the device works), since on Apple Silicon the long device-side
-/// install happens while idevicerestore still reports "uploading filesystem".
+/// Times where a restore's wall-clock goes. Each moment goes to one phase: the
+/// filesystem upload while it streams (images and firmware go out alongside
+/// it, but the stream is what the restore waits on), else whatever the device
+/// says it's doing, else idevicerestore's own step. idevicerestore's steps
+/// alone mislabel it: the device's progress messages for one step keep
+/// arriving while the filesystem streams for another.
 struct PhaseTimer {
     start: Instant,
-    /// (name, started, first time progress hit ~100%).
-    current: Option<(String, Instant, Option<Instant>)>,
-    /// (name, total, active-portion) — active is `Some` once progress topped out.
-    phases: Vec<(String, Duration, Option<Duration>)>,
+    step: Option<String>,
+    operation: Option<String>,
+    streaming: bool,
+    /// (phase, started).
+    current: Option<(String, Instant)>,
+    phases: Vec<(String, Duration)>,
 }
 
 impl PhaseTimer {
     fn new() -> Self {
         Self {
             start: Instant::now(),
+            step: None,
+            operation: None,
+            streaming: false,
             current: None,
             phases: Vec::new(),
         }
     }
 
-    fn step(&mut self, name: &str, progress: f32) {
-        let now = Instant::now();
-        let full = if progress >= 0.98 { Some(now) } else { None };
-        match &mut self.current {
-            Some((cur, _, full_at)) if cur == name => {
-                if full_at.is_none() && progress >= 0.98 {
-                    *full_at = Some(now);
-                }
+    fn event(&mut self, event: &Event) {
+        match event {
+            Event::RestoreStep { step, progress, .. }
+                if *step == restore::FILESYSTEM_STREAM_STEP =>
+            {
+                self.streaming = *progress < 1.0;
             }
-            Some((cur, started, full_at)) => {
-                let active = full_at.map(|f| f - *started);
-                self.phases.push((cur.clone(), now - *started, active));
-                self.current = Some((name.to_string(), now, full));
+            Event::RestoreStep { name, .. } => self.step = Some(name.clone()),
+            Event::DeviceOperation { name, .. } => self.operation = Some(name.clone()),
+            _ => return,
+        }
+        let phase = if self.streaming {
+            Some("uploading filesystem".to_string())
+        } else {
+            self.operation.clone().or_else(|| self.step.clone())
+        };
+        if let Some(phase) = phase {
+            self.enter(phase, Instant::now());
+        }
+    }
+
+    fn enter(&mut self, phase: String, now: Instant) {
+        match &self.current {
+            Some((cur, _)) if *cur == phase => {}
+            Some((cur, started)) => {
+                self.phases.push((cur.clone(), now - *started));
+                self.current = Some((phase, now));
             }
-            None => self.current = Some((name.to_string(), now, full)),
+            None => self.current = Some((phase, now)),
         }
     }
 
     fn finish(&mut self) {
-        if let Some((cur, started, full_at)) = self.current.take() {
-            let active = full_at.map(|f| f - started);
-            self.phases.push((cur, started.elapsed(), active));
+        if let Some((cur, started)) = self.current.take() {
+            self.phases.push((cur, started.elapsed()));
         }
     }
 
-    /// The phases with repeats folded together, in first-seen order:
-    /// idevicerestore switches back and forth between steps (an iPhone restore
-    /// alternates "uploading filesystem", "uploading image" and "flashing
-    /// firmware updater"). A stretch that never topped out was moving data
-    /// throughout, so it counts as active.
-    fn merged(&self) -> Vec<(String, Duration, Option<Duration>)> {
-        let mut merged: Vec<(String, Duration, Option<Duration>)> = Vec::new();
-        for (name, dur, active) in &self.phases {
-            match merged.iter_mut().find(|(n, ..)| n == name) {
-                Some((_, d, a)) => {
-                    let active_so_far = a.unwrap_or(*d);
-                    *d += *dur;
-                    *a = Some(active_so_far + active.unwrap_or(*dur));
-                }
-                None => merged.push((name.clone(), *dur, *active)),
+    /// The phases with repeats folded together, in first-seen order: the
+    /// device can go back and forth between operations (updating one
+    /// coprocessor while waiting on another).
+    fn merged(&self) -> Vec<(String, Duration)> {
+        let mut merged: Vec<(String, Duration)> = Vec::new();
+        for (name, dur) in &self.phases {
+            match merged.iter_mut().find(|(n, _)| n == name) {
+                Some((_, d)) => *d += *dur,
+                None => merged.push((name.clone(), *dur)),
             }
         }
         merged
@@ -87,13 +99,7 @@ impl PhaseTimer {
         if json {
             let phases: Vec<_> = phases
                 .iter()
-                .map(|(n, d, a)| {
-                    serde_json::json!({
-                        "phase": n,
-                        "seconds": d.as_secs_f64(),
-                        "active_seconds": a.map(|a| a.as_secs_f64()),
-                    })
-                })
+                .map(|(n, d)| serde_json::json!({ "phase": n, "seconds": d.as_secs_f64() }))
                 .collect();
             println!(
                 "{}",
@@ -101,24 +107,13 @@ impl PhaseTimer {
             );
             return;
         }
-        eprintln!("\nRestore phase timing (active = data moving, wait = device working):");
-        for (name, dur, active) in &phases {
-            if dur.as_secs() == 0 {
-                continue;
-            }
-            match active {
-                // Meaningful active/wait split (>2s idle after topping out).
-                Some(a) if *dur > *a + Duration::from_secs(2) => eprintln!(
-                    "  {:<26} {:>7}   ({} active, {} device-side)",
-                    name,
-                    fmt_dur(*dur),
-                    fmt_dur(*a),
-                    fmt_dur(*dur - *a)
-                ),
-                _ => eprintln!("  {:<26} {:>7}", name, fmt_dur(*dur)),
+        eprintln!("\nRestore phase timing:");
+        for (name, dur) in &phases {
+            if dur.as_secs() > 0 {
+                eprintln!("  {:<30} {:>7}", name, fmt_dur(*dur));
             }
         }
-        eprintln!("  {:<26} {:>7}", "total", fmt_dur(total));
+        eprintln!("  {:<30} {:>7}", "total", fmt_dur(total));
     }
 }
 
@@ -321,8 +316,8 @@ fn restore_device(device: &Device, opts: Opts, prepared: Option<PathBuf>) -> Res
         mode,
         opts.verbose,
         &mut |event| {
+            timer.event(&event);
             match &event {
-                Event::RestoreStep { name, progress, .. } => timer.step(name, *progress),
                 Event::Obliteration { status, detail } => {
                     let strong = status == "confirmed" || status == "failed";
                     if wipe.is_none() || strong {
@@ -599,32 +594,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_filesystem_stream_outranks_the_device_operations_beside_it() {
+        let step = |step, name: &str, progress| Event::RestoreStep {
+            step,
+            name: name.into(),
+            progress,
+        };
+        let op = |name: &str| Event::DeviceOperation {
+            code: 0,
+            name: name.into(),
+        };
+        let fs = restore::FILESYSTEM_STREAM_STEP;
+        let mut timer = PhaseTimer::new();
+        timer.event(&step(1, "preparing", 1.0));
+        timer.event(&op("creating filesystem"));
+        timer.event(&step(fs, "uploading filesystem", 0.0));
+        timer.event(&op("requesting FUD data"));
+        timer.event(&step(6, "flashing firmware updater", 0.5));
+        timer.event(&step(fs, "uploading filesystem", 0.5));
+        timer.event(&step(fs, "uploading filesystem", 1.0));
+        timer.event(&op("updating baseband"));
+        timer.finish();
+        let names: Vec<_> = timer.phases.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "preparing",
+                "creating filesystem",
+                "uploading filesystem",
+                "requesting FUD data",
+                "updating baseband"
+            ]
+        );
+    }
+
+    #[test]
     fn merged_folds_repeated_phases_in_first_seen_order() {
         let secs = Duration::from_secs;
         let mut timer = PhaseTimer::new();
         timer.phases = vec![
-            ("preparing".into(), secs(45), Some(secs(29))),
-            ("uploading filesystem".into(), secs(210), None),
-            ("uploading image".into(), secs(1), None),
-            ("uploading filesystem".into(), secs(36), Some(secs(6))),
-            (
-                "flashing firmware updater".into(),
-                secs(230),
-                Some(secs(10)),
-            ),
+            ("preparing".into(), secs(45)),
+            ("updating Rose".into(), secs(3)),
+            ("updating Stockholm".into(), secs(4)),
+            ("updating Rose".into(), secs(2)),
         ];
         assert_eq!(
             timer.merged(),
             vec![
-                ("preparing".into(), secs(45), Some(secs(29))),
-                // 210s never topped out (all active) + 6s of the 36s stretch.
-                ("uploading filesystem".into(), secs(246), Some(secs(216))),
-                ("uploading image".into(), secs(1), None),
-                (
-                    "flashing firmware updater".into(),
-                    secs(230),
-                    Some(secs(10))
-                ),
+                ("preparing".into(), secs(45)),
+                ("updating Rose".into(), secs(5)),
+                ("updating Stockholm".into(), secs(4)),
             ]
         );
     }

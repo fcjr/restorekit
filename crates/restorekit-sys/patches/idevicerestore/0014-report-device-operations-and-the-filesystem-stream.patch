@@ -1,0 +1,82 @@
+--- a/src/common.c
++++ b/src/common.c
+@@ -836,7 +836,8 @@ char *get_temp_filename(const char *prefix)
+ static const char* restore_step_label(int step)
+ {
+ 	switch (step) {
+-		case RESTORE_STEP_UPLOAD_FS: return "Uploading filesystem";
++		case RESTORE_STEP_UPLOAD_FS:
++		case RESTORE_STEP_SEND_FS: return "Uploading filesystem";
+ 		case RESTORE_STEP_VERIFY_FS: return "Verifying filesystem";
+ 		case RESTORE_STEP_FLASH_FW:  return "Flashing firmware";
+ 		default: return "Overall";
+@@ -859,12 +860,15 @@ void idevicerestore_progress(struct idevicerestore_client_t* client, int step, d
+ 		client->progress_cb(step, progress, client->progress_cb_data);
+ 		return;
+ 	}
++	if (step >= RESTORE_STEP_OPERATION) {
++		return;
++	}
+ 	// we don't want to be too verbose in regular idevicerestore.
+ 	// RESTORE_STEP_UPLOAD_IMG is intentionally not handled here: it already
+ 	// gets its own per-component progress bar (see
+ 	// restore_send_source_boot_object_v4() and _restore_send_file_data() in
+ 	// restore.c), shown as one of the additional rows below the overall bar.
+-	if ((step == RESTORE_STEP_UPLOAD_FS) || (step == RESTORE_STEP_VERIFY_FS) || (step == RESTORE_STEP_FLASH_FW)) {
++	if ((step == RESTORE_STEP_UPLOAD_FS) || (step == RESTORE_STEP_SEND_FS) || (step == RESTORE_STEP_VERIFY_FS) || (step == RESTORE_STEP_FLASH_FW)) {
+ 		if (step != last_global_step) {
+ 			register_progress(GLOBAL_PROGRESS_TAG, restore_step_label(step));
+ 			last_global_step = step;
+--- a/src/idevicerestore.h
++++ b/src/idevicerestore.h
+@@ -67,9 +67,17 @@ enum {
+ 	RESTORE_STEP_FLASH_BB,
+ 	RESTORE_STEP_FUD,
+ 	RESTORE_STEP_UPLOAD_IMG,
++	/* The filesystem streaming to the device over ASR: 0 when it starts, 1
++	 * once the last chunk is out. */
++	RESTORE_STEP_SEND_FS,
+ 	RESTORE_NUM_STEPS
+ };
+ 
++/* The device started an operation (a ProgressMsg with a new Operation):
++ * the step is RESTORE_STEP_OPERATION plus the operation code (see
++ * restore_progress_string()), the progress its own, 0 if it reports none. */
++#define RESTORE_STEP_OPERATION 0x100
++
+ // lpol_file has been extracted from the IMG4 dump of the ac2 usb protocol. It is not present in the .ipsw and
+ // represents and empty "local policy". See https://support.apple.com/guide/security/contents-a-localpolicy-file-mac-apple-silicon-secc745a0845/web.
+ extern const uint8_t lpol_file[22];
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -923,6 +923,9 @@ int restore_handle_progress_msg(struct idevicerestore_client_t* client, plist_t
+ 	} else {
+ 		logger(LL_INFO, "%s (%d)\n", restore_progress_string(adapted_operation), (int)operation);
+ 	}
++	if ((int)operation != lastop) {
++		idevicerestore_progress(client, RESTORE_STEP_OPERATION + adapted_operation, (progress <= 100) ? progress / 100.0 : 0.0);
++	}
+ 	lastop = (int)operation;
+ 
+ 	return 0;
+@@ -1117,7 +1120,7 @@ static void restore_asr_progress_cb(double progress, void* userdata)
+ {
+ 	struct idevicerestore_client_t* client = (struct idevicerestore_client_t*)userdata;
+ 	if (client) {
+-		idevicerestore_progress(client, RESTORE_STEP_UPLOAD_FS, progress);
++		idevicerestore_progress(client, RESTORE_STEP_SEND_FS, progress);
+ 	}
+ }
+ 
+@@ -1185,7 +1188,10 @@ int restore_send_filesystem(struct idevicerestore_client_t* client, plist_t mess
+ 	// once the target filesystem has been validated, ASR then requests the
+ 	// entire filesystem to be sent.
+ 	logger(LL_INFO, "Sending filesystem now...\n");
+-	if (asr_send_payload(asr, file) < 0) {
++	idevicerestore_progress(client, RESTORE_STEP_SEND_FS, 0.0);
++	int sent = asr_send_payload(asr, file);
++	idevicerestore_progress(client, RESTORE_STEP_SEND_FS, 1.0);
++	if (sent < 0) {
+ 		ipsw_file_close(file);
+ 		ipsw_close(ipsw_dummy);
+ 		logger(LL_ERROR, "Unable to send payload to ASR\n");
