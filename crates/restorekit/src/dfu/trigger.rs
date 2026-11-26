@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::device::{self, Device, Target};
+use crate::device::{self, Device, Target, UsbMode};
 use crate::dongle::{self, Dongle, DongleTarget};
 use crate::error::{Error, Result};
 use crate::progress::{Event, ProgressFn};
@@ -116,12 +116,54 @@ pub fn trigger_dfu(via: DfuVia, timeout: Duration, progress: ProgressFn) -> Resu
     }
 }
 
-/// Reboot the selected target back to normal, via a dongle or the host.
+/// Reboot the selected target back to normal, via a dongle or the host. A
+/// target in recovery mode on USB here is told to boot normally by iBoot
+/// instead ([`recovery::exit`](crate::recovery::exit)), since a reset over
+/// USB-PD lands it back in recovery.
 pub fn reboot(via: DfuVia, progress: ProgressFn) -> Result<()> {
+    if let Some(ecid) = recovery_target(&via) {
+        progress(Event::DfuTriggerStage {
+            stage: "booting the target out of recovery mode".into(),
+        });
+        return crate::recovery::exit(ecid);
+    }
     match resolve(via)? {
         Route::Dongle(d) => reboot_via_dongle(&d, progress),
         Route::Host(target) => host_reboot(&target, progress),
     }
+}
+
+/// The ECID of the device in recovery mode that `via` selects, when it's on
+/// USB here: the one with that ECID, cabled to that dongle or on that port, or
+/// with no selector the sole dongle's target, else the sole one in recovery.
+fn recovery_target(via: &DfuVia) -> Option<u64> {
+    let mut devices = device::list().ok()?;
+    devices.retain(|d| d.mode == UsbMode::Recovery && d.ecid.is_some());
+    if devices.is_empty() {
+        return None;
+    }
+    let on_dongle = |d: &Dongle, devices: Vec<Device>| {
+        devices
+            .into_iter()
+            .find(|dev| dongle::connection_for(dev).dongle() == Some(d.serial.as_str()))
+    };
+    let found = match via {
+        DfuVia::Ecid(e) => devices.into_iter().find(|d| d.ecid == Some(*e)),
+        DfuVia::Dongle(id) => on_dongle(&dongle::find(DongleTarget::Id(id.clone())).ok()?, devices),
+        DfuVia::Host(Some(rid)) => {
+            device::identify(&mut devices);
+            devices
+                .into_iter()
+                .find(|d| d.port.as_ref().is_some_and(|p| p.rid == *rid))
+        }
+        DfuVia::Host(None) => (devices.len() == 1).then(|| devices.remove(0)),
+        DfuVia::Auto => match dongle::list().ok()?.as_slice() {
+            [] => (devices.len() == 1).then(|| devices.remove(0)),
+            [d] => on_dongle(d, devices),
+            _ => None,
+        },
+    };
+    found?.ecid
 }
 
 /// Where a [`serial`] session's console shows up, so the caller knows what to

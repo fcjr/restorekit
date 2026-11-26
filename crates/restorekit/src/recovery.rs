@@ -1,5 +1,6 @@
 //! Take a running iPhone or iPad into recovery mode, from which [`restore`]
-//! restores it. A Mac isn't reachable this way: put it in DFU with [`dfu`].
+//! restores it, and boot any device back out of it with [`exit`]. A running
+//! Mac isn't reachable this way: put it in DFU with [`dfu`].
 //!
 //! [`restore`]: crate::restore
 //! [`dfu`]: crate::dfu
@@ -88,6 +89,36 @@ pub fn enter(ecid: u64, supervisor: Option<&Supervisor>) -> Result<()> {
         lockdown => lockdown?,
     };
     check(lockdown.enter_recovery())
+}
+
+/// Boot the device in recovery mode with this ECID normally: set iBoot's
+/// `auto-boot` to true, save it, and reboot. A device in recovery reboots
+/// straight back into it otherwise, as it does after a reset over USB-PD.
+/// Works the same for an iPhone, an iPad or a Mac, from any host.
+pub fn exit(ecid: u64) -> Result<()> {
+    let failed = |what: &str, code: c_int| {
+        let reason = unsafe { CStr::from_ptr(sys::irecv_strerror(code)) }.to_string_lossy();
+        Error::RecoveryExit(format!("{what}: {reason}"))
+    };
+    let mut client = ptr::null_mut();
+    let code = unsafe { sys::irecv_open_with_ecid_and_attempts(&mut client, ecid, 5) };
+    if code != sys::IRECV_E_SUCCESS {
+        return Err(failed(&format!("can't open {ecid:#x}"), code));
+    }
+    let result = unsafe {
+        match sys::irecv_setenv(client, c"auto-boot".as_ptr(), c"true".as_ptr()) {
+            sys::IRECV_E_SUCCESS => match sys::irecv_saveenv(client) {
+                sys::IRECV_E_SUCCESS => match sys::irecv_reboot(client) {
+                    sys::IRECV_E_SUCCESS => Ok(()),
+                    code => Err(failed("reboot", code)),
+                },
+                code => Err(failed("saveenv", code)),
+            },
+            code => Err(failed("setenv auto-boot", code)),
+        }
+    };
+    unsafe { sys::irecv_close(client) };
+    result
 }
 
 /// A supervision identity: a certificate and its private key, made by
