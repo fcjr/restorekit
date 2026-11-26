@@ -44,3 +44,10 @@ windows-sys = { version = "0.60", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Xcode 27's strip leaves a misaligned LINKEDIT string pool in dylibs built for
+# macOS 12+, and dyld refuses to load them. Tauri builds with the 13.0
+# deployment target, so every stripped proc macro fails to load and rustc
+# reports "can't find crate". Only host artifacts are dylibs; the app is not.
+[profile.release.build-override]
+strip = "none"
