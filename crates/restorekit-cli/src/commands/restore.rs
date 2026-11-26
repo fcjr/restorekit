@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use indicatif::{ProgressBar, ProgressStyle};
+use restorekit::device::{self, UsbMode};
 use restorekit::progress::Event;
 use restorekit::restore::Mode;
-use restorekit::{firmware, restore, Device, Error, Result};
+use restorekit::{firmware, recovery, restore, Device, Error, Result};
 
 use super::render;
 
@@ -131,6 +132,20 @@ pub fn run(opts: Opts) -> Result<()> {
         .as_deref()
         .map(super::recovery::load_supervisor)
         .transpose()?;
+    // A running iPhone or iPad would sit in recovery mode while its firmware
+    // downloads, and iBoot reboots out of recovery mode after 15 idle minutes.
+    // Fetch the firmware and confirm the erase first, then take it there.
+    let mut early = None;
+    if opts.dongle.is_none() {
+        if let Some(dev) = running_ios_target(opts.ecid)? {
+            let path = fetch_firmware(&dev, &opts)?;
+            if !confirm(&dev, opts.mode, opts.yes, opts.json)? {
+                say(opts.json, "Aborted.");
+                return Ok(());
+            }
+            early = Some((dev.ecid, path));
+        }
+    }
     let device = super::dfu::ensure_present(
         opts.json,
         Duration::from_secs(120),
@@ -138,61 +153,114 @@ pub fn run(opts: Opts) -> Result<()> {
         opts.ecid,
         supervisor.as_ref(),
     )?;
-    restore_device(&device, opts)
+    // ensure_present picks the same device unless something else turned up
+    // ready to restore meanwhile; that one gets its own firmware and prompt.
+    let prepared = early.and_then(|(ecid, path)| (ecid == device.ecid).then_some(path));
+    restore_device(&device, opts, prepared)
 }
 
-fn restore_device(device: &Device, opts: Opts) -> Result<()> {
+/// The running iPhone or iPad `ensure_present` would take to recovery mode for
+/// this restore, if that's what it would do: the one with `ecid`, or with no
+/// ECID the sole one when nothing is ready to restore and no Mac or dongle is
+/// connected (see `ensure_present`).
+pub(crate) fn running_ios_target(ecid: Option<u64>) -> Result<Option<Device>> {
+    let mut devices = device::list()?;
+    device::identify(&mut devices);
+    recovery::identify(&mut devices);
+    let running = |d: &Device| d.is_ios() && d.mode == UsbMode::Other && d.ecid.is_some();
+    if let Some(e) = ecid {
+        return Ok(devices
+            .into_iter()
+            .find(|d| d.ecid == Some(e))
+            .filter(running));
+    }
+    let mac = devices
+        .iter()
+        .any(|d| !d.is_ios() && d.mode != UsbMode::Other);
+    if devices.iter().any(Device::ready_to_restore)
+        || mac
+        || restorekit::dongle::list().is_ok_and(|d| !d.is_empty())
+    {
+        return Ok(None);
+    }
+    let mut running: Vec<Device> = devices.into_iter().filter(running).collect();
+    Ok(if running.len() == 1 {
+        running.pop()
+    } else {
+        None
+    })
+}
+
+fn cache_dir(opts: &Opts) -> Result<PathBuf> {
+    match &opts.cache_dir {
+        Some(d) => Ok(d.clone()),
+        None => firmware::default_cache_dir(),
+    }
+}
+
+/// The IPSW to restore `device` from: `--ipsw` if given, else the firmware
+/// resolved for its model, downloaded into the cache.
+fn fetch_firmware(device: &Device, opts: &Opts) -> Result<PathBuf> {
     let json = opts.json;
-    // Every path into here (ensure_present, the picker, --ecid) selects a
-    // DFU-mode device with a parsed serial, so the ECID and identity are set.
+    if let Some(path) = &opts.ipsw {
+        return Ok(path.clone());
+    }
     let identity = device
         .identity
         .as_ref()
         .expect("restore target carries an identity");
-    let ecid = device.ecid.expect("restore target carries an ECID");
-    let cache = match &opts.cache_dir {
-        Some(d) => d.clone(),
-        None => firmware::default_cache_dir()?,
-    };
-
-    // Resolve firmware: explicit --ipsw wins, else resolve for the device model.
-    let ipsw_path = if let Some(path) = &opts.ipsw {
-        path.clone()
+    let identifier = opts
+        .identifier
+        .clone()
+        .or_else(|| device.identifier().map(str::to_string))
+        .ok_or(Error::UnknownModel {
+            cpid: identity.cpid,
+            bdid: identity.bdid,
+        })?;
+    say(json, &format!("Resolving firmware for {identifier}..."));
+    let fw = firmware::resolve(&identifier, opts.os_version.as_deref())?;
+    if json {
+        render::emit_json(&Event::FirmwareResolved {
+            identifier: fw.identifier.clone(),
+            version: fw.version.clone(),
+            build: fw.build.clone(),
+            size: fw.size,
+            url: fw.url.clone(),
+        });
     } else {
-        let identifier = opts
-            .identifier
-            .clone()
-            .or_else(|| device.identifier().map(str::to_string))
-            .ok_or(Error::UnknownModel {
-                cpid: identity.cpid,
-                bdid: identity.bdid,
-            })?;
-        say(json, &format!("Resolving firmware for {identifier}..."));
-        let fw = firmware::resolve(&identifier, opts.os_version.as_deref())?;
-        if json {
-            render::emit_json(&Event::FirmwareResolved {
-                identifier: fw.identifier.clone(),
-                version: fw.version.clone(),
-                build: fw.build.clone(),
-                size: fw.size,
-                url: fw.url.clone(),
-            });
-        } else {
-            println!("  {} {} (build {})", fw.os_name(), fw.version, fw.build);
-        }
+        println!("  {} {} (build {})", fw.os_name(), fw.version, fw.build);
+    }
 
-        let bar = ProgressBar::hidden();
-        let path = firmware::download(&cache, &fw, &mut |e| render::download(&bar, e, json))?;
-        bar.finish_and_clear();
-        path
-    };
+    let bar = ProgressBar::hidden();
+    let path = firmware::download(&cache_dir(opts)?, &fw, &mut |e| {
+        render::download(&bar, e, json)
+    })?;
+    bar.finish_and_clear();
+    Ok(path)
+}
 
+/// Restore `device`. `prepared` is firmware already fetched, with the erase
+/// already confirmed, before a running iPhone or iPad was taken to recovery.
+fn restore_device(device: &Device, opts: Opts, prepared: Option<PathBuf>) -> Result<()> {
+    let json = opts.json;
+    // Every path into here (ensure_present, the picker, --ecid) selects a
+    // device in DFU or recovery mode with a parsed serial, so the ECID and
+    // identity are set.
+    let ecid = device.ecid.expect("restore target carries an ECID");
+    let cache = cache_dir(&opts)?;
     let mode = opts.mode;
 
-    if !confirm(device, mode, opts.yes, json)? {
-        say(json, "Aborted.");
-        return Ok(());
-    }
+    let ipsw_path = match prepared {
+        Some(path) => path,
+        None => {
+            let path = fetch_firmware(device, &opts)?;
+            if !confirm(device, mode, opts.yes, json)? {
+                say(json, "Aborted.");
+                return Ok(());
+            }
+            path
+        }
+    };
 
     say(json, "Starting restore. Do not disconnect the target.");
     // The restore-mode USB interface needs our WinUSB forced onto it, which is
@@ -502,3 +570,4 @@ fn restore_render(bar: &ProgressBar, event: Event, json: bool) {
         _ => {}
     }
 }
+
