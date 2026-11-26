@@ -252,7 +252,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
     timer.report(json);
 
     // Report the wipe verdict regardless of the restore's overall outcome.
-    report_wipe(json, wipe.as_ref());
+    report_wipe(json, opts.verbose, wipe.as_ref());
 
     let wipe_status = wipe.as_ref().map(|(s, _)| s.as_str());
 
@@ -379,7 +379,7 @@ fn record_restore_history(
 /// Print the encryption-key obliteration verdict for an erase restore (nothing
 /// for a revive, which does not obliterate). Suppressed in `--json` mode, where
 /// it already went out as a machine-readable Obliteration event.
-fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
+fn report_wipe(json: bool, verbose: bool, wipe: Option<&(String, String)>) {
     let Some((status, detail)) = wipe else { return };
     match status.as_str() {
         "confirmed" => say(
@@ -390,12 +390,20 @@ fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
             json,
             &format!("WARNING: the device reported the encryption-key wipe FAILED: {detail}"),
         ),
-        "unconfirmed" => say(
-            json,
-            "Note: no encryption-key obliteration signal appeared in the device log. The \
-             erase still destroys the key; it just could not be verified. Re-run with \
-             --verbose to inspect the device log.",
-        ),
+        "unconfirmed" => {
+            let hint = if verbose {
+                ""
+            } else {
+                " Re-run with --verbose to inspect the device log."
+            };
+            say(
+                json,
+                &format!(
+                    "Note: no encryption-key obliteration signal appeared in the device log. \
+                     The erase still destroys the key; it just could not be verified.{hint}"
+                ),
+            )
+        }
         _ => {}
     }
 }
