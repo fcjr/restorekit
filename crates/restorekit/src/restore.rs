@@ -327,6 +327,21 @@ pub fn restore(
     )
 }
 
+/// Let this process open only the Mac in DFU over Debug USB whose KIS device
+/// sits at `location`, its IOKit `locationID`. A KIS device's ECID can only be
+/// read by opening it and sending it requests, so without this a restore does
+/// that to every such Mac, including ones other processes are restoring in the
+/// middle of their transfers. Holds for the rest of the process.
+#[cfg(target_os = "macos")]
+pub fn only_kis_at(location: u32) -> Result<()> {
+    match unsafe { sys::irecv_set_kis_location(location) } {
+        0 => Ok(()),
+        code => Err(Error::Usb(format!(
+            "libirecovery refused the KIS location {location:#x} ({code})"
+        ))),
+    }
+}
+
 /// [`restore`] without the retry: a failure is returned after one pass, for a
 /// caller that supervises its own restore processes and decides what a
 /// failure means.

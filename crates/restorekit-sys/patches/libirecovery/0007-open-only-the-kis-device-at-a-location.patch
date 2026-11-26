@@ -1,0 +1,86 @@
+--- a/include/libirecovery.h
++++ b/include/libirecovery.h
+@@ -132,6 +132,11 @@
+ 
+ /* library */
+ IRECV_API void irecv_set_debug_level(int level);
++/* Open and probe only the KIS (Apple Debug USB) device at this USB location,
++ * its IOKit locationID; other KIS devices are passed over unopened, so a
++ * process never sends requests to a Mac another process is restoring. 0 clears
++ * it. Returns IRECV_E_UNSUPPORTED where KIS devices aren't found through IOKit. */
++IRECV_API irecv_error_t irecv_set_kis_location(uint32_t location);
+ IRECV_API const char* irecv_strerror(irecv_error_t error);
+ 
+ IRECV_API const char* irecv_version();
+--- a/src/libirecovery.c
++++ b/src/libirecovery.c
+@@ -2192,6 +2192,28 @@
+ 	return pid;
+ }
+ 
++/* The one KIS device this process may open, by locationID; 0 for any. */
++static uint32_t kis_location;
++
++static uint32_t iokit_location(io_service_t service)
++{
++	uint32_t location = 0;
++	CFNumberRef num = (CFNumberRef)IORegistryEntryCreateCFProperty(service, CFSTR(kUSBDevicePropertyLocationID), kCFAllocatorDefault, 0);
++	if (num) {
++		CFNumberGetValue(num, kCFNumberSInt32Type, &location);
++		CFRelease(num);
++	}
++	return location;
++}
++
++/* Reading a KIS device's ECID means opening it and sending it requests, which
++ * would reach another process's Mac in the middle of its own transfers. */
++static int iokit_kis_excluded(io_service_t service)
++{
++	uint32_t location = __atomic_load_n(&kis_location, __ATOMIC_RELAXED);
++	return location != 0 && iokit_location(service) != location;
++}
++
+ /* deviceinterfaced names interfaces by an opaque 64-bit id. Match it against
+  * the registry entry ids of the device and its interfaces. */
+ static uint64_t dic_find_interface(io_service_t service)
+@@ -3549,6 +3571,10 @@
+ 				}
+ 
+ 				if (pids[i] == KIS_PRODUCT_ID) {
++					if (iokit_kis_excluded(service)) {
++						IOObjectRelease(service);
++						continue;
++					}
+ 					if (kis_skip > 0) {
+ 						kis_skip--;
+ 						IOObjectRelease(service);
+@@ -5063,6 +5089,11 @@
+ 		 * plug-in fails and it would be dropped here. It's opened through
+ 		 * deviceinterfaced instead. */
+ 		if (iokit_registry_pid(device) == KIS_PRODUCT_ID && dic_available()) {
++			if (iokit_kis_excluded(device)) {
++				debug("%s: passing over the KIS device at %#x\n", __func__, iokit_location(device));
++				IOObjectRelease(device);
++				continue;
++			}
+ 			struct irecv_iokit_dev_ctx idev;
+ 			idev.device = device;
+ 			idev.dev = NULL;
+@@ -5692,6 +5723,17 @@
+ 	}
+ #endif
+ #endif
++#endif
++}
++
++irecv_error_t irecv_set_kis_location(uint32_t location)
++{
++#if !defined(USE_DUMMY) && !defined(_WIN32) && defined(HAVE_IOKIT)
++	__atomic_store_n(&kis_location, location, __ATOMIC_RELAXED);
++	return IRECV_E_SUCCESS;
++#else
++	(void)location;
++	return IRECV_E_UNSUPPORTED;
+ #endif
+ }
+ 

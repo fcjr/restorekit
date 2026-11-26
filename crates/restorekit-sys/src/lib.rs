@@ -160,6 +160,9 @@ extern "C" {
     /// libtatsu's TSS logging. At 1 it prints why a TSS request failed (Apple's
     /// status code and message) to stderr; at 0 (the default) it prints nothing.
     pub fn tss_set_debug_level(level: c_int);
+    /// Limit this process to the KIS device at one IOKit `locationID`; 0 clears
+    /// it. `IRECV_E_UNSUPPORTED` (-254) off macOS.
+    pub fn irecv_set_kis_location(location: u32) -> c_int;
     /// Register a progress bar (or, with a NULL label, just run the one-time
     /// init of idevicerestore's global progress mutex).
     pub fn register_progress(tag: u32, label: *const c_char);

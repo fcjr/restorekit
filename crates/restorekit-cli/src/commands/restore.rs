@@ -134,6 +134,8 @@ pub struct Opts {
     pub ecid: Option<u64>,
     pub dongle: Option<String>,
     pub supervisor: Option<PathBuf>,
+    #[cfg(target_os = "macos")]
+    pub kis_location: Option<u32>,
     pub yes: bool,
     pub cache_dir: Option<PathBuf>,
     pub json: bool,
@@ -320,6 +322,10 @@ fn restore_device(device: &Device, opts: Opts, prepared: Option<PathBuf>) -> Res
     let mut wipe: Option<(String, String)> = None;
     let mut checkpoints: Option<(Vec<String>, Vec<String>)> = None;
     let mut timer = PhaseTimer::new();
+    #[cfg(target_os = "macos")]
+    if let Some(location) = opts.kis_location {
+        restore::only_kis_at(location)?;
+    }
     let result = restore::restore(
         &ipsw_path,
         ecid,

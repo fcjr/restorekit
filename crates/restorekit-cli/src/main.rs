@@ -273,6 +273,12 @@ struct FirmwareArgs {
     /// `restorekit recovery --help`).
     #[arg(long)]
     supervisor: Option<PathBuf>,
+    /// Open only the Debug USB (KIS) device at this IOKit locationID, in hex
+    /// (0x120000), so a restore never sends requests to a Mac another process
+    /// is restoring.
+    #[cfg(target_os = "macos")]
+    #[arg(long, value_parser = parse_hex_u32, hide = true)]
+    kis_location: Option<u32>,
 }
 
 #[derive(clap::Args)]
@@ -325,6 +331,8 @@ impl FirmwareArgs {
             ecid: self.ecid,
             dongle: self.dongle,
             supervisor: self.supervisor,
+            #[cfg(target_os = "macos")]
+            kis_location: self.kis_location,
             yes,
             cache_dir,
             json,
