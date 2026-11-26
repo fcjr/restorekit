@@ -21,6 +21,9 @@ pub enum Error {
     #[error("no Mac with ECID {0:#x} is connected to this host")]
     EcidNotConnected(u64),
 
+    #[error("another restorekit restore of the device with ECID {0:#x} is running; wait for it to finish")]
+    RestoreInProgress(u64),
+
     #[error(
         "the Mac with ECID {0:#x} is not on the DFU port; move its cable to the DFU port and retry"
     )]

@@ -237,16 +237,14 @@ fn get_info(info: &nusb::DeviceInfo) -> Result<Vec<u8>, String> {
 /// kept from opening the Mac ([`install`]).
 #[cfg(target_os = "macos")]
 pub(crate) mod claim {
-    use std::fs::{File, OpenOptions, TryLockError};
+    use std::fs::File;
     use std::io::{Read as _, Write as _};
     use std::os::raw::c_int;
-    use std::os::unix::fs::OpenOptionsExt;
     use std::sync::{Mutex, Once};
-    use std::time::Duration;
 
     use restorekit_sys as sys;
 
-    use crate::{Error, Result};
+    use crate::{lock, Error, Result};
 
     /// The location of the Mac this process's restore holds, and its lock
     /// (`None` when the lock file couldn't be had).
@@ -256,10 +254,8 @@ pub(crate) mod claim {
         HELD.lock().unwrap().as_ref().map(|(location, _)| *location)
     }
 
-    /// In /tmp rather than the per-user temporary directory, so a restore run
-    /// as root and one run as the user see each other's.
-    fn path(location: u32) -> String {
-        format!("/tmp/restorekit-kis-{location:08x}.lock")
+    fn name(location: u32) -> String {
+        format!("kis-{location:08x}")
     }
 
     /// The identity of the Mac at `location` when another process's restore
@@ -269,10 +265,7 @@ pub(crate) mod claim {
         if own() == Some(location) {
             return None;
         }
-        let mut file = File::open(path(location)).ok()?;
-        if !matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock)) {
-            return None;
-        }
+        let mut file = lock::held(&name(location))?;
         let mut serial = String::new();
         let _ = file.read_to_string(&mut serial);
         Some(serial)
@@ -331,32 +324,11 @@ pub(crate) mod claim {
         let Some((location, serial)) = target else {
             return Ok(None);
         };
-        // Without the lock file (another user's, left in /tmp), the restore
-        // goes on unannounced.
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o666)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(path(location))
-            .ok();
+        let file = lock::take(&name(location)).map_err(|_| Error::RestoreInProgress(ecid))?;
         if let Some(mut file) = file.as_ref() {
-            // A process checking the lock holds it for a moment.
-            let mut tries = 0;
-            while let Err(TryLockError::WouldBlock) = file.try_lock() {
-                if tries == 20 {
-                    return Err(Error::Usb(format!(
-                        "another restorekit restore is using the Mac with ECID {ecid:#x}; wait \
-                         for it to finish"
-                    )));
-                }
-                tries += 1;
-                std::thread::sleep(Duration::from_millis(50));
-            }
             file.set_len(0)
                 .and_then(|()| file.write_all(serial.as_bytes()))
-                .map_err(|e| Error::Usb(format!("{}: {e}", path(location))))?;
+                .map_err(|e| Error::Usb(format!("lock for {ecid:#x}: {e}")))?;
         }
         *HELD.lock().unwrap() = Some((location, file));
         Ok(Some(Claim(())))
@@ -370,8 +342,7 @@ pub(crate) mod claim {
         fn another_holder_leaves_the_identity_it_read() {
             let location = 0xfff0_0000 | (std::process::id() & 0xffff);
             assert_eq!(held(location), None);
-            let mut file = File::create(path(location)).unwrap();
-            file.try_lock().unwrap();
+            let mut file = lock::take(&name(location)).unwrap().unwrap();
             assert_eq!(held(location).as_deref(), Some(""));
             assert_eq!(excluded(location), 1);
             *HELD.lock().unwrap() = Some((location + 1, None));
@@ -385,7 +356,7 @@ pub(crate) mod claim {
             drop(file);
             assert_eq!(held(location), None);
             assert_eq!(excluded(location), 0);
-            std::fs::remove_file(path(location)).unwrap();
+            std::fs::remove_file(format!("/tmp/restorekit-{}.lock", name(location))).unwrap();
         }
     }
 }

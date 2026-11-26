@@ -25,6 +25,35 @@ fn ready_devices() -> Result<Vec<Device>> {
         .collect())
 }
 
+/// With no ECID to go by, fail if a device the DFU trigger would act on is
+/// under restore by another process: the one cabled to `dongle`, else to the
+/// sole dongle, else any on a host DFU port.
+pub(crate) fn ensure_target_free(dongle: Option<&str>) -> Result<()> {
+    use restorekit::dongle::{self, DongleTarget};
+    let attached = |d: &dongle::Dongle| d.attached_device().ok().flatten();
+    let targets: Vec<Device> = match dongle {
+        Some(id) => dongle::find(DongleTarget::Id(id.into()))
+            .ok()
+            .and_then(|d| attached(&d))
+            .into_iter()
+            .collect(),
+        None => match dongle::list().unwrap_or_default().as_slice() {
+            [] => {
+                let mut devices = device::list()?;
+                device::identify(&mut devices);
+                devices.retain(|d| d.port.as_ref().is_some_and(|p| p.dfu));
+                devices
+            }
+            [d] => attached(d).into_iter().collect(),
+            _ => Vec::new(),
+        },
+    };
+    targets
+        .iter()
+        .filter_map(|d| d.ecid)
+        .try_for_each(restorekit::restore::ensure_free)
+}
+
 /// Pick the target device: by ECID when given, otherwise the sole ready one,
 /// otherwise an interactive picker (errors in `--json` / non-TTY mode).
 pub(crate) fn select_device(ecid: Option<u64>, json: bool) -> Result<Device> {
