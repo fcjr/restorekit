@@ -38,7 +38,7 @@ const LABEL: &CStr = c"restorekit";
 ///
 /// The device is found by the `UniqueChipID` its lockdownd reports without
 /// pairing, among the USB devices listed by the host's usbmuxd: Apple's on
-/// macOS, Apple Mobile Device Service on Windows, the system usbmuxd on Linux.
+/// macOS and Windows, the system usbmuxd on Linux.
 /// `USBMUXD_SOCKET_ADDRESS` picks another, unless it points at the embedded
 /// usbmuxd a restore in this process (or a parent's
 /// [`SharedUsbmuxd`](crate::SharedUsbmuxd)) serves.

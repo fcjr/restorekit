@@ -430,8 +430,7 @@ fn run(
     // parent process already started a shared one (parallel restores), which we
     // then reuse via the inherited USBMUXD_SOCKET_ADDRESS.
     //
-    // On Windows, Apple's own usbmuxd (Apple Mobile Device Service, installed
-    // with iTunes or Apple Devices) may already hold that port. It drives the
+    // On Windows, Apple's own usbmuxd may already hold that port. It drives the
     // restore-mode interface through Apple's driver, so use it as-is: no
     // embedded server and no WinUSB binding.
     //

@@ -36,26 +36,57 @@ const MUX_PORT: u16 = 27015;
 pub enum MuxPort {
     /// Nobody: the embedded server can take it.
     Free,
-    /// Apple Mobile Device Service (iTunes, Apple Devices), Apple's own
-    /// usbmuxd, which drives the restore-mode interface through Apple's driver.
+    /// Apple's usbmuxd, provided by Apple Mobile Device Service or the
+    /// Microsoft Store version of Apple Devices.
     Apple,
     /// Some other process, named when we can read it.
     Other { pid: u32, name: Option<String> },
 }
 
-/// Find who listens on the usbmuxd port. Apple's service is told apart by its
-/// process id from the service manager, so another restorekit's embedded
-/// server (or any other program) isn't mistaken for it.
+/// Find who listens on the usbmuxd port.
 #[cfg(target_os = "windows")]
 pub fn mux_port() -> MuxPort {
-    match win::listener_pid(MUX_PORT) {
-        None => MuxPort::Free,
-        Some(pid) if win::apple_service_pid() == Some(pid) => MuxPort::Apple,
-        Some(pid) => MuxPort::Other {
-            pid,
-            name: win::process_name(pid),
-        },
+    let Some(pid) = win::listener_pid(MUX_PORT) else {
+        return MuxPort::Free;
+    };
+    if win::apple_service_pid() == Some(pid) {
+        return MuxPort::Apple;
     }
+    let image = win::image_path(pid);
+    if image
+        .as_deref()
+        .is_some_and(|path| apple_devices_mux(path, win::staged_package_path))
+    {
+        return MuxPort::Apple;
+    }
+    MuxPort::Other {
+        pid,
+        name: image.and_then(|path| path.rsplit('\\').next().map(str::to_owned)),
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn apple_devices_mux(image: &str, staged_path: impl Fn(&str) -> Option<String>) -> bool {
+    let Some((mut dir, exe)) = image.rsplit_once('\\') else {
+        return false;
+    };
+    if !exe.eq_ignore_ascii_case("AppleMobileDeviceProcess.exe") {
+        return false;
+    }
+    while let Some((parent, package)) = dir.rsplit_once('\\') {
+        let mut fields = package.split('_');
+        if fields
+            .next()
+            .is_some_and(|name| name.eq_ignore_ascii_case("AppleInc.AppleDevices"))
+            && fields
+                .next_back()
+                .is_some_and(|id| id.eq_ignore_ascii_case("nzyj5cx40ttqa"))
+        {
+            return staged_path(package).is_some_and(|path| path.eq_ignore_ascii_case(dir));
+        }
+        dir = parent;
+    }
+    false
 }
 
 /// The pid listening on IPv4 `port` (loopback or any address), from the rows
@@ -76,20 +107,21 @@ mod win {
     use std::os::windows::ffi::OsStrExt;
     use std::ptr::null;
 
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, NO_ERROR};
+    use windows_sys::Wdk::System::SystemInformation::NtQuerySystemInformation;
+    use windows_sys::Win32::Foundation::{
+        ERROR_INSUFFICIENT_BUFFER, HANDLE, NO_ERROR, STATUS_INFO_LENGTH_MISMATCH, UNICODE_STRING,
+    };
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetExtendedTcpTable, TCP_TABLE_OWNER_PID_LISTENER,
     };
     use windows_sys::Win32::Networking::WinSock::AF_INET;
+    use windows_sys::Win32::Storage::FileSystem::QueryDosDeviceW;
+    use windows_sys::Win32::Storage::Packaging::Appx::GetStagedPackagePathByFullName;
     use windows_sys::Win32::System::Services::{
         CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_MANAGER_CONNECT,
         SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS_PROCESS,
     };
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
 
-    /// The service iTunes and Apple Devices install.
     const APPLE_SERVICE: &str = "Apple Mobile Device Service";
 
     pub(super) fn listener_pid(port: u16) -> Option<u32> {
@@ -152,24 +184,79 @@ mod win {
         }
     }
 
-    /// The executable name of `pid`, when this user may query it (not for
-    /// services running as SYSTEM, without elevation).
-    pub(super) fn process_name(pid: u32) -> Option<String> {
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if handle.is_null() {
-                return None;
-            }
-            let mut buf = [0u16; 1024];
-            let mut len = buf.len() as u32;
-            let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) != 0;
-            CloseHandle(handle);
-            if !ok {
-                return None;
-            }
-            let path = String::from_utf16_lossy(&buf[..len as usize]);
-            path.rsplit('\\').next().map(str::to_string)
+    /// Query the image by PID. A service account may not be able to open
+    /// the Apple Devices process running in the signed-in user's session.
+    pub(super) fn image_path(pid: u32) -> Option<String> {
+        // SystemProcessIdInformation returns the executable's native NT path.
+        const SYSTEM_PROCESS_ID_INFORMATION: i32 = 88;
+        #[repr(C)]
+        struct ProcessIdInformation {
+            process_id: HANDLE,
+            image_name: UNICODE_STRING,
         }
+        let mut path = vec![0u16; 260];
+        loop {
+            let mut info = ProcessIdInformation {
+                process_id: pid as usize as HANDLE,
+                image_name: UNICODE_STRING {
+                    Length: 0,
+                    MaximumLength: (path.len() * 2).try_into().ok()?,
+                    Buffer: path.as_mut_ptr(),
+                },
+            };
+            let status = unsafe {
+                NtQuerySystemInformation(
+                    SYSTEM_PROCESS_ID_INFORMATION,
+                    (&mut info as *mut ProcessIdInformation).cast(),
+                    std::mem::size_of_val(&info) as u32,
+                    std::ptr::null_mut(),
+                )
+            };
+            if status >= 0 {
+                if info.image_name.Length == 0 {
+                    return None;
+                }
+                return String::from_utf16(path.get(..usize::from(info.image_name.Length) / 2)?)
+                    .ok();
+            }
+            let needed = usize::from(info.image_name.MaximumLength) / 2;
+            if status != STATUS_INFO_LENGTH_MISMATCH || needed <= path.len() {
+                return None;
+            }
+            path.resize(needed, 0);
+        }
+    }
+
+    /// The staged path is available even to accounts the app isn't registered for.
+    pub(super) fn staged_package_path(package: &str) -> Option<String> {
+        let package: Vec<u16> = package.encode_utf16().chain([0]).collect();
+        let mut len = 0;
+        if unsafe {
+            GetStagedPackagePathByFullName(package.as_ptr(), &mut len, std::ptr::null_mut())
+        } != ERROR_INSUFFICIENT_BUFFER
+        {
+            return None;
+        }
+        let mut path = vec![0u16; len as usize];
+        if unsafe { GetStagedPackagePathByFullName(package.as_ptr(), &mut len, path.as_mut_ptr()) }
+            != NO_ERROR
+        {
+            return None;
+        }
+
+        // Put the drive-letter path in the same namespace as the process image.
+        let path = path.get(..(len as usize).checked_sub(1)?)?;
+        if path.get(1..3)? != [b':' as u16, b'\\' as u16] {
+            return None;
+        }
+        let drive = [path[0], path[1], 0];
+        let mut device = [0; 512];
+        let len =
+            unsafe { QueryDosDeviceW(drive.as_ptr(), device.as_mut_ptr(), device.len() as u32) };
+        let end = device[..len as usize].iter().position(|&c| c == 0)?;
+        let mut native = String::from_utf16(&device[..end]).ok()?;
+        native.push_str(&String::from_utf16(&path[2..]).ok()?);
+        Some(native)
     }
 }
 
@@ -491,6 +578,23 @@ mod tests {
         r.extend_from_slice(&[0; 8]);
         r.extend_from_slice(&pid.to_le_bytes());
         r
+    }
+
+    #[test]
+    fn recognizes_the_mux_only_in_the_installed_apple_devices_package() {
+        let package = "AppleInc.AppleDevices_1.1792.39682.0_x64__nzyj5cx40ttqa";
+        let root = format!(r"\Device\HarddiskVolume3\Program Files\WindowsApps\{package}");
+        let exe = "AppleMobileDeviceProcess.exe";
+        let check =
+            |image: &str| apple_devices_mux(image, |p| (p == package).then(|| root.clone()));
+        assert!(check(&format!(r"{root}\{exe}")));
+        assert!(check(&format!(r"{root}\AMDS\{exe}")));
+        assert!(!check(&format!(r"{root}\AppleDevices.exe")));
+        assert!(!check(&format!(
+            r"\Device\HarddiskVolume3\Users\User\{package}\{exe}"
+        )));
+        assert!(!check(&format!(r"{root}extra\{exe}")));
+        assert!(!apple_devices_mux(&format!(r"{root}\{exe}"), |_| None));
     }
 
     #[test]
