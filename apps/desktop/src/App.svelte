@@ -202,14 +202,22 @@
     isWindows ? "Windows host" : canTrigger ? "DFU-capable host" : "Detect-only host",
   );
 
+  // The helper only triggers DFU on Macs: don't nag when every connected
+  // device is an iPhone or iPad.
   const showBanner = $derived(
-    canTrigger && helperState !== "" && helperState !== "enabled" && phase === "idle",
+    canTrigger &&
+      helperState !== "" &&
+      helperState !== "enabled" &&
+      phase === "idle" &&
+      (devices.length === 0 || devices.some((d) => !isIos(d))),
   );
 
   // Which action a device gets: full restore config, WinUSB setup, DFU trigger,
   // recovery entry, or manual instructions.
-  function deviceMode(d: Device): "restore" | "usb" | "dfu" | "recovery" | "ios-manual" | "manual" {
+  function deviceMode(d: Device): "restore" | "usb" | "dfu" | "recovery" | "ios-manual" | "manual" | "none" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
+    // An Apple accessory (keyboard, display, ...) isn't a restore target.
+    if (d.mode === "other" && d.kind === "device") return "none";
     // A running iPhone or iPad reboots into recovery over USB, from any host.
     if (isIos(d) && d.mode === "other" && d.ecid) return "recovery";
     // Any other iPhone or iPad (restore mode after an interrupted restore,
@@ -1233,13 +1241,20 @@
             {#if selected?.identifier}<span class="dparen">({selected.identifier})</span>{/if}
           </h1>
 
-          {#if selected}
+          {#if selected && mMode !== "none"}
             <div class="spec">
               <div class="k">Identifier</div><div class="v"><button class="cellcopy mono" onclick={() => copy(selected.identifier ?? "")}>{selected.identifier ?? "—"}</button></div>
-              <div class="k">Serial</div><div class="v"><button class="cellcopy mono" onclick={() => copy(serialFor(selected) ?? "")}>{serialFor(selected) ?? "—"}</button></div>
+              {#if serialFor(selected)}
+                <div class="k">Serial</div><div class="v"><button class="cellcopy mono" onclick={() => copy(serialFor(selected) ?? "")}>{serialFor(selected)}</button></div>
+              {/if}
               <div class="k">Chip, board</div><div class="v"><button class="cellcopy mono" onclick={() => copy(`${selected.chip} ${selected.board}`.trim())}>{selected.chip || "—"} {selected.board || "—"}</button></div>
               <div class="k">ECID</div><div class="v"><button class="cellcopy mono" onclick={() => copy(selected.ecid ?? "")}>{selected.ecid || "—"}</button></div>
-              <div class="k">iBoot</div><div class="v"><button class="cellcopy mono" onclick={() => copy(selected.srtg ?? "")}>{selected.srtg ?? "—"}</button></div>
+              {#if selected.srtg}
+                <div class="k">iBoot</div><div class="v"><button class="cellcopy mono" onclick={() => copy(selected.srtg ?? "")}>{selected.srtg}</button></div>
+              {/if}
+              <!-- DFU trigger routing (port, hub, dongle) is for Macs: an
+                   iPhone or iPad reaches recovery over USB from any port. -->
+              {#if !isIos(selected)}
               {#if selected.port}
                 <div class="k">Port</div>
                 <div class="v">
@@ -1253,6 +1268,7 @@
               {:else if selected.connection === "hub"}
                 <div class="k">Connection</div>
                 <div class="v">behind a USB hub, so this computer can't trigger DFU</div>
+              {/if}
               {/if}
             </div>
           {:else if selectedRow.ecid}
@@ -1346,31 +1362,34 @@
           {:else if mMode === "recovery"}
             <div class="block">
               <p class="lede">Restore needs recovery mode. restorekit asks this {selected.kind} to reboot into it over USB. If it doesn't trust this computer yet, tap Trust on it when asked.</p>
-              <div class="opts">
-                <div class="opt">
-                  <span class="ok-label">Supervisor</span>
-                  <span class="field pick">
-                    <button class="pickbtn" class:set={supervisorPath} onclick={chooseSupervisor}>
-                      {supervisorPath ? supervisorPath.split(/[\\/]/).pop() : "— none —"}
-                    </button>
-                    {#if supervisorPath}
-                      <button class="browse" title="Pair without a supervision identity" onclick={() => { supervisorPath = null; supervisorPassword = ""; }}>clear ×</button>
-                    {:else}
-                      <button class="browse" onclick={chooseSupervisor}>browse</button>
-                    {/if}
-                  </span>
-                </div>
-                {#if supervisorNeedsPassword}
-                  <div class="opt">
-                    <span class="ok-label">Password</span>
-                    <input class="field" type="password" placeholder="PKCS #12 password" bind:value={supervisorPassword} />
-                  </div>
-                {/if}
-                <p class="opt-note quiet">Optional. A supervision identity (PEM, or PKCS #12 exported from Apple Configurator) pairs a device it supervises without the Trust prompt.</p>
-              </div>
               <div class="actions">
                 <button class="btn primary" onclick={enterRecovery} disabled={!!busy}>Enter recovery mode</button>
               </div>
+              <details class="more" open={!!supervisorPath}>
+                <summary>Supervised {selected.kind}? Skip the Trust prompt</summary>
+                <div class="opts">
+                  <div class="opt">
+                    <span class="ok-label">Supervisor</span>
+                    <span class="field pick">
+                      <button class="pickbtn" class:set={supervisorPath} onclick={chooseSupervisor}>
+                        {supervisorPath ? supervisorPath.split(/[\\/]/).pop() : "— none —"}
+                      </button>
+                      {#if supervisorPath}
+                        <button class="browse" title="Pair without a supervision identity" onclick={() => { supervisorPath = null; supervisorPassword = ""; }}>clear ×</button>
+                      {:else}
+                        <button class="browse" onclick={chooseSupervisor}>browse</button>
+                      {/if}
+                    </span>
+                  </div>
+                  {#if supervisorNeedsPassword}
+                    <div class="opt">
+                      <span class="ok-label">Password</span>
+                      <input class="field" type="password" placeholder="PKCS #12 password" bind:value={supervisorPassword} />
+                    </div>
+                  {/if}
+                  <p class="opt-note quiet">A supervision identity (PEM, or PKCS #12 exported from Apple Configurator) pairs a device it supervises without the Trust prompt.</p>
+                </div>
+              </details>
             </div>
           {:else if mMode === "dfu"}
             <div class="block">
@@ -1407,6 +1426,10 @@
               <div class="actions">
                 <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
               </div>
+            </div>
+          {:else if mMode === "none"}
+            <div class="block">
+              <p class="lede">restorekit doesn't recognize this Apple device as a Mac, iPhone or iPad it can restore.</p>
             </div>
           {:else}
             <div class="block">
@@ -2137,6 +2160,17 @@
   }
   .opt-note.quiet {
     color: var(--fnt);
+  }
+  .more {
+    margin-top: 22px;
+  }
+  .more summary {
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--mut);
+  }
+  .more summary:hover {
+    color: var(--ink);
   }
   .ok-label {
     width: 96px;
