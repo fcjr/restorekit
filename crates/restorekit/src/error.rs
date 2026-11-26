@@ -3,11 +3,17 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("no device in DFU mode found")]
+    #[error("no device ready to restore found: a Mac in DFU mode, or an iPhone or iPad in DFU or recovery mode")]
     NoDeviceFound,
 
-    #[error("multiple devices in DFU mode found ({0}); select one with --ecid (see `restorekit list`) or disconnect the others")]
+    #[error("multiple devices ready to restore found ({0}); select one with --ecid (see `restorekit list`) or disconnect the others")]
     MultipleDevices(usize),
+
+    #[error("no device in DFU mode found")]
+    NoDfuDevice,
+
+    #[error("multiple devices in DFU mode found ({0}); select one with --ecid (see `restorekit list`) or disconnect the others")]
+    MultipleDfuDevices(usize),
 
     #[error("no device in DFU mode with ECID {0:#x}")]
     EcidNotFound(u64),

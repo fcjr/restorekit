@@ -217,14 +217,26 @@ fn run_once(json: bool) -> Result<()> {
             "Can't restore the Mac in DFU over Debug USB: {}",
             restorekit::Error::KisUnreadable
         );
-    } else if !devices.iter().any(|d| d.restorable()) {
+    } else if !devices.iter().any(|d| d.ready_to_restore()) {
         if devices.iter().any(|d| d.debug_usb_not_in_dfu()) {
             println!(
                 "Debug USB is on, but the device behind it isn't in DFU, so there's no identity \
                  to read."
             );
         }
-        println!("None are in DFU mode; only a device in DFU mode can be restored.");
+        println!(
+            "None are ready to restore: a Mac restores from DFU mode, an iPhone or iPad from DFU or \
+             recovery mode."
+        );
+        if devices
+            .iter()
+            .any(|d| d.is_ios() && d.mode == UsbMode::Other)
+        {
+            println!(
+                "`restorekit restore --ecid <ECID>` takes a running iPhone or iPad to recovery \
+                 mode first."
+            );
+        }
         let mac = devices.iter().any(|d| !d.is_ios());
         if mac && restorekit::host_can_trigger_dfu() {
             println!("Run `restorekit dfu` to put the cabled target into DFU mode.");

@@ -2,7 +2,8 @@ use std::io::{IsTerminal, Write};
 use std::time::Duration;
 
 use restorekit::progress::Event;
-use restorekit::{device, Device, DfuOutcome, DfuVia, Error, Result, Target};
+use restorekit::recovery::{self, Supervisor};
+use restorekit::{device, Device, DfuOutcome, DfuVia, Error, Result, Target, UsbMode};
 
 use super::render;
 
@@ -10,25 +11,26 @@ use super::render;
 pub(crate) fn emit_stage(json: bool, event: Event) {
     if json {
         render::emit_json(&event);
-    } else if let Event::DfuTriggerStage { stage } = event {
+    } else if let Event::DfuTriggerStage { stage } | Event::RecoveryStage { stage } = event {
         println!("  {stage}");
     }
 }
 
-/// Macs currently in DFU mode — the devices restorekit can act on.
-fn dfu_devices() -> Result<Vec<Device>> {
+/// Devices a restore can start from now: Macs in DFU mode, and iPhones and
+/// iPads in DFU or recovery mode.
+fn ready_devices() -> Result<Vec<Device>> {
     Ok(device::list()?
         .into_iter()
-        .filter(|d| d.restorable())
+        .filter(|d| d.ready_to_restore())
         .collect())
 }
 
-/// Pick the target device: by ECID when given, otherwise the sole DFU device,
+/// Pick the target device: by ECID when given, otherwise the sole ready one,
 /// otherwise an interactive picker (errors in `--json` / non-TTY mode).
 pub(crate) fn select_device(ecid: Option<u64>, json: bool) -> Result<Device> {
     match ecid {
         Some(e) => device::find(Target::Ecid(e)),
-        None => select_from(dfu_devices()?, json),
+        None => select_from(ready_devices()?, json),
     }
 }
 
@@ -40,7 +42,7 @@ fn select_from(mut devices: Vec<Device>, json: bool) -> Result<Device> {
             if json || !std::io::stdin().is_terminal() {
                 return Err(Error::MultipleDevices(n));
             }
-            println!("Found {n} devices in DFU mode:\n");
+            println!("Found {n} devices ready to restore:\n");
             for (i, d) in devices.iter().enumerate() {
                 println!(
                     "  [{}] {} (ECID {})",
@@ -345,19 +347,22 @@ pub fn raw_vdm(json: bool, words: &[u32], port: Option<i32>) -> Result<()> {
     Ok(())
 }
 
-/// Ensure a Mac is in DFU mode: return it if already there (with the interactive
-/// picker when several are present and no ECID pins one), otherwise trigger
-/// entry via a dongle or the host and wait. Shared by `restore`.
+/// Ensure a device is ready to restore: return it if already there (with the
+/// interactive picker when several are present and no ECID pins one),
+/// otherwise put a Mac into DFU via a dongle or the host, or a running iPhone
+/// or iPad into recovery (pairing as `supervisor` if given), and wait. Shared
+/// by `restore`.
 pub(crate) fn ensure_present(
     json: bool,
     timeout: Duration,
     dongle: Option<String>,
     ecid: Option<u64>,
+    supervisor: Option<&Supervisor>,
 ) -> Result<Device> {
     // An explicit dongle routes the trigger through it, but a Mac that's
     // already in DFU is used as is: triggering it again only bounces it.
     if let Some(id) = dongle {
-        let mut present = dfu_devices()?;
+        let mut present = ready_devices()?;
         match ecid {
             Some(e) => present.retain(|d| d.ecid == Some(e)),
             // Without an ECID, only this dongle's Mac: another one in DFU may
@@ -383,12 +388,17 @@ pub(crate) fn ensure_present(
             _ => Ok(dev),
         };
     }
-    // Already in DFU? Use it without re-triggering.
+    // Already ready? Use it without re-triggering.
     if let Some(e) = ecid {
         let mut devices = device::list()?;
         device::identify(&mut devices);
+        recovery::identify(&mut devices);
         match devices.into_iter().find(|d| d.ecid == Some(e)) {
-            Some(dev) if dev.in_dfu() => return Ok(dev),
+            Some(dev) if dev.ready_to_restore() => return Ok(dev),
+            // A running iPhone or iPad restores from recovery mode.
+            Some(dev) if dev.is_ios() && dev.mode == UsbMode::Other => {
+                return super::recovery::to_recovery(json, e, supervisor);
+            }
             Some(dev) if !json => {
                 println!(
                     "{} is in {} mode; putting it into DFU...",
@@ -399,9 +409,28 @@ pub(crate) fn ensure_present(
             _ => {}
         }
     } else {
-        let present = dfu_devices()?;
+        let present = ready_devices()?;
         if !present.is_empty() {
             return select_from(present, json);
+        }
+        // Running iPhones or iPads and nothing to trigger DFU on: take the
+        // iPhone or iPad to recovery instead.
+        let mut devices = device::list()?;
+        recovery::identify(&mut devices);
+        let running: Vec<u64> = devices
+            .iter()
+            .filter(|d| d.is_ios() && d.mode == UsbMode::Other)
+            .filter_map(|d| d.ecid)
+            .collect();
+        let mac = devices
+            .iter()
+            .any(|d| !d.is_ios() && d.mode != UsbMode::Other);
+        let dongles = restorekit::dongle::list().is_ok_and(|d| !d.is_empty());
+        if !running.is_empty() && !mac && !dongles {
+            return match running.as_slice() {
+                [e] => super::recovery::to_recovery(json, *e, supervisor),
+                _ => Err(Error::MultipleRunningDevices(running.len())),
+            };
         }
         // Already in DFU over Debug USB but unreadable here: triggering again
         // can't help, except on Windows with a dongle, which puts it back into
