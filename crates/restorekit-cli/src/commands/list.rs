@@ -111,13 +111,15 @@ fn run_once(json: bool) -> Result<()> {
 
     if devices.is_empty() {
         println!("No Apple devices found on USB.");
-        if !restorekit::host_can_trigger_dfu() {
-            println!("\n{}", restorekit::manual_dfu_instructions());
-        } else {
+        if restorekit::host_can_trigger_dfu() {
             println!(
                 "Cable a Mac to the DFU port and run `restorekit dfu`, or an iPhone or iPad to \
                  any port."
             );
+        } else if restorekit::dongle::list().is_ok_and(|d| !d.is_empty()) {
+            println!("Cable a target Mac to the dongle and run `restorekit dfu`.\n");
+        } else {
+            println!("\n{}", restorekit::manual_dfu_instructions());
         }
         print_ports();
         print_dongles();
@@ -175,9 +177,13 @@ fn run_once(json: bool) -> Result<()> {
                     Some(loc) => println!("    connection: via dongle {id} on {loc}"),
                     None => println!("    connection: via dongle {id}"),
                 }
-                println!(
-                    "    → host DFU can't reach it through the dongle; `restorekit dfu` triggers it over the dongle"
-                );
+                if restorekit::host_can_trigger_dfu() {
+                    println!(
+                        "    → host DFU can't reach it through the dongle; `restorekit dfu` triggers it over the dongle"
+                    );
+                } else if !d.in_dfu() {
+                    println!("    → `restorekit dfu` triggers DFU over the dongle");
+                }
             }
             restorekit::Connection::Hub => {
                 let here = d.port.as_ref().and_then(|p| p.location.as_deref());
