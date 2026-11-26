@@ -66,7 +66,7 @@ fn main() {
         ("libimobiledevice-glue", "1.3.2"),
         ("libusbmuxd", "2.1.1"),
         ("libirecovery", "1.4.0"),
-        ("libtatsu", "1.0.5"),
+        ("libtatsu", "1.1.1"),
         ("libimobiledevice", "1.4.0"),
     ] {
         let src = if manifest.join("patches").join(lib).is_dir() {
