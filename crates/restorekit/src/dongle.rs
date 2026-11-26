@@ -539,7 +539,19 @@ impl Dongle {
             })
             .ok_or(Error::NoDongle)?;
         let dev = info.open().wait().map_err(Error::from)?;
-        let iface = dev.claim_interface(self.vendor_iface).wait().map_err(|e| {
+        // The claim is exclusive, and another restorekit process (a `dongle
+        // list`, the desktop app's poll) holds it for a few milliseconds at a
+        // time. Wait that out instead of failing the command.
+        let busy_until = Instant::now() + Duration::from_secs(1);
+        let iface = loop {
+            match dev.claim_interface(self.vendor_iface).wait() {
+                Err(e) if e.kind() == nusb::ErrorKind::Busy && Instant::now() < busy_until => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                r => break r,
+            }
+        }
+        .map_err(|e| {
             // On Windows the interface can't be opened until WinUSB is
             // bound with an interface GUID, which `setup-driver` does.
             if cfg!(target_os = "windows") && e.kind() == nusb::ErrorKind::Unsupported {
