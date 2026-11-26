@@ -59,6 +59,13 @@ compiles the patched copy.
   overwrote `err`, so `restore_device()` returned 0, idevicerestore printed
   `DONE`, and restorekit reported a restore that left the device stuck in
   restore mode as complete. Break out of the loop with the error instead.
+- `0013-route-plist-dumps-through-the-print-callback.patch` —
+  `logger_dump_plist()` ignored the print callback: with the log file set to
+  `NONE` (as `restorekit_install_log_capture` does), it wrote request,
+  response and device-info plists straight to stdout. They bypassed the
+  capture, cluttered non-verbose runs, and, stdout being block-buffered when
+  piped, came out after the restore's final status line. Serialize the plist
+  and hand it to the callback like any other message.
 
 ## libimobiledevice-glue
 

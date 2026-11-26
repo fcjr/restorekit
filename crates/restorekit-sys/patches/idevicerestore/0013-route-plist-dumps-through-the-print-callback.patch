@@ -1,0 +1,25 @@
+--- a/src/log.c
++++ b/src/log.c
+@@ -211,7 +211,21 @@
+ 	if (level > log_level)
+ 		return;
+ 	mutex_lock(&log_mutex);
+-	plist_write_to_stream(plist, stderr_enabled ? stderr : stdout, (human_readable) ? PLIST_FORMAT_PRINT : PLIST_FORMAT_XML, PLIST_OPT_NONE);
++	if (print_func && !stderr_enabled) {
++		/* Through the print callback like every other message, rather
++		 * than straight to stdout past it. */
++		char *str = NULL;
++		uint32_t len = 0;
++		plist_write_to_string(plist, &str, &len, (human_readable) ? PLIST_FORMAT_PRINT : PLIST_FORMAT_XML, PLIST_OPT_NONE);
++		if (str) {
++			if (level <= print_level) {
++				print_funcf(level, "%s", str);
++			}
++			plist_mem_free(str);
++		}
++	} else {
++		plist_write_to_stream(plist, stderr_enabled ? stderr : stdout, (human_readable) ? PLIST_FORMAT_PRINT : PLIST_FORMAT_XML, PLIST_OPT_NONE);
++	}
+ 	mutex_unlock(&log_mutex);
+ }
+ 
