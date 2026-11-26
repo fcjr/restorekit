@@ -117,7 +117,10 @@ fn run_once(json: bool) -> Result<()> {
                  any port."
             );
         } else if restorekit::dongle::list().is_ok_and(|d| !d.is_empty()) {
-            println!("Cable a target Mac to the dongle and run `restorekit dfu`.\n");
+            println!(
+                "Cable a Mac to the dongle and run `restorekit dfu`, or an iPhone or iPad to any \
+                 port.\n"
+            );
         } else {
             println!("\n{}", restorekit::manual_dfu_instructions());
         }
@@ -177,12 +180,14 @@ fn run_once(json: bool) -> Result<()> {
                     Some(loc) => println!("    connection: via dongle {id} on {loc}"),
                     None => println!("    connection: via dongle {id}"),
                 }
-                if restorekit::host_can_trigger_dfu() {
-                    println!(
-                        "    → host DFU can't reach it through the dongle; `restorekit dfu` triggers it over the dongle"
-                    );
-                } else if !d.in_dfu() {
-                    println!("    → `restorekit dfu` triggers DFU over the dongle");
+                if !d.in_dfu() {
+                    if restorekit::host_can_trigger_dfu() {
+                        println!(
+                            "    → host DFU can't reach it through the dongle; `restorekit dfu` triggers it over the dongle"
+                        );
+                    } else {
+                        println!("    → `restorekit dfu` triggers DFU over the dongle");
+                    }
                 }
             }
             restorekit::Connection::Hub => {
