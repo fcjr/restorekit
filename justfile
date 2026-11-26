@@ -146,6 +146,70 @@ fw-flash-full: fw-build
     echo "the dongle did not come back within 10s — check the board" >&2
     exit 1
 
+# First-flash new dongles with the latest GitHub firmware, in a loop (model: lite|pro (v2); asks if omitted)
+fw-provision model="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    model="{{model}}"
+    if [ -z "$model" ]; then
+        PS3="dongle: "
+        select model in lite pro; do [ -n "$model" ] && break; done
+    fi
+    case "$model" in
+        lite)
+            prefix=dongle-lite-v asset=dongle-lite-full.uf2
+            detect() { picotool info > /dev/null 2>&1; }
+            flash() { picotool load -v -x "$1"; }
+            hint="plug in a board (a blank RP2350 comes up in BOOTSEL by itself)"
+            ;;
+        pro|pro-v2)
+            prefix=dongle-pro-v2-v asset=dongle-pro-v2-fw.bin
+            detect() { wchisp info > /dev/null 2>&1; }
+            flash() { wchisp flash "$1"; }
+            hint="hold boot and plug a board into its host port"
+            ;;
+        *) echo "model must be lite or pro (got '$model')" >&2; exit 1 ;;
+    esac
+
+    tag=$(gh release list --repo fcjr/restorekit --limit 100 --json tagName --jq '.[].tagName' \
+        | grep "^$prefix" | sort -V | tail -n 1)
+    [ -n "$tag" ] || { echo "no $prefix* release on GitHub" >&2; exit 1; }
+    dir=$(mktemp -d)
+    trap 'rm -rf "$dir"' EXIT
+    gh release download "$tag" --repo fcjr/restorekit --pattern "$asset" --dir "$dir"
+    image="$dir/$asset"
+
+    cargo build -q -p restorekit-cli
+    rk=target/debug/restorekit
+    serials() { "$rk" dongle list --json 2>/dev/null | grep -o '"serial":"[^"]*"' || true; }
+
+    echo "flashing $asset from $tag; ctrl-c to stop"
+    count=0
+    while true; do
+        echo
+        echo "waiting: $hint..."
+        until detect; do sleep 0.5; done
+        before=$(serials)
+        if flash "$image"; then
+            new=""
+            for _ in $(seq 1 30); do
+                sleep 0.5
+                new=$(comm -13 <(echo "$before" | sort) <(serials | sort) | head -n 1)
+                [ -n "$new" ] && break
+            done
+            if [ -n "$new" ]; then
+                count=$((count + 1))
+                echo "ok: ${new#*:} on $tag ($count flashed this run)"
+                continue
+            fi
+            echo "FAILED: flashed, but no new dongle enumerated within 15s" >&2
+        else
+            echo "FAILED: flashing did not complete" >&2
+        fi
+        echo "unplug the board to carry on" >&2
+        while detect; do sleep 0.5; done
+    done
+
 # Shell snippet: reboot a running dongle into the RP2350 bootrom over its
 # vendor USB interface; on failure explain the manual paths and keep going.
 bootsel_kick := '''
