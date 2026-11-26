@@ -385,7 +385,7 @@ export function gib(bytes: number): string {
 export function modeInfo(d: Device): { label: string; hint: string } {
   if (isIos(d) && d.mode === "recovery") return { label: "Recovery", hint: "ready to restore" };
   if (isIos(d) && d.mode === "other")
-    return { label: "Running", hint: "enter recovery mode to restore" };
+    return { label: "Running", hint: "restoring takes it to recovery mode" };
   return MODES[d.mode];
 }
 

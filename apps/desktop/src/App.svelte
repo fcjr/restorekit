@@ -222,6 +222,8 @@
       (devices.length === 0 || devices.some((d) => !isIos(d))),
   );
 
+  const isRunningIos = (d: Device) => isIos(d) && d.mode === "other" && !!d.ecid;
+
   // Which action a device gets: full restore config, WinUSB setup, DFU trigger,
   // recovery entry, or manual instructions.
   function deviceMode(d: Device): "restore" | "usb" | "dfu" | "recovery" | "ios-manual" | "manual" | "none" {
@@ -229,7 +231,7 @@
     // An Apple accessory (keyboard, display, ...) isn't a restore target.
     if (d.mode === "other" && d.kind === "device") return "none";
     // A running iPhone or iPad reboots into recovery over USB, from any host.
-    if (isIos(d) && d.mode === "other" && d.ecid) return "recovery";
+    if (isRunningIos(d)) return "recovery";
     // Any other iPhone or iPad (restore mode after an interrupted restore,
     // WTF) gets to recovery by hand. The Mac DFU trigger isn't for it.
     if (isIos(d)) return "ios-manual";
@@ -241,6 +243,10 @@
     return canTrigger || d.via_dongle ? "dfu" : "manual";
   }
   const mMode = $derived(selected ? deviceMode(selected) : "restore");
+  // Revive and Obliterate haven't been tried on an iPhone or iPad yet.
+  $effect(() => {
+    if (selected && isIos(selected) && !running) restoreMode = "restore";
+  });
 
   const progress = $derived.by(() => {
     if (phase === "resolving")
@@ -1031,6 +1037,12 @@
         ipsw = await api.downloadFirmware(firmware);
       }
       if (!ipsw) throw new Error("no firmware to restore");
+      // A running iPhone or iPad goes to recovery mode only now, with its
+      // firmware in hand: iBoot reboots out of recovery after 15 idle minutes.
+      if (isRunningIos(active)) {
+        phase = "idle";
+        await takeToRecovery(active);
+      }
       // Hand the restore to the parallel job queue (its own process). It shows up
       // live in the roster and detail; several can run at once.
       await api.enqueueRestore(ipsw, active.ecid, active.name, restoreMode);
@@ -1040,7 +1052,7 @@
       resetAction();
       await loadJobs();
     } catch (e) {
-      error = String(e);
+      error = e instanceof Error ? e.message : String(e);
       phase = "error";
     }
   }
@@ -1063,13 +1075,20 @@
     }
   }
 
+  async function enterRecovery() {
+    if (!selected?.ecid) return;
+    error = "";
+    try {
+      await takeToRecovery(selected);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   // Ask a running iPhone or iPad to reboot into recovery, where it's ready to
   // restore. While it asks its user to trust this computer, keep asking until
   // they answer; then wait for it to show up in recovery.
-  async function enterRecovery() {
-    if (!selected?.ecid) return;
-    const d = selected;
-    error = "";
+  async function takeToRecovery(d: Device) {
     busy = `Asking the ${d.kind} to reboot into recovery mode…`;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
@@ -1102,8 +1121,6 @@
         await sleep(2000);
       }
       throw new Error(`The ${d.kind} accepted the request but didn't show up in recovery mode.`);
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
     } finally {
       pendingRecovery = null;
       busy = "";
@@ -1309,7 +1326,7 @@
               </div>
               <div class="pbar"><div class="pfill" style="width:{Math.max(2, Math.min(100, selectedJob.progress))}%; background:{JOB_COLOR[selectedJob.status] ?? 'var(--acc)'}"></div></div>
               {#if restoring}
-                <p class="psub">Bar is the current step, not the whole restore. Don't disconnect, DFU, or reboot the target.</p>
+                <p class="psub">Bar is the current step, not the whole restore. Don't disconnect or reboot the target.</p>
               {:else if selectedJob.status === "failed"}
                 <p class="err">{selectedJob.message || "Restore failed."}</p>
               {:else if selectedJob.status === "done"}
@@ -1335,7 +1352,7 @@
               </div>
             </div>
           {:else if selected}
-            {#if mMode === "restore"}
+            {#snippet restoreOptions()}
             <div class="opts">
               <div class="opt">
                 <span class="ok-label">{osName(selected.identifier)} ver.</span>
@@ -1354,6 +1371,7 @@
                   {/if}
                 </span>
               </div>
+              {#if !isIos(selected)}
               <div class="opt">
                 <span class="ok-label">Mode</span>
                 <span class="seg">
@@ -1362,10 +1380,14 @@
                   <button class="segbtn" class:on={restoreMode === "obliterate"} onclick={() => (restoreMode = "obliterate")}>Obliterate</button>
                 </span>
               </div>
+              {/if}
               {#if restoreMode === "obliterate"}
                 <p class="opt-note">Destroys the encryption key and stops. The {selected.kind} is left wiped with no OS. Fast decommissioning wipe; run Erase &amp; restore afterward to make it usable.</p>
               {/if}
             </div>
+            {/snippet}
+            {#if mMode === "restore"}
+            {@render restoreOptions()}
 
             <div class="actions">
               <button class="btn primary" onclick={beginRestore}>{RESTORE_MODE_LABEL[restoreMode]}</button>
@@ -1381,9 +1403,12 @@
             </div>
           {:else if mMode === "recovery"}
             <div class="block">
-              <p class="lede">Restore needs recovery mode. restorekit asks this {selected.kind} to reboot into it over USB. If it doesn't trust this computer yet, tap Trust on it when asked.</p>
+              <p class="lede">Restore needs recovery mode. restorekit downloads the firmware first, then asks this {selected.kind} to reboot into recovery mode over USB. If it doesn't trust this computer yet, tap Trust on it when asked.</p>
+              {@render restoreOptions()}
               <div class="actions">
-                <button class="btn primary" onclick={enterRecovery} disabled={!!busy}>Enter recovery mode</button>
+                <button class="btn primary" onclick={beginRestore} disabled={!!busy}>Erase &amp; restore</button>
+                <button class="btn" onclick={downloadOnly} disabled={!selected.identifier || !!ipswPath || !!busy}>Download only</button>
+                <button class="btn ghost" onclick={enterRecovery} disabled={!!busy}>Only enter recovery mode</button>
               </div>
               <details class="more" open={!!supervisorPath}>
                 <summary>Supervised {selected.kind}? Skip the Trust prompt</summary>
@@ -1502,7 +1527,8 @@
                     <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; beginRestore(); }}>Erase & restore</button>
                     <button class="btn ghost sm" disabled={!!busy} onclick={() => { selectedKey = r.key; rebootTarget(); }}>Reboot</button>
                   {:else if dm === "recovery"}
-                    <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; enterRecovery(); }}>Enter recovery</button>
+                    <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; beginRestore(); }}>Erase & restore</button>
+                    <button class="btn ghost sm" disabled={!!busy} onclick={() => { selectedKey = r.key; enterRecovery(); }}>Enter recovery</button>
                   {:else if dm === "dfu"}
                     <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; enterDfu(); }}>Enter DFU</button>
                   {:else if dm === "usb"}
@@ -1731,6 +1757,9 @@
             : restoreMode === "obliterate"
               ? `This destroys the encryption key and stops. The ${active.kind} is wiped but no OS is reinstalled, so it will be left unbootable. Run Erase & restore afterward to make it usable. It cannot be undone.`
               : `This erases all data on the target and installs a fresh copy of ${osName(firmware?.identifier ?? active.identifier)}. It cannot be undone.`}
+          {#if isRunningIos(active)}
+            Once the firmware is downloaded, the {active.kind} reboots into recovery mode and the restore starts.
+          {/if}
         </p>
         <div class="modal-actions">
           <button class="btn" onclick={() => { confirming = false; active = null; }}>Cancel</button>
@@ -1778,7 +1807,7 @@
           <div class="modal-success">
             <div class="badge ok"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5 L10 17.5 L19 6.5" /></svg></div>
             <h3>Driver bound</h3>
-            <div class="modal-note">Every Mac cabled to this PC will just work.</div>
+            <div class="modal-note">Every Mac, iPhone or iPad in DFU or recovery mode cabled to this PC will just work.</div>
           </div>
         {:else}
           <h3>Set up USB access</h3>
