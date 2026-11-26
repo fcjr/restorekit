@@ -52,6 +52,13 @@ compiles the patched copy.
   identity and, when the image had none, fell back to the model's first
   identity, which can be an Erase Install. A revive could then erase the
   device. Fail with "Unable to find a matching build identity" instead.
+- `0012-fail-the-restore-when-a-handler-fails.patch` — when a message
+  handler fails (an iPhone's Yonkers TSS request rejected, say), the restore
+  loop logged "Unable to successfully restore device" and set `FLAG_QUIT`,
+  but still read and handled one more message. That handler's result
+  overwrote `err`, so `restore_device()` returned 0, idevicerestore printed
+  `DONE`, and restorekit reported a restore that left the device stuck in
+  restore mode as complete. Break out of the loop with the error instead.
 
 ## libimobiledevice-glue
 

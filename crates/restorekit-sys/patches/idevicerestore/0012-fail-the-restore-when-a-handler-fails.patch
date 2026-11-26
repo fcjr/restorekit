@@ -1,0 +1,12 @@
+--- a/src/restore.c
++++ b/src/restore.c
+@@ -5834,6 +5834,9 @@
+ 		if (err < 0) {
+ 			logger(LL_ERROR, "Unable to successfully restore device\n");
+ 			client->flags |= FLAG_QUIT;
++			/* Stop here: handling another message would overwrite err and
++			 * report the failed restore as a success. */
++			break;
+ 		}
+ 
+ 		restore_error = restored_receive(restore, &message);
