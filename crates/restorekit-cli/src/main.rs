@@ -77,21 +77,23 @@ enum Command {
         #[arg(long)]
         port: Option<i32>,
     },
-    /// Resolve and download firmware for the detected (or specified) Mac.
+    /// Resolve and download firmware for the detected (or specified) device.
     Download {
         /// Model identifier (e.g. MacBookPro17,1). Defaults to the DFU device.
         #[arg(long)]
         identifier: Option<String>,
-        /// Pin a macOS version (e.g. 26.5.2). Defaults to the latest signed build.
+        /// Pin an OS version (e.g. 26.5.2). Defaults to the latest signed build.
         #[arg(long)]
         os_version: Option<String>,
-        /// Detect the model from a specific Mac by ECID (hex like 0xc60a812345678,
-        /// or decimal) when several are in DFU mode. See `restorekit list`.
+        /// Detect the model from a specific device by ECID (hex like
+        /// 0xc60a812345678, or decimal) when several are in DFU mode. See
+        /// `restorekit list`.
         #[arg(long, value_parser = parse_ecid)]
         ecid: Option<u64>,
     },
-    /// Restore the target Mac: triggers DFU entry if needed, then downloads
-    /// firmware and restores. This wipes all data on the target.
+    /// Restore the target device: puts a Mac into DFU mode if needed (an iPhone
+    /// or iPad must already be in DFU), then downloads firmware and restores.
+    /// This wipes all data on the target.
     Restore(RestoreArgs),
     /// Revive the target Mac: reinstall firmware without erasing user data —
     /// use this to recover a Mac bricked by a failed update.
@@ -241,13 +243,13 @@ struct FirmwareArgs {
     /// Restore from a local IPSW instead of downloading.
     #[arg(long)]
     ipsw: Option<PathBuf>,
-    /// Pin a macOS version (e.g. 26.5.2).
+    /// Pin an OS version (e.g. 26.5.2).
     #[arg(long)]
     os_version: Option<String>,
     /// Override the detected model identifier.
     #[arg(long)]
     identifier: Option<String>,
-    /// Target a specific Mac by ECID (hex like 0xc60a812345678, or decimal)
+    /// Target a specific device by ECID (hex like 0xc60a812345678, or decimal)
     /// when several are in DFU mode. See `restorekit list`.
     #[arg(long, value_parser = parse_ecid)]
     ecid: Option<u64>,

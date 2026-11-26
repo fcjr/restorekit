@@ -188,6 +188,70 @@ pub fn init_progress() {
     unsafe { register_progress(0, std::ptr::null()) };
 }
 
+// ── libirecovery: device database ────────────────────────────────────────────
+
+/// libirecovery's `struct irecv_device`.
+#[repr(C)]
+struct irecv_device {
+    product_type: *const c_char,
+    hardware_model: *const c_char,
+    board_id: std::os::raw::c_uint,
+    chip_id: std::os::raw::c_uint,
+    display_name: *const c_char,
+}
+
+extern "C" {
+    /// The device table, terminated by an entry with a null `hardware_model`.
+    fn irecv_devices_get_all() -> *const irecv_device;
+}
+
+
+/// One entry of libirecovery's device database.
+#[derive(Debug, Clone)]
+pub struct KnownDevice {
+    /// e.g. "iPhone12,8".
+    pub product_type: String,
+    /// e.g. "d79ap".
+    pub hardware_model: String,
+    pub board_id: u32,
+    pub chip_id: u32,
+    /// e.g. "iPhone SE (2nd gen)".
+    pub display_name: String,
+}
+
+/// Every device libirecovery knows: its built-in table, plus any user device
+/// files (`~/.libirecovery/devices.txt`).
+pub fn known_devices() -> Vec<KnownDevice> {
+    let text = |p: *const c_char| {
+        if p.is_null() {
+            String::new()
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(p) }
+                .to_string_lossy()
+                .into_owned()
+        }
+    };
+    let mut out = Vec::new();
+    let mut entry = unsafe { irecv_devices_get_all() };
+    if entry.is_null() {
+        return out;
+    }
+    unsafe {
+        while !(*entry).hardware_model.is_null() {
+            let d = &*entry;
+            out.push(KnownDevice {
+                product_type: text(d.product_type),
+                hardware_model: text(d.hardware_model),
+                board_id: d.board_id,
+                chip_id: d.chip_id,
+                display_name: text(d.display_name),
+            });
+            entry = entry.add(1);
+        }
+    }
+    out
+}
+
 // ── libimobiledevice: lockdownd on a running device ──────────────────────────
 
 /// Opaque libimobiledevice device.

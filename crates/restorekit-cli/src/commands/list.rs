@@ -1,4 +1,4 @@
-use restorekit::{device, Result};
+use restorekit::{device, Result, UsbMode};
 
 /// Print the host's USB-C port topology, so users can see which `--port` RIDs
 /// exist. No-op on hosts whose topology can't be read (non-macOS, etc.).
@@ -60,6 +60,8 @@ fn run_once(json: bool) -> Result<()> {
     let mut devices = device::list()?;
     // Fill in booted Macs' ECIDs on macOS hosts (best-effort, no-op elsewhere).
     device::identify(&mut devices);
+    // And running iPhones' and iPads' ECIDs and models, from lockdownd.
+    restorekit::recovery::identify(&mut devices);
 
     if json {
         use serde_json::json;
@@ -124,7 +126,14 @@ fn run_once(json: bool) -> Result<()> {
     );
     let dfu_port = restorekit::dfu::dfu_port_label();
     for d in &devices {
-        println!("  {} [{} mode]", d.display_name(), d.mode);
+        // A running iPhone or iPad that lockdownd identified.
+        let running = d.mode == UsbMode::Other && d.ecid.is_some();
+        let mode = if running {
+            "normal".to_string()
+        } else {
+            d.mode.to_string()
+        };
+        println!("  {} [{mode} mode]", d.display_name());
         println!("    usb: {}", d.usb.summary());
         if let Some(id) = d.identifier() {
             println!("    identifier: {id}");
@@ -151,8 +160,13 @@ fn run_once(json: bool) -> Result<()> {
             println!(
                 "    → port controller only; no model, serial, or ECID in this mode. Put it in DFU to read them."
             );
-        } else if d.identity.is_none() && !d.serial.is_empty() {
+        } else if (d.identity.is_none() || running) && !d.serial.is_empty() {
             println!("    serial: {}", d.serial);
+        }
+        // Which port and route reach DFU only matters for a Mac.
+        if matches!(d.kind(), "iPhone" | "iPad" | "iPod") {
+            println!();
+            continue;
         }
         match restorekit::dongle::connection_for(d) {
             restorekit::Connection::Dongle(id) => {
@@ -210,8 +224,11 @@ fn run_once(json: bool) -> Result<()> {
                  to read."
             );
         }
-        println!("None are in DFU mode; only a Mac in DFU mode can be restored.");
-        if restorekit::host_can_trigger_dfu() {
+        println!("None are in DFU mode; only a device in DFU mode can be restored.");
+        let mac = devices
+            .iter()
+            .any(|d| !matches!(d.kind(), "iPhone" | "iPad" | "iPod"));
+        if mac && restorekit::host_can_trigger_dfu() {
             println!("Run `restorekit dfu` to put the cabled target into DFU mode.");
         }
     }

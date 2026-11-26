@@ -61,12 +61,7 @@ fn select(mut devices: Vec<RunningDevice>, json: bool) -> Result<u64> {
             }
             println!("Found {n} running iPhones and iPads:\n");
             for (i, d) in devices.iter().enumerate() {
-                println!(
-                    "  [{}] {} (ECID {:#x})",
-                    i + 1,
-                    d.product_type.as_deref().unwrap_or("unknown model"),
-                    d.ecid
-                );
+                println!("  [{}] {} (ECID {:#x})", i + 1, d.display_name(), d.ecid);
             }
             loop {
                 print!("\nSelect a device [1-{n}]: ");
