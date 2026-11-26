@@ -1216,14 +1216,15 @@ pub fn forget_absent(present: &[nusb::DeviceId]) {
     crate::kis::forget_absent(present);
 }
 
-/// List every connected Apple USB device, in any mode. Cheap enumeration only;
-/// call [`identify`] to fill in the richer fields (model, ECID, marketing name,
-/// DFU-port).
+/// List every connected Apple USB device, in any mode, except hubs (a Mac's
+/// own internal hubs are Apple-made, but never a restore target). Cheap
+/// enumeration only; call [`identify`] to fill in the richer fields (model,
+/// ECID, marketing name, DFU-port).
 pub fn list() -> Result<Vec<Device>> {
     let infos: Vec<nusb::DeviceInfo> = nusb::list_devices()
         .wait()
         .map_err(Error::from)?
-        .filter(|i| i.vendor_id() == APPLE_VID)
+        .filter(|i| i.vendor_id() == APPLE_VID && i.class() != 0x09)
         .collect();
     let ids: Vec<nusb::DeviceId> = infos.iter().map(nusb::DeviceInfo::id).collect();
     forget_absent(&ids);
