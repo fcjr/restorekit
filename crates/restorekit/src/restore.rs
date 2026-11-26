@@ -339,16 +339,19 @@ fn run(
     // with iTunes or Apple Devices) may already hold that port. It drives the
     // restore-mode interface through Apple's driver, so use it as-is: no
     // embedded server and no WinUSB binding.
+    //
+    // On Linux, a running system usbmuxd claims each device in restore mode
+    // before an embedded server can open it, so use it as-is too.
     #[cfg(target_os = "windows")]
-    let apple_usbmuxd =
+    let host_usbmuxd =
         std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_none() && windows_mux_check()?;
     #[cfg(target_os = "linux")]
-    let apple_usbmuxd = {
+    let host_usbmuxd = {
         preflight()?;
-        false
+        crate::recovery::system_usbmuxd_running()
     };
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    let _usbmuxd = if apple_usbmuxd || std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
+    let _usbmuxd = if host_usbmuxd || std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
         None
     } else {
         Some(crate::usbmuxd::UsbmuxdGuard::start(progress)?)

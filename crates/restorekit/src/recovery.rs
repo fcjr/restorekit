@@ -378,9 +378,10 @@ impl HostUsbmuxd {
     }
 }
 
-/// Whether the system usbmuxd is up to serve running devices.
+/// Whether the system usbmuxd is up. It serves running devices, and it claims
+/// each device in restore mode.
 #[cfg(target_os = "linux")]
-fn system_usbmuxd_running() -> bool {
+pub(crate) fn system_usbmuxd_running() -> bool {
     std::os::unix::net::UnixStream::connect("/var/run/usbmuxd").is_ok()
 }
 
