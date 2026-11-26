@@ -149,7 +149,7 @@ pub fn run(opts: Opts) -> Result<()> {
     restorekit::restore::preflight()?;
     #[cfg(target_os = "macos")]
     if let Some(location) = opts.kis_location {
-        restorekit::restore::only_kis_at(location)?;
+        restorekit::restore::only_kis_at(location);
     }
     let supervisor = opts
         .supervisor
