@@ -134,8 +134,6 @@ pub struct Opts {
     pub ecid: Option<u64>,
     pub dongle: Option<String>,
     pub supervisor: Option<PathBuf>,
-    #[cfg(target_os = "macos")]
-    pub kis_location: Option<u32>,
     pub yes: bool,
     pub cache_dir: Option<PathBuf>,
     pub json: bool,
@@ -147,10 +145,6 @@ pub struct Opts {
 /// → restore it.
 pub fn run(opts: Opts) -> Result<()> {
     restorekit::restore::preflight()?;
-    #[cfg(target_os = "macos")]
-    if let Some(location) = opts.kis_location {
-        restorekit::restore::only_kis_at(location);
-    }
     let supervisor = opts
         .supervisor
         .as_deref()

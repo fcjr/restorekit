@@ -327,17 +327,6 @@ pub fn restore(
     )
 }
 
-/// Limit this process to the Mac in DFU over Debug USB whose KIS device sits
-/// at `location`, its IOKit `locationID`: device listing and the restore leave
-/// every other KIS device unread. For a caller that runs one restore process
-/// per Mac and knows where each is. Without it a restore still keeps off a Mac
-/// another restore has started on, but reads any that are idle. Holds for the
-/// rest of the process; call it before listing devices.
-#[cfg(target_os = "macos")]
-pub fn only_kis_at(location: u32) {
-    crate::kis::claim::limit(location);
-}
-
 /// [`restore`] without the retry: a failure is returned after one pass, for a
 /// caller that supervises its own restore processes and decides what a
 /// failure means.

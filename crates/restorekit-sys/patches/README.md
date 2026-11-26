@@ -152,8 +152,9 @@ compiles the patched copy.
   Mac whose own device read failed was never announced, so its restore gave up
   with "Unable to discover device mode". `irecv_set_kis_filter()` takes a
   callback asked with each KIS device's IOKit `locationID` before it is opened;
-  one it turns down is passed over unopened. restorekit's turns down a Mac
-  another process's restore holds (`restorekit::kis::claim`).
+  one it turns down is passed over unopened. restorekit's turns down every
+  Mac but the one this process is restoring, or, with no such Mac, the ones
+  other processes' restores hold (`restorekit::kis::claim`).
 
 ## libusbmuxd
 
