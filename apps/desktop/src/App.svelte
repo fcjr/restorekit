@@ -42,6 +42,9 @@
   // ---- device / host state ----
   let devices = $state<Device[]>([]);
   let selectedKey = $state<string | null>(null); // roster row key (ECID or serial)
+  // An iPhone or iPad rebooting into recovery: it drops off USB for a while,
+  // so the roster keeps a placeholder row for it until it's back.
+  let pendingRecovery = $state<{ ecid: string; name: string; index: number } | null>(null);
   let canTrigger = $state(false);
   let manual = $state("");
   let cache = $state<CacheInfo | null>(null);
@@ -174,6 +177,9 @@
     const seen = new Set<string>();
     for (const d of devices) {
       const e = ecidFor(d);
+      // On its way down to recovery the device stops identifying itself; the
+      // placeholder below stands in for it until it shows up in recovery.
+      if (pendingRecovery && e === pendingRecovery.ecid && d.mode !== "recovery") continue;
       // Serial is "" for USB devices without an iSerial, and keys must be
       // unique or the keyed each throws and the tab never renders.
       let key = e ?? d.serial;
@@ -186,6 +192,10 @@
       if (seen.has(j.ecid)) continue;
       rows.push({ key: j.ecid, ecid: j.ecid, name: j.name, device: null, job: j });
       seen.add(j.ecid);
+    }
+    if (pendingRecovery && !seen.has(pendingRecovery.ecid)) {
+      const { ecid, name, index } = pendingRecovery;
+      rows.splice(Math.min(index, rows.length), 0, { key: ecid, ecid, name, device: null, job: null });
     }
     return rows;
   });
@@ -692,6 +702,7 @@
     if (j && j.status === "failed") return { label: "Failed", color: JOB_COLOR.failed };
     if (j && j.status === "canceled") return { label: "Canceled", color: JOB_COLOR.canceled };
     if (r.device) return { label: modeInfo(r.device).label, color: modeColor(r.device) };
+    if (pendingRecovery && r.ecid === pendingRecovery.ecid) return { label: "Rebooting", color: "var(--alt)" };
     return { label: "—", color: "var(--mut)" };
   }
   function jobActive(j: JobView | null): boolean {
@@ -1074,6 +1085,12 @@
           await sleep(2000);
         }
       }
+      pendingRecovery = {
+        ecid: d.ecid,
+        name: selectedRow?.name ?? d.name,
+        index: Math.max(0, roster.findIndex((r) => r.ecid === d.ecid)),
+      };
+      selectedKey = d.ecid;
       busy = `Waiting for the ${d.kind} to show up in recovery mode…`;
       const deadline = Date.now() + 90_000;
       while (Date.now() < deadline) {
@@ -1088,6 +1105,7 @@
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
+      pendingRecovery = null;
       busy = "";
     }
   }
@@ -1235,6 +1253,8 @@
             <div class="eyebrow" style="color:{modeColor(selected)}">
               {modeInfo(selected).label}, {modeInfo(selected).hint}
             </div>
+          {:else if pendingRecovery && selectedRow.ecid === pendingRecovery.ecid}
+            <div class="eyebrow" style="color:var(--alt)">Rebooting into recovery mode</div>
           {/if}
           <h1 class="dtitle">
             {selectedRow.name}
@@ -1274,7 +1294,7 @@
           {:else if selectedRow.ecid}
             <div class="spec">
               <div class="k">ECID</div><div class="v"><button class="cellcopy mono" onclick={() => copy(selectedRow.ecid ?? "")}>{selectedRow.ecid}</button></div>
-              <div class="k">State</div><div class="v">disconnected (restoring or rebooting)</div>
+              <div class="k">State</div><div class="v">{pendingRecovery?.ecid === selectedRow.ecid ? "off USB while it reboots into recovery mode" : "disconnected (restoring or rebooting)"}</div>
             </div>
           {/if}
 
