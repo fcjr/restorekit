@@ -220,6 +220,16 @@ pub fn update(
         }
     }
 
+    // The dongle stays on the bus for a moment after the update command
+    // returns. Wait for it to leave, so the loop below sees the reboot and
+    // not the old firmware.
+    let leaving = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < leaving
+        && dongle::list()?.iter().any(|x| x.serial == d.serial)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
     // The swap takes a moment; report when it's back on the bus.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let back = loop {
