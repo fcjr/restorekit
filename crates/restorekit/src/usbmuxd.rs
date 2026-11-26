@@ -193,6 +193,13 @@ pub fn other_embedded_server() -> Option<u32> {
     })
 }
 
+/// Whether the system usbmuxd is up. It serves running devices, and it claims
+/// each device in restore mode.
+#[cfg(target_os = "linux")]
+pub(crate) fn system_running() -> bool {
+    std::os::unix::net::UnixStream::connect("/var/run/usbmuxd").is_ok()
+}
+
 /// The embedded server, while any guard holds it. The C server is one per
 /// process, so a restore and `recovery::enter` share it rather than each
 /// starting their own.

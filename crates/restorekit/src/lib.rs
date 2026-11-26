@@ -135,7 +135,7 @@ pub fn start_shared_usbmuxd(progress: progress::ProgressFn) -> Result<SharedUsbm
         }
         // With the system usbmuxd there, each restore uses it directly.
         #[cfg(target_os = "linux")]
-        if recovery::system_usbmuxd_running() {
+        if usbmuxd::system_running() {
             return Ok(SharedUsbmuxd { _guard: None });
         }
         let guard = usbmuxd::UsbmuxdGuard::start(progress)?;

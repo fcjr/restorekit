@@ -334,7 +334,7 @@ impl HostUsbmuxd {
         #[cfg(target_os = "linux")]
         let mut embedded = None;
         #[cfg(target_os = "linux")]
-        if address.is_none() && !system_usbmuxd_running() {
+        if address.is_none() && !crate::usbmuxd::system_running() {
             if let Some(pid) = crate::usbmuxd::other_embedded_server() {
                 return Err(Error::UsbmuxdFailed(format!(
                     "no system usbmuxd is running, and another restorekit process (pid {pid}) \
@@ -376,13 +376,6 @@ impl HostUsbmuxd {
             }
         }
     }
-}
-
-/// Whether the system usbmuxd is up. It serves running devices, and it claims
-/// each device in restore mode.
-#[cfg(target_os = "linux")]
-pub(crate) fn system_usbmuxd_running() -> bool {
-    std::os::unix::net::UnixStream::connect("/var/run/usbmuxd").is_ok()
 }
 
 impl Drop for HostUsbmuxd {
