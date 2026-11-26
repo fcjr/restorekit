@@ -156,6 +156,7 @@ pub fn run(opts: Opts) -> Result<()> {
     let mut early = None;
     if opts.dongle.is_none() {
         if let Some(dev) = running_ios_target(opts.ecid)? {
+            check_mode(&dev, opts.mode)?;
             let path = fetch_firmware(&dev, &opts)?;
             if !confirm(&dev, opts.mode, opts.yes, opts.json)? {
                 say(opts.json, "Aborted.");
@@ -207,6 +208,15 @@ pub(crate) fn running_ios_target(ecid: Option<u64>) -> Result<Option<Device>> {
     } else {
         None
     })
+}
+
+/// Revive and obliterate haven't been tried on an iPhone or iPad.
+fn check_mode(device: &Device, mode: Mode) -> Result<()> {
+    match mode {
+        Mode::Revive if device.is_ios() => Err(Error::UntestedOnIos("revive")),
+        Mode::Obliterate if device.is_ios() => Err(Error::UntestedOnIos("obliterate")),
+        _ => Ok(()),
+    }
 }
 
 fn cache_dir(opts: &Opts) -> Result<PathBuf> {
@@ -267,6 +277,7 @@ fn restore_device(device: &Device, opts: Opts, prepared: Option<PathBuf>) -> Res
     let ecid = device.ecid.expect("restore target carries an ECID");
     let cache = cache_dir(&opts)?;
     let mode = opts.mode;
+    check_mode(device, mode)?;
 
     let ipsw_path = match prepared {
         Some(path) => path,

@@ -139,6 +139,9 @@ pub enum Error {
     #[error("WinUSB driver setup failed: {0}")]
     DriverInstall(String),
 
+    #[error("{0} isn't available for an iPhone or iPad yet; `restorekit restore` erases and restores it")]
+    UntestedOnIos(&'static str),
+
     #[error("restore failed (exit {status}); last output:\n{log_tail}")]
     RestoreFailed { status: i32, log_tail: String },
 

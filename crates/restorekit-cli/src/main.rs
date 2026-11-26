@@ -103,13 +103,14 @@ enum Command {
     /// restores. This wipes all data on the target.
     Restore(RestoreArgs),
     /// Revive the target device: reinstall firmware without erasing user data —
-    /// use this to recover a device bricked by a failed update.
+    /// use this to recover a device bricked by a failed update. Macs only for
+    /// now.
     Revive(ReviveArgs),
     /// Obliterate the target device's encryption key and stop, without
     /// reinstalling the OS: destroys the effaceable media key (cryptographically
     /// shredding all data) then halts, leaving the device wiped and OS-less.
     /// Fast decommissioning wipe; run `restore` afterward to make it usable
-    /// again.
+    /// again. Macs only for now.
     Obliterate(RestoreArgs),
     /// Show or manage the firmware cache.
     Cache {
