@@ -18,6 +18,8 @@ export interface Port {
 export interface Device {
   mode: Mode;
   name: string;
+  /** "Mac" | "iPhone" | "iPad" | "iPod" | … | "device" when the model is unknown. */
+  kind: string;
   identifier: string | null;
   chip: string;
   board: string;
@@ -172,6 +174,22 @@ function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 /// one-time approval; the UI matches it to show the approval screen.
 export const APPROVAL_REQUIRED = "helper-approval-required";
 
+/// Error string `enter_recovery` returns while the device asks its user to
+/// trust this computer; the UI waits and retries.
+export const TRUST_PENDING = "trust-pending";
+
+/** Whether `d` is an iPhone, iPad or iPod (by its model). */
+export const isIos = (d: Device) => d.kind === "iPhone" || d.kind === "iPad" || d.kind === "iPod";
+
+/** The OS a model's firmware installs, by its identifier. */
+export function osName(identifier: string | null | undefined): string {
+  const id = identifier ?? "";
+  if (id.startsWith("iBridge")) return "bridgeOS";
+  if (id.startsWith("iPhone") || id.startsWith("iPod")) return "iOS";
+  if (id.startsWith("iPad")) return "iPadOS";
+  return "macOS";
+}
+
 /** The RID of the DFU-capable port `d` is on, to aim the host trigger at it. */
 const dfuRid = (d: Device) => (d.port?.dfu ? d.port.rid : null);
 
@@ -185,8 +203,14 @@ export const api = {
    *  Silicon macOS). */
   triggerDfu: (d: Device) =>
     call<Device>("trigger_dfu", { dongle: d.via_dongle, port: dfuRid(d), ecid: d.ecid || null }),
-  /** Reboot `d`, over its dongle when it's behind one, else from the host. */
-  rebootTarget: (d: Device) => call<void>("reboot_target", { dongle: d.via_dongle, port: dfuRid(d) }),
+  /** Reboot `d`: out of recovery mode over USB when it's there, else over its
+   *  dongle when it's behind one, else from the host. */
+  rebootTarget: (d: Device) =>
+    call<void>("reboot_target", { dongle: d.via_dongle, port: dfuRid(d), ecid: d.ecid || null }),
+  /** Ask a running iPhone or iPad to reboot into recovery mode. Rejects with
+   *  TRUST_PENDING while it asks its user to trust this computer. */
+  enterRecovery: (ecid: string, supervisor: string | null, password: string | null) =>
+    call<void>("enter_recovery", { ecid, supervisor, password }),
   listDongles: () => call<Dongle[]>("list_dongles"),
   dongleDfu: (serial: string) => call<void>("dongle_dfu", { serial }),
   dongleReboot: (serial: string) => call<void>("dongle_reboot", { serial }),
@@ -272,9 +296,10 @@ export const exportSeenCsv = () => saveCsv("export_seen_csv", "restorekit-device
 
 function browserMock(cmd: string): Promise<unknown> {
   const devices: Device[] = [
-    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", serial_number: null, restorable: true, port: { dfu: true, location: "left-back", rid: 0 }, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: true },
-    { mode: "booted", name: "MacBook Air (M2, 2022)", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: true, location: "left-back", rid: 0 }, driver_ready: true, connection: "dongle", via_dongle: "DL-1A2B3C4D", host_dfu_capable: false },
-    { mode: "other", name: "Apple device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", serial_number: null, restorable: false, port: null, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: false },
+    { mode: "dfu", name: "MacBook Pro (M1, Late 2020)", kind: "Mac", identifier: "MacBookPro17,1", chip: "CPID:8103", board: "BDID:24", ecid: "0x1a2b3c4d5e6f", srtg: "iBoot-11881.60.5", serial: "SDOM:01 CPID:8103 ECID:1a2b3c4d5e6f", serial_number: null, restorable: true, port: { dfu: true, location: "left-back", rid: 0 }, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: true },
+    { mode: "booted", name: "MacBook Air (M2, 2022)", kind: "Mac", identifier: "Mac14,2", chip: "CPID:8112", board: "BDID:28", ecid: "0x77aa22bb44cc", srtg: "iBoot-10151.1.1", serial: "SDOM:01 CPID:8112 ECID:77aa22bb44cc", serial_number: "C02XX1234567", restorable: false, port: { dfu: true, location: "left-back", rid: 0 }, driver_ready: true, connection: "dongle", via_dongle: "DL-1A2B3C4D", host_dfu_capable: false },
+    { mode: "other", name: "iPhone 17 Pro", kind: "iPhone", identifier: "iPhone18,1", chip: "CPID:8150", board: "BDID:0c", ecid: "0x2c4e6f8a1b3d5", srtg: null, serial: "000081500002C4E6F8A1B3D5", serial_number: null, restorable: false, port: { dfu: true, location: "left-front", rid: 1 }, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: true },
+    { mode: "other", name: "Apple device", kind: "device", identifier: null, chip: "", board: "", ecid: "", srtg: null, serial: "0x998877", serial_number: null, restorable: false, port: null, driver_ready: true, connection: "direct", via_dongle: null, host_dfu_capable: false },
   ];
   const history: HistoryEntry[] = [
     { serial_number: "C02XX1234567", ecid: "0x77aa22bb44cc", model_identifier: "Mac14,2", name: "MacBook Air (M2, 2022)", mode: "recovery", status: "captured", timestamp_rfc3339: "2026-07-07T15:04:00.000Z" },
@@ -297,6 +322,7 @@ function browserMock(cmd: string): Promise<unknown> {
     manual_instructions: "1. Connect the target's DFU port.\n2. Disconnect power.\n3. Hold power, reconnect, keep holding ~10s.",
     list_devices: devices,
     trigger_dfu: devices[0],
+    enter_recovery: null,
     helper_status: "enabled",
     cache_info: { path: "~/.config/restorekit/firmwares", bytes: 19_769_902_281, count: 1 },
     history_list: history,
@@ -329,6 +355,17 @@ export function onProgress(cb: (e: ProgressEvent) => void): Promise<UnlistenFn> 
   return listen<ProgressEvent>("progress", (ev) => cb(ev.payload));
 }
 
+/** Native file picker for a supervision identity (PEM, or PKCS #12 from Apple
+ *  Configurator). Returns the path, or null if cancelled. */
+export async function pickSupervisor(): Promise<string | null> {
+  const picked = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Supervision identity", extensions: ["pem", "p12", "pfx"] }],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
 /** Native file picker for a local .ipsw. Returns the path, or null if cancelled. */
 export async function pickIpsw(): Promise<string | null> {
   const picked = await open({
@@ -341,6 +378,15 @@ export async function pickIpsw(): Promise<string | null> {
 
 export function gib(bytes: number): string {
   return (bytes / 1e9).toFixed(1) + " GB";
+}
+
+/** The status label and hint for a device: its USB mode's, except where an
+ *  iPhone or iPad takes a different path to a restore than a Mac. */
+export function modeInfo(d: Device): { label: string; hint: string } {
+  if (isIos(d) && d.mode === "recovery") return { label: "Recovery", hint: "ready to restore" };
+  if (isIos(d) && d.mode === "other")
+    return { label: "Running", hint: "enter recovery mode to restore" };
+  return MODES[d.mode];
 }
 
 export const MODES: Record<Mode, { label: string; hint: string }> = {

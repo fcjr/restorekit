@@ -9,12 +9,16 @@
     onRestoreJobLog,
     onDongleFwProgress,
     pickIpsw,
+    pickSupervisor,
+    isIos,
+    osName,
+    modeInfo,
     exportHistoryCsv,
     exportDevicesCsv,
     exportSeenCsv,
     gib,
-    MODES,
     APPROVAL_REQUIRED,
+    TRUST_PENDING,
     type Device,
     type Dongle,
     type DongleFwCheck,
@@ -126,7 +130,12 @@
     revive: "Revive",
     obliterate: "Obliterate",
   };
-  let busy = $state(""); // short-lived status for trigger/reboot
+  let busy = $state(""); // short-lived status for trigger/reboot/recovery
+  // Optional supervision identity for entering recovery: a device it
+  // supervises pairs without the Trust prompt. Session-only, never persisted.
+  let supervisorPath = $state<string | null>(null);
+  let supervisorPassword = $state("");
+  const supervisorNeedsPassword = $derived(!!supervisorPath && !/\.pem$/i.test(supervisorPath));
   let error = $state("");
   let confirming = $state(false);
   let confirmingClear = $state(false);
@@ -198,9 +207,11 @@
   );
 
   // Which action a device gets: full restore config, WinUSB setup, DFU trigger,
-  // or manual instructions.
-  function deviceMode(d: Device): "restore" | "usb" | "dfu" | "manual" {
+  // recovery entry, or manual instructions.
+  function deviceMode(d: Device): "restore" | "usb" | "dfu" | "recovery" | "manual" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
+    // A running iPhone or iPad reboots into recovery over USB, from any host.
+    if (isIos(d) && d.mode === "other" && d.ecid) return "recovery";
     // Already in DFU over Debug USB, just unreadable here:
     // re-triggering can't help.
     if (d.mode === "kis") return d.driver_ready ? "manual" : "usb";
@@ -233,17 +244,6 @@
     return { title: "", label: "", pct: 0, sub: "" };
   });
 
-  const MODE_TAG: Record<Mode, string> = {
-    dfu: "DFU",
-    "port-dfu": "Port DFU",
-    kis: "Debug USB DFU",
-    recovery: "Recovery",
-    restore: "Restore",
-    wtf: "WTF",
-    booted: "Booted",
-    billboard: "Billboard",
-    other: "Connected",
-  };
   const MODE_COLOR: Record<Mode, string> = {
     dfu: "var(--acc)",
     "port-dfu": "var(--acc)",
@@ -255,10 +255,13 @@
     billboard: "var(--danger)",
     other: "var(--fnt)",
   };
+  // A running iPhone or iPad is one step from a restore, unlike other
+  // "other" devices.
+  const modeColor = (d: Device) => (isIos(d) && d.mode === "other" ? "var(--acc)" : MODE_COLOR[d.mode]);
 
   function firmwareLine(): string {
     if (ipswPath) return ipswPath.split("/").pop() ?? "local IPSW";
-    if (firmware) return `macOS ${firmware.version}, ${gib(firmware.size)}`;
+    if (firmware) return `${osName(firmware.identifier)} ${firmware.version}, ${gib(firmware.size)}`;
     return "resolved automatically";
   }
 
@@ -646,12 +649,14 @@
   // Auto-DFU: put a freshly detected booted/recovery Mac into DFU without a
   // click (de-bounced per device). A Mac behind a dongle is triggered over the
   // dongle on any host; a directly-cabled one needs the approved host helper.
+  // An iPhone or iPad in recovery is already ready to restore.
   $effect(() => {
     if (!autoDfu || running || autoTriggering) return;
     const hostReady = canTrigger && helperState === "enabled";
     const target = devices.find(
       (d) =>
         (d.mode === "booted" || d.mode === "recovery") &&
+        !isIos(d) &&
         !autoTriggered.has(d.serial) &&
         (d.via_dongle ? true : hostReady),
     );
@@ -675,7 +680,7 @@
     if (j && j.status === "done") return { label: "Done", color: JOB_COLOR.done };
     if (j && j.status === "failed") return { label: "Failed", color: JOB_COLOR.failed };
     if (j && j.status === "canceled") return { label: "Canceled", color: JOB_COLOR.canceled };
-    if (r.device) return { label: MODE_TAG[r.device.mode], color: MODE_COLOR[r.device.mode] };
+    if (r.device) return { label: modeInfo(r.device).label, color: modeColor(r.device) };
     return { label: "—", color: "var(--mut)" };
   }
   function jobActive(j: JobView | null): boolean {
@@ -978,7 +983,7 @@
       return;
     }
     if (!selected.identifier) {
-      error = "This Mac model isn't recognized, so firmware can't be resolved. Pick a local IPSW.";
+      error = "This model isn't recognized, so firmware can't be resolved. Pick a local IPSW.";
       phase = "error";
       return;
     }
@@ -1033,6 +1038,54 @@
     } catch (e) {
       error = String(e);
       phase = "error";
+    }
+  }
+
+  // Ask a running iPhone or iPad to reboot into recovery, where it's ready to
+  // restore. While it asks its user to trust this computer, keep asking until
+  // they answer; then wait for it to show up in recovery.
+  async function enterRecovery() {
+    if (!selected?.ecid) return;
+    const d = selected;
+    error = "";
+    busy = `Asking the ${d.kind} to reboot into recovery mode…`;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    try {
+      const trustDeadline = Date.now() + 120_000;
+      for (;;) {
+        try {
+          await api.enterRecovery(d.ecid, supervisorPath, supervisorNeedsPassword ? supervisorPassword : null);
+          break;
+        } catch (e) {
+          if (!String(e).includes(TRUST_PENDING)) throw e;
+          if (Date.now() > trustDeadline) throw new Error(`The ${d.kind} didn't answer the Trust prompt. Try again.`);
+          busy = `Tap Trust on the ${d.kind} and enter its passcode…`;
+          await sleep(2000);
+        }
+      }
+      busy = `Waiting for the ${d.kind} to show up in recovery mode…`;
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        await refresh();
+        if (devices.some((x) => x.ecid === d.ecid && x.mode === "recovery")) {
+          selectedKey = d.ecid;
+          return;
+        }
+        await sleep(2000);
+      }
+      throw new Error(`The ${d.kind} accepted the request but didn't show up in recovery mode.`);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = "";
+    }
+  }
+
+  async function chooseSupervisor() {
+    const p = await pickSupervisor();
+    if (p) {
+      supervisorPath = p;
+      supervisorPassword = "";
     }
   }
 
@@ -1159,7 +1212,7 @@
         <div class="hero">
           <div class="badge"><span class="pulse"></span></div>
           <div class="empty-title">No Apple devices connected</div>
-          <p class="lede">Cable a Mac to this host's DFU port. restorekit detects it the moment it enumerates.</p>
+          <p class="lede">Cable a Mac to this host's DFU port, or an iPhone or iPad to any port. restorekit detects it the moment it enumerates.</p>
         </div>
       {:else if selectedRow}
         <div class="pane">
@@ -1168,8 +1221,8 @@
               {restoring ? `Restoring, ${selectedJob.step.toLowerCase()}` : selectedJob.status}
             </div>
           {:else if selected}
-            <div class="eyebrow" style="color:{MODE_COLOR[selected.mode]}">
-              {MODES[selected.mode].label}, {MODES[selected.mode].hint}
+            <div class="eyebrow" style="color:{modeColor(selected)}">
+              {modeInfo(selected).label}, {modeInfo(selected).hint}
             </div>
           {/if}
           <h1 class="dtitle">
@@ -1217,7 +1270,7 @@
               </div>
               <div class="pbar"><div class="pfill" style="width:{Math.max(2, Math.min(100, selectedJob.progress))}%; background:{JOB_COLOR[selectedJob.status] ?? 'var(--acc)'}"></div></div>
               {#if restoring}
-                <p class="psub">Bar is the current step, not the whole restore. Don't disconnect, DFU, or reboot this Mac.</p>
+                <p class="psub">Bar is the current step, not the whole restore. Don't disconnect, DFU, or reboot the target.</p>
               {:else if selectedJob.status === "failed"}
                 <p class="err">{selectedJob.message || "Restore failed."}</p>
               {:else if selectedJob.status === "done"}
@@ -1246,7 +1299,7 @@
             {#if mMode === "restore"}
             <div class="opts">
               <div class="opt">
-                <span class="ok-label">macOS ver.</span>
+                <span class="ok-label">{osName(selected.identifier)} ver.</span>
                 <input class="field" placeholder="latest signed" bind:value={osVersion} />
               </div>
               <div class="opt">
@@ -1271,7 +1324,7 @@
                 </span>
               </div>
               {#if restoreMode === "obliterate"}
-                <p class="opt-note">Destroys the encryption key and stops. The Mac is left wiped with no OS. Fast decommissioning wipe; run Erase &amp; restore afterward to make it usable.</p>
+                <p class="opt-note">Destroys the encryption key and stops. The {selected.kind} is left wiped with no OS. Fast decommissioning wipe; run Erase &amp; restore afterward to make it usable.</p>
               {/if}
             </div>
 
@@ -1283,9 +1336,38 @@
           {:else if mMode === "usb"}
             <div class="notice">
               <div class="notice-body">
-                restorekit needs USB access to this Mac once before it can restore. It binds the WinUSB driver behind a single Windows prompt.
+                restorekit needs USB access to this {selected.kind} once before it can restore. It binds the WinUSB driver behind a single Windows prompt.
               </div>
               <button class="btn primary" onclick={openDriverSetup}>Set up USB access</button>
+            </div>
+          {:else if mMode === "recovery"}
+            <div class="block">
+              <p class="lede">Restore needs recovery mode. restorekit asks this {selected.kind} to reboot into it over USB. If it doesn't trust this computer yet, tap Trust on it when asked.</p>
+              <div class="opts">
+                <div class="opt">
+                  <span class="ok-label">Supervisor</span>
+                  <span class="field pick">
+                    <button class="pickbtn" class:set={supervisorPath} onclick={chooseSupervisor}>
+                      {supervisorPath ? supervisorPath.split(/[\\/]/).pop() : "— none —"}
+                    </button>
+                    {#if supervisorPath}
+                      <button class="browse" title="Pair without a supervision identity" onclick={() => { supervisorPath = null; supervisorPassword = ""; }}>clear ×</button>
+                    {:else}
+                      <button class="browse" onclick={chooseSupervisor}>browse</button>
+                    {/if}
+                  </span>
+                </div>
+                {#if supervisorNeedsPassword}
+                  <div class="opt">
+                    <span class="ok-label">Password</span>
+                    <input class="field" type="password" placeholder="PKCS #12 password" bind:value={supervisorPassword} />
+                  </div>
+                {/if}
+                <p class="opt-note quiet">Optional. A supervision identity (PEM, or PKCS #12 exported from Apple Configurator) pairs a device it supervises without the Trust prompt.</p>
+              </div>
+              <div class="actions">
+                <button class="btn primary" onclick={enterRecovery} disabled={!!busy}>Enter recovery mode</button>
+              </div>
             </div>
           {:else if mMode === "dfu"}
             <div class="block">
@@ -1338,7 +1420,7 @@
                 <div class="dcard-meta">
                   {#if r.device && serialFor(r.device)}<span>serial {serialFor(r.device)}</span>{/if}
                   <span>ecid {r.ecid ?? "—"}</span>
-                  {#if r.device}<span>{r.device.mode}{r.device.port?.location ? `, ${r.device.port.location}` : ""}{r.device.via_dongle ? ", via dongle" : ""}</span>{:else}<span>disconnected</span>{/if}
+                  {#if r.device}<span>{isIos(r.device) && r.device.mode === "other" ? "running" : r.device.mode}{r.device.port?.location ? `, ${r.device.port.location}` : ""}{r.device.via_dongle ? ", via dongle" : ""}</span>{:else}<span>disconnected</span>{/if}
                 </div>
                 {#if r.job && jobActive(r.job)}
                   <div class="dcard-prog">
@@ -1360,6 +1442,8 @@
                   {#if dm === "restore"}
                     <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; beginRestore(); }}>Erase & restore</button>
                     <button class="btn ghost sm" disabled={!!busy} onclick={() => { selectedKey = r.key; rebootTarget(); }}>Reboot</button>
+                  {:else if dm === "recovery"}
+                    <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; enterRecovery(); }}>Enter recovery</button>
                   {:else if dm === "dfu"}
                     <button class="btn primary sm" disabled={!!busy} onclick={() => { selectedKey = r.key; enterDfu(); }}>Enter DFU</button>
                   {:else if dm === "usb"}
@@ -1372,7 +1456,7 @@
           {/each}
         </div>
       {:else}
-        <div class="tabempty">No devices connected. Cable a Mac to this host's DFU port.</div>
+        <div class="tabempty">No devices connected. Cable a Mac to this host's DFU port, or an iPhone or iPad to any port.</div>
       {/if}
     </section>
   {:else if tab === "list"}
@@ -1409,7 +1493,7 @@
                     {#if d.identifier}<button class="cellcopy mono cellsub" onclick={() => copy(d.identifier!)}>{d.identifier}</button>{/if}
                   </td>
                   <td><button class="cellcopy mono" onclick={() => copy(e ?? "")}>{e ?? "—"}</button></td>
-                  <td><button class="cellcopy" onclick={() => copy(d.mode)}><span class="mtag" style="color:{MODE_COLOR[d.mode]}">{MODE_TAG[d.mode]}</span></button></td>
+                  <td><button class="cellcopy" onclick={() => copy(d.mode)}><span class="mtag" style="color:{modeColor(d)}">{modeInfo(d).label}</span></button></td>
                   <td><button class="cellcopy" onclick={() => copy(d.port?.location ?? "")}>{d.port?.location ?? "—"}</button></td>
                   {#if showQrInList}
                     <td class="qrcell">{#if q && qrCache[q.value]}{@html qrCache[q.value]}{/if}</td>
@@ -1428,7 +1512,7 @@
         {:else}
           <div class="tabempty">No devices connected.</div>
         {/if}
-        <p class="tabnote">Serial capture works in recovery mode and for booted Macs. DFU mode usually doesn't expose the hardware serial.</p>
+        <p class="tabnote">Serial capture works for a Mac, iPhone or iPad in recovery mode, and for booted Macs. DFU mode usually doesn't expose the hardware serial.</p>
       {:else if seenDevices.length}
         <table class="tbl">
           <thead>
@@ -1450,9 +1534,9 @@
             {/each}
           </tbody>
         </table>
-        <p class="tabnote">Every Mac ever seen, deduped by ECID and enriched as it passes through modes.</p>
+        <p class="tabnote">Every device ever seen, deduped by ECID and enriched as it passes through modes.</p>
       {:else}
-        <div class="tabempty">No devices seen yet. Connect a Mac and it's remembered here.</div>
+        <div class="tabempty">No devices seen yet. Connect a device and it's remembered here.</div>
       {/if}
     </section>
   {:else if tab === "dongles"}
@@ -1476,7 +1560,7 @@
                 <td>
                   {#if dg.target}
                     <button class="cellcopy" onclick={() => copy(dg.target!.name)}>{dg.target.name}</button>
-                    <span class="cellsub"><span class="mtag" style="color:{MODE_COLOR[dg.target.mode]}">{MODE_TAG[dg.target.mode]}</span></span>
+                    <span class="cellsub"><span class="mtag" style="color:{modeColor(dg.target)}">{modeInfo(dg.target).label}</span></span>
                   {:else if dg.status?.target_attached}
                     <span class="cellsub">attached, but its USB data isn't reaching this computer</span>
                   {:else}
@@ -1542,7 +1626,7 @@
           </tbody>
         </table>
       {:else}
-        <div class="tabempty">No captures yet. Connect a Mac in recovery mode and its serial is logged here automatically.</div>
+        <div class="tabempty">No captures yet. Connect a Mac, iPhone or iPad in recovery mode and its serial is logged here automatically.</div>
       {/if}
     </section>
   {/if}
@@ -1577,7 +1661,7 @@
     <div class="scrim">
       <div class="modal">
         <div class="eyebrow" style="color:{restoreMode === 'revive' ? 'var(--acc)' : 'var(--danger)'}">{RESTORE_MODE_LABEL[restoreMode]}</div>
-        <h3>{restoreMode === "revive" ? "Revive this Mac?" : restoreMode === "obliterate" ? "Obliterate this Mac?" : "Erase & restore this Mac?"}</h3>
+        <h3>{restoreMode === "revive" ? `Revive this ${active.kind}?` : restoreMode === "obliterate" ? `Obliterate this ${active.kind}?` : `Erase & restore this ${active.kind}?`}</h3>
         <div class="spec tight">
           <div class="k">Target</div><div class="v">{active.name}</div>
           <div class="k">Firmware</div><div class="v">{firmwareLine()}</div>
@@ -1586,8 +1670,8 @@
           {restoreMode === "revive"
             ? "Revive reinstalls firmware and keeps existing data. Nothing is erased, and the target reboots when done."
             : restoreMode === "obliterate"
-              ? "This destroys the encryption key and stops. The Mac is wiped but no OS is reinstalled, so it will be left unbootable. Run Erase & restore afterward to make it usable. It cannot be undone."
-              : "This erases all data on the target and installs a fresh copy of macOS. It cannot be undone."}
+              ? `This destroys the encryption key and stops. The ${active.kind} is wiped but no OS is reinstalled, so it will be left unbootable. Run Erase & restore afterward to make it usable. It cannot be undone.`
+              : `This erases all data on the target and installs a fresh copy of ${osName(firmware?.identifier ?? active.identifier)}. It cannot be undone.`}
         </p>
         <div class="modal-actions">
           <button class="btn" onclick={() => { confirming = false; active = null; }}>Cancel</button>
@@ -2034,6 +2118,9 @@
     font-size: 13px;
     line-height: 1.45;
     color: var(--danger);
+  }
+  .opt-note.quiet {
+    color: var(--fnt);
   }
   .ok-label {
     width: 96px;

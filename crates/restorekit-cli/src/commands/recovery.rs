@@ -43,11 +43,8 @@ pub fn enter(json: bool, ecid: Option<u64>, supervisor: Option<&Path>) -> Result
 /// archive with its password in [`PASSWORD_VAR`] (empty when unset).
 fn load_supervisor(path: &Path) -> Result<Supervisor> {
     let bytes = Zeroizing::new(std::fs::read(path)?);
-    if bytes.windows(11).any(|w| w == b"-----BEGIN ") {
-        return Supervisor::from_pem(&bytes);
-    }
     let password = Zeroizing::new(std::env::var(PASSWORD_VAR).unwrap_or_default());
-    Supervisor::from_pkcs12(&bytes, &password)
+    Supervisor::load(&bytes, &password)
 }
 
 /// The sole running device's ECID, else one picked interactively.

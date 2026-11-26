@@ -164,7 +164,7 @@ fn run_once(json: bool) -> Result<()> {
             println!("    serial: {}", d.serial);
         }
         // Which port and route reach DFU only matters for a Mac.
-        if matches!(d.kind(), "iPhone" | "iPad" | "iPod") {
+        if d.is_ios() {
             println!();
             continue;
         }
@@ -225,9 +225,7 @@ fn run_once(json: bool) -> Result<()> {
             );
         }
         println!("None are in DFU mode; only a device in DFU mode can be restored.");
-        let mac = devices
-            .iter()
-            .any(|d| !matches!(d.kind(), "iPhone" | "iPad" | "iPod"));
+        let mac = devices.iter().any(|d| !d.is_ios());
         if mac && restorekit::host_can_trigger_dfu() {
             println!("Run `restorekit dfu` to put the cabled target into DFU mode.");
         }

@@ -1,10 +1,13 @@
 use restorekit::device::{self, parse_serial, Device};
 use restorekit::dongle;
 use restorekit::restore::Mode;
-use restorekit::{dfu, firmware, restore, DfuOutcome, DfuVia, DongleStatus, Firmware};
+use restorekit::{
+    dfu, firmware, recovery, restore, DfuOutcome, DfuVia, DongleStatus, Firmware, UsbMode,
+};
 use serde::Serialize;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+use zeroize::Zeroizing;
 
 /// How long to wait for a dongle-triggered DFU to be observed on this host.
 const DONGLE_DFU_TIMEOUT: Duration = Duration::from_secs(60);
@@ -18,6 +21,9 @@ pub struct DeviceView {
     /// "billboard" | "other"
     pub mode: String,
     pub name: String,
+    /// What it is: "Mac" | "iPhone" | "iPad" | "iPod" | … | "device" when the
+    /// model is unknown.
+    pub kind: String,
     pub identifier: Option<String>,
     pub chip: String,
     pub board: String,
@@ -27,7 +33,8 @@ pub struct DeviceView {
     /// The captured hardware serial number (recovery/booted), if any. Distinct
     /// from the raw `serial` DFU string above.
     pub serial_number: Option<String>,
-    /// Whether restorekit can restore a device in this mode (DFU or Port DFU).
+    /// Whether restorekit can restore a device in this mode: DFU, Port DFU or
+    /// Debug USB DFU, or recovery mode for an iPhone or iPad.
     pub restorable: bool,
     /// The host port this device is on (macOS): its firmware location name and
     /// whether it's the DFU-capable port. `None` when undeterminable.
@@ -54,7 +61,9 @@ fn view(d: Device) -> DeviceView {
         connection,
         via_dongle,
         host_dfu_capable,
-        restorable: d.restorable(),
+        restorable: d.restorable()
+            || (d.is_ios() && d.mode == UsbMode::Recovery && d.ecid.is_some()),
+        kind: d.kind().to_string(),
         driver_ready: d.driver_ready,
         mode: d.mode.to_string(),
         name: d.display_name(),
@@ -81,12 +90,55 @@ fn view(d: Device) -> DeviceView {
 /// restore mode (DFU/recovery/restore) carry a full identity; anything else is
 /// shown by its USB product name so the user still sees what's connected.
 #[tauri::command]
-pub fn list_devices() -> Result<Vec<DeviceView>, String> {
-    let mut devices = device::list().map_err(|e| e.to_string())?;
-    // Fill in booted Macs' model/ECID/name (cached per serial, so the poll
-    // only pays for the network name lookup once per machine).
-    device::identify(&mut devices);
-    Ok(devices.into_iter().map(view).collect())
+pub async fn list_devices() -> Result<Vec<DeviceView>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut devices = device::list().map_err(|e| e.to_string())?;
+        // Fill in booted Macs' model/ECID/name (cached per serial, so the poll
+        // only pays for the network name lookup once per machine).
+        device::identify(&mut devices);
+        // And running iPhones' and iPads' ECID and model, from lockdownd
+        // (cached per device too).
+        recovery::identify(&mut devices);
+        Ok(devices.into_iter().map(view).collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Error string [`enter_recovery`] returns while the device asks its user to
+/// trust this computer; the UI matches it and retries.
+const TRUST_PENDING: &str = "trust-pending";
+
+/// Ask the running iPhone or iPad with this ECID to reboot into recovery mode.
+/// Pairs first if it needs to, which asks the device's user to trust this
+/// computer: until they tap Trust this fails with [`TRUST_PENDING`]. With a
+/// supervision identity (`supervisor` is its file; `password` unlocks a
+/// PKCS #12 archive), a device it supervises pairs without asking.
+#[tauri::command]
+pub async fn enter_recovery(
+    ecid: String,
+    supervisor: Option<String>,
+    password: Option<String>,
+) -> Result<(), String> {
+    let ecid = parse_ecid(&ecid).ok_or_else(|| format!("invalid ECID {ecid:?}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let supervisor = match supervisor {
+            Some(path) => {
+                let bytes =
+                    Zeroizing::new(std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?);
+                let password = Zeroizing::new(password.unwrap_or_default());
+                Some(recovery::Supervisor::load(&bytes, &password).map_err(|e| e.to_string())?)
+            }
+            None => None,
+        };
+        match recovery::enter(ecid, supervisor.as_ref()) {
+            Ok(()) => Ok(()),
+            Err(restorekit::Error::TrustPending) => Err(TRUST_PENDING.into()),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -349,11 +401,34 @@ pub async fn trigger_dfu(
     }
 }
 
-/// Reboot the target back out of DFU. When `dongle` is set, routes over it using
-/// the CLI's retry-until-it-leaves-DFU flow (plain USB, any host OS); otherwise
+/// Reboot the target back out of DFU. A target in recovery mode (`ecid` picks
+/// it) is booted out of it over USB on any host, since a reset over USB-PD
+/// lands it back in recovery. Otherwise, when `dongle` is set, routes over it
+/// using the CLI's retry-until-it-leaves-DFU flow (plain USB, any host OS), or
 /// uses the elevated helper (macOS-only) on `port`, the selected Mac's RID.
 #[tauri::command]
-pub async fn reboot_target(dongle: Option<String>, port: Option<i32>) -> Result<(), String> {
+pub async fn reboot_target(
+    dongle: Option<String>,
+    port: Option<i32>,
+    ecid: Option<String>,
+) -> Result<(), String> {
+    if let Some(ecid) = ecid.as_deref().and_then(parse_ecid) {
+        let in_recovery = tauri::async_runtime::spawn_blocking(move || {
+            device::list().is_ok_and(|list| {
+                list.iter()
+                    .any(|d| d.ecid == Some(ecid) && d.mode == UsbMode::Recovery)
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        if in_recovery {
+            return tauri::async_runtime::spawn_blocking(move || {
+                recovery::exit(ecid).map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
     if let Some(serial) = dongle {
         return tauri::async_runtime::spawn_blocking(move || {
             dfu::reboot(DfuVia::Dongle(serial), &mut |_| {}).map_err(|e| e.to_string())
@@ -387,7 +462,6 @@ fn helper_command(verb: &str, port: Option<i32>) -> String {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn parse_ecid(s: &str) -> Option<u64> {
     let s = s.trim();
     match s.strip_prefix("0x") {
