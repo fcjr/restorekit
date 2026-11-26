@@ -499,7 +499,7 @@ fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
 
 /// The closing status line, tailored to what the target will actually do next.
 /// A T2 erase restore reinstalls bridgeOS only, so macOS must be recovered
-/// separately; a T2 revive preserves macOS; Apple Silicon restores fully.
+/// separately; a revive preserves the data; any other erase restores fully.
 fn completion_message(device: &Device, mode: Mode) -> String {
     match (device.is_t2(), mode) {
         (_, Mode::Obliterate) => format!(
@@ -514,6 +514,10 @@ fn completion_message(device: &Device, mode: Mode) -> String {
             "bridgeOS revive complete. macOS and your data are preserved; the Mac should boot normally."
                 .into()
         }
+        (false, Mode::Revive) => format!(
+            "Revive complete. Your data is preserved; the {} should boot normally.",
+            device.kind()
+        ),
         _ => "Restore complete. The target should boot to Setup Assistant.".into(),
     }
 }
