@@ -372,7 +372,7 @@ fn run(
     #[cfg(target_os = "linux")]
     let host_usbmuxd = {
         preflight()?;
-        crate::recovery::system_usbmuxd_running()
+        crate::usbmuxd::system_running()
     };
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let _usbmuxd = if host_usbmuxd || std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
