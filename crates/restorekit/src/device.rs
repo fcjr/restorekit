@@ -6,8 +6,9 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 
-/// A known Apple Silicon Mac model, keyed by chip ID + board ID as reported
-/// in the DFU-mode USB serial string.
+/// A known model, keyed by chip ID + board ID as reported in the DFU-mode USB
+/// serial string: a Mac from [`MAC_MODELS`], or an iPhone, iPad or other device
+/// from libirecovery's device database (see [`lookup`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct MacModel {
     pub cpid: u16,
@@ -596,14 +597,63 @@ pub const MAC_MODELS: &[MacModel] = &[
     },
 ];
 
+/// The model with this chip and board ID: a Mac from [`MAC_MODELS`], else
+/// anything libirecovery's device database knows, such as an iPhone or iPad.
 pub fn lookup(cpid: u16, bdid: u8) -> Option<&'static MacModel> {
-    MAC_MODELS.iter().find(|m| m.cpid == cpid && m.bdid == bdid)
+    let matches = |m: &&MacModel| m.cpid == cpid && m.bdid == bdid;
+    MAC_MODELS
+        .iter()
+        .find(matches)
+        .or_else(|| known_devices().iter().find(matches))
 }
 
 pub fn lookup_identifier(identifier: &str) -> Option<&'static MacModel> {
+    let matches = |m: &&MacModel| m.identifier.eq_ignore_ascii_case(identifier);
     MAC_MODELS
         .iter()
-        .find(|m| m.identifier.eq_ignore_ascii_case(identifier))
+        .find(matches)
+        .or_else(|| known_devices().iter().find(matches))
+}
+
+/// libirecovery's device database, read once, in [`MacModel`]'s shape.
+fn known_devices() -> &'static [MacModel] {
+    static DEVICES: std::sync::OnceLock<Vec<MacModel>> = std::sync::OnceLock::new();
+    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+    DEVICES.get_or_init(|| {
+        restorekit_sys::known_devices()
+            .into_iter()
+            .filter_map(|d| {
+                Some(MacModel {
+                    cpid: u16::try_from(d.chip_id).ok()?,
+                    bdid: u8::try_from(d.board_id).ok()?,
+                    board: leak(d.hardware_model.to_ascii_uppercase()),
+                    identifier: leak(d.product_type),
+                    name: leak(d.display_name),
+                })
+            })
+            .collect()
+    })
+}
+
+/// What to call a device with this model identifier: "Mac", "iPhone",
+/// "iPad", and so on, or "device" when the identifier says nothing.
+pub fn kind(identifier: &str) -> &'static str {
+    const KINDS: &[(&str, &str)] = &[
+        ("iPhone", "iPhone"),
+        ("iPad", "iPad"),
+        ("iPod", "iPod"),
+        ("AppleTV", "Apple TV"),
+        ("Watch", "Apple Watch"),
+        ("AudioAccessory", "HomePod"),
+        ("RealityDevice", "Apple Vision Pro"),
+        ("iBridge", "Mac"),
+        ("iMac", "Mac"),
+        ("Mac", "Mac"),
+    ];
+    KINDS
+        .iter()
+        .find(|(prefix, _)| identifier.starts_with(prefix))
+        .map_or("device", |(_, kind)| kind)
 }
 
 /// Resolve a Mac model from the USB `bcdDevice` release number. A booted Mac
@@ -928,6 +978,12 @@ impl Device {
     /// Model identifier (e.g. "MacBookAir10,1"), if the model is known.
     pub fn identifier(&self) -> Option<&'static str> {
         self.identity.as_ref()?.model.map(|m| m.identifier)
+    }
+
+    /// What to call this device: "Mac", "iPhone", "iPad", and so on (see
+    /// [`kind`]), or "device" when its model is unknown.
+    pub fn kind(&self) -> &'static str {
+        self.identifier().map_or("device", kind)
     }
 
     /// iBoot version (`SRTG`), if the serial carried one.
@@ -1462,6 +1518,26 @@ mod tests {
     #[test]
     fn lookup_unknown() {
         assert!(lookup(0xffff, 0xff).is_none());
+    }
+
+    #[test]
+    fn lookup_falls_back_to_libirecovery() {
+        let m = lookup(0x8030, 0x10).unwrap();
+        assert_eq!(m.identifier, "iPhone12,8");
+        assert_eq!(m.board, "D79AP");
+        assert_eq!(lookup_identifier("iphone12,8").unwrap().cpid, 0x8030);
+        // MAC_MODELS wins over libirecovery's entry for the same Mac.
+        assert_eq!(lookup(0x8103, 0x26).unwrap().board, "J313AP");
+    }
+
+    #[test]
+    fn kinds() {
+        assert_eq!(kind("iPhone12,8"), "iPhone");
+        assert_eq!(kind("iPad17,1"), "iPad");
+        assert_eq!(kind("iMac24,1"), "Mac");
+        assert_eq!(kind("MacBookAir10,1"), "Mac");
+        assert_eq!(kind("iBridge2,1"), "Mac");
+        assert_eq!(kind("Something1,1"), "device");
     }
 
     #[test]

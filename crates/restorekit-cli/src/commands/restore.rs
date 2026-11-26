@@ -170,9 +170,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
                 url: fw.url.clone(),
             });
         } else {
-            // A T2 IPSW carries bridgeOS, not macOS — label it accordingly.
-            let os = if device.is_t2() { "bridgeOS" } else { "macOS" };
-            println!("  {os} {} (build {})", fw.version, fw.build);
+            println!("  {} {} (build {})", fw.os_name(), fw.version, fw.build);
         }
 
         let bar = ProgressBar::hidden();
@@ -257,7 +255,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
         return match wipe_status {
             Some("confirmed") => {
                 record_restore_history(device, mode, wipe.as_ref(), checkpoints.as_ref(), true);
-                say(json, completion_message(device, mode));
+                say(json, &completion_message(device, mode));
                 Ok(())
             }
             _ => {
@@ -281,7 +279,7 @@ fn restore_device(device: &Device, opts: Opts) -> Result<()> {
                     log_tail: "device reported the encryption-key wipe FAILED".into(),
                 });
             }
-            say(json, completion_message(device, mode));
+            say(json, &completion_message(device, mode));
             Ok(())
         }
         Err(e) => {
@@ -392,18 +390,21 @@ fn report_wipe(json: bool, wipe: Option<&(String, String)>) {
 /// The closing status line, tailored to what the target will actually do next.
 /// A T2 erase restore reinstalls bridgeOS only, so macOS must be recovered
 /// separately; a T2 revive preserves macOS; Apple Silicon restores fully.
-fn completion_message(device: &Device, mode: Mode) -> &'static str {
+fn completion_message(device: &Device, mode: Mode) -> String {
     match (device.is_t2(), mode) {
-        (_, Mode::Obliterate) => {
-            "Key obliterated. The Mac is wiped with no OS — run `restorekit restore` to reinstall."
-        }
+        (_, Mode::Obliterate) => format!(
+            "Key obliterated. The {} is wiped with no OS — run `restorekit restore` to reinstall.",
+            device.kind()
+        ),
         (true, Mode::Erase) => {
             "bridgeOS restore complete. Reinstall macOS via internet recovery (hold Cmd-R at boot)."
+                .into()
         }
         (true, Mode::Revive) => {
             "bridgeOS revive complete. macOS and your data are preserved; the Mac should boot normally."
+                .into()
         }
-        _ => "Restore complete. The target should boot to Setup Assistant.",
+        _ => "Restore complete. The target should boot to Setup Assistant.".into(),
     }
 }
 
@@ -436,7 +437,8 @@ fn confirm(device: &Device, mode: Mode, yes: bool, json: bool) -> Result<bool> {
     // that won't boot.
     if mode == Mode::Obliterate {
         println!(
-            "  This destroys the encryption key and STOPS — no OS is reinstalled. The Mac will"
+            "  This destroys the encryption key and STOPS — no OS is reinstalled. The {} will",
+            device.kind()
         );
         println!(
             "  be left wiped and unbootable; run `restorekit restore` afterward to make it usable."

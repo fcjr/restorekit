@@ -24,7 +24,7 @@ pub use cache::{cache_path, cached, default_cache_dir};
 pub use download::download;
 pub use resolve::resolve;
 
-/// Resolved firmware metadata for a specific Mac model.
+/// Resolved firmware metadata for a specific model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Firmware {
     pub identifier: String,
@@ -38,6 +38,24 @@ pub struct Firmware {
 }
 
 impl Firmware {
+    /// The OS this firmware installs: "macOS", "bridgeOS" for a T2, "iOS",
+    /// "iPadOS", and so on.
+    pub fn os_name(&self) -> &'static str {
+        const OSES: &[(&str, &str)] = &[
+            ("iBridge", "bridgeOS"),
+            ("iPhone", "iOS"),
+            ("iPod", "iOS"),
+            ("iPad", "iPadOS"),
+            ("AppleTV", "tvOS"),
+            ("Watch", "watchOS"),
+            ("AudioAccessory", "audioOS"),
+            ("RealityDevice", "visionOS"),
+        ];
+        OSES.iter()
+            .find(|(prefix, _)| self.identifier.starts_with(prefix))
+            .map_or("macOS", |(_, os)| os)
+    }
+
     /// Canonical cache filename, derived from the download URL's basename.
     pub fn file_name(&self) -> String {
         let from_url = self.url.rsplit('/').next().filter(|s| s.ends_with(".ipsw"));
@@ -79,6 +97,21 @@ mod tests {
             sha1: None,
             signed: true,
         }
+    }
+
+    #[test]
+    fn os_names() {
+        let os = |identifier: &str| {
+            Firmware {
+                identifier: identifier.into(),
+                ..fw()
+            }
+            .os_name()
+        };
+        assert_eq!(os("Mac14,2"), "macOS");
+        assert_eq!(os("iBridge2,1"), "bridgeOS");
+        assert_eq!(os("iPhone12,8"), "iOS");
+        assert_eq!(os("iPad17,1"), "iPadOS");
     }
 
     #[test]

@@ -24,6 +24,7 @@ use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use restorekit_sys as sys;
 use zeroize::Zeroizing;
 
+use crate::device::{self, Identity, UsbMode};
 use crate::error::{Error, Result};
 
 /// The label lockdownd logs with each request.
@@ -369,6 +370,20 @@ pub struct RunningDevice {
     pub udid: String,
     /// The model, e.g. `iPhone12,8`.
     pub product_type: Option<String>,
+    /// Chip, board and model, from the `ChipID` and `BoardId` lockdownd
+    /// reports. `None` when it reports neither.
+    pub identity: Option<Identity>,
+}
+
+impl RunningDevice {
+    /// The model's name (e.g. "iPhone SE (2nd gen)"), else its product type.
+    pub fn display_name(&self) -> String {
+        match (&self.identity, &self.product_type) {
+            (Some(Identity { model: Some(m), .. }), _) => m.name.to_string(),
+            (_, Some(product_type)) => product_type.clone(),
+            _ => "Unknown iPhone or iPad".into(),
+        }
+    }
 }
 
 /// The running iPhones and iPads on USB that [`enter`] can reach.
@@ -380,10 +395,23 @@ pub fn devices() -> Result<Vec<RunningDevice>> {
             .filter_map(|udid| {
                 let device = Device::open(udid)?;
                 let lockdown = Lockdown::connect(&device).ok()?;
+                let ecid = lockdown.unique_chip_id()?;
+                let cpid = lockdown
+                    .uint_value(c"ChipID")
+                    .and_then(|v| u16::try_from(v).ok());
+                let bdid = lockdown
+                    .uint_value(c"BoardId")
+                    .and_then(|v| u8::try_from(v).ok());
                 Some(RunningDevice {
-                    ecid: lockdown.unique_chip_id()?,
+                    ecid,
                     udid: udid.to_string_lossy().into_owned(),
                     product_type: lockdown.string_value(c"ProductType"),
+                    identity: cpid.zip(bdid).map(|(cpid, bdid)| Identity {
+                        cpid,
+                        bdid,
+                        srtg: None,
+                        model: device::lookup(cpid, bdid).copied(),
+                    }),
                 })
             })
             .collect())
@@ -391,6 +419,48 @@ pub fn devices() -> Result<Vec<RunningDevice>> {
     Ok(host
         .settle(|| list().map(|found| (!found.is_empty()).then_some(found)))?
         .unwrap_or_default())
+}
+
+/// Fill in the ECID and model of each running iPhone and iPad in `devices`
+/// that [`devices()`] reaches, matched to its USB serial by UDID. Best-effort,
+/// and it asks usbmuxd nothing unless one is on USB.
+pub fn identify(devices: &mut [device::Device]) {
+    let running = |d: &device::Device| {
+        d.mode == UsbMode::Other && d.ecid.is_none() && RUNNING_PIDS.contains(&d.usb.pid)
+    };
+    if !devices.iter().any(running) {
+        return;
+    }
+    let Ok(found) = self::devices() else {
+        return;
+    };
+    let mut candidates: Vec<&mut device::Device> =
+        devices.iter_mut().filter(|d| running(d)).collect();
+    let lone = candidates.len() == 1 && found.len() == 1;
+    for d in candidates.iter_mut() {
+        let serial = udid_key(&d.serial);
+        let Some(r) = found
+            .iter()
+            .find(|r| (!serial.is_empty() && udid_key(&r.udid) == serial) || lone)
+        else {
+            continue;
+        };
+        d.ecid = Some(r.ecid);
+        if d.identity.is_none() {
+            d.identity = r.identity.clone();
+        }
+    }
+}
+
+/// The product IDs of a running iPhone, iPad or iPod's USB configurations.
+const RUNNING_PIDS: std::ops::RangeInclusive<u16> = 0x1290..=0x12af;
+
+/// A UDID as a USB serial carries it: no dash, any case.
+fn udid_key(udid: &str) -> String {
+    udid.chars()
+        .filter(|c| *c != '-')
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 /// Open the USB device whose lockdownd reports this ECID.
@@ -498,15 +568,19 @@ impl<'a> Lockdown<'a> {
             if !lockdownd {
                 return None;
             }
-
-            let node = self.value(c"UniqueChipID")?;
-            if sys::plist_get_node_type(node.0) != sys::PLIST_INT {
-                return None;
-            }
-            let mut ecid = 0;
-            sys::plist_get_uint_val(node.0, &mut ecid);
-            Some(ecid)
         }
+        self.uint_value(c"UniqueChipID")
+    }
+
+    /// An integer lockdownd reports without pairing.
+    fn uint_value(&self, key: &CStr) -> Option<u64> {
+        let node = self.value(key)?;
+        if unsafe { sys::plist_get_node_type(node.0) } != sys::PLIST_INT {
+            return None;
+        }
+        let mut value = 0;
+        unsafe { sys::plist_get_uint_val(node.0, &mut value) };
+        Some(value)
     }
 
     /// A string lockdownd reports without pairing.

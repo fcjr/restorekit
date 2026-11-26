@@ -56,7 +56,8 @@ pub fn run(
         });
     } else {
         println!(
-            "  macOS {} (build {}), {:.1} GB",
+            "  {} {} (build {}), {:.1} GB",
+            fw.os_name(),
             fw.version,
             fw.build,
             fw.size as f64 / 1e9

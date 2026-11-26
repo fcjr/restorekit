@@ -40,7 +40,7 @@ fn select_from(mut devices: Vec<Device>, json: bool) -> Result<Device> {
             if json || !std::io::stdin().is_terminal() {
                 return Err(Error::MultipleDevices(n));
             }
-            println!("Found {n} Macs in DFU mode:\n");
+            println!("Found {n} devices in DFU mode:\n");
             for (i, d) in devices.iter().enumerate() {
                 println!(
                     "  [{}] {} (ECID {})",

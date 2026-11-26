@@ -3,13 +3,13 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("no Mac in DFU mode found")]
+    #[error("no device in DFU mode found")]
     NoDeviceFound,
 
-    #[error("multiple Macs in DFU mode found ({0}); select one with --ecid (see `restorekit status`) or disconnect the others")]
+    #[error("multiple devices in DFU mode found ({0}); select one with --ecid (see `restorekit list`) or disconnect the others")]
     MultipleDevices(usize),
 
-    #[error("no Mac in DFU mode with ECID {0:#x}")]
+    #[error("no device in DFU mode with ECID {0:#x}")]
     EcidNotFound(u64),
 
     #[error("no Mac with ECID {0:#x} is connected to this host")]
@@ -62,7 +62,9 @@ pub enum Error {
     #[error("dongle: {0}")]
     Dongle(String),
 
-    #[error("unknown Mac model (CPID:{cpid:04x} BDID:{bdid:02x}); no firmware mapping")]
+    #[error(
+        "unknown model (CPID:{cpid:04x} BDID:{bdid:02x}); no firmware mapping, pass --identifier"
+    )]
     UnknownModel { cpid: u16, bdid: u8 },
 
     #[error("firmware resolution failed: {0}")]
@@ -107,7 +109,7 @@ pub enum Error {
     )]
     NoRunningDevice,
 
-    #[error("{0} running iPhones and iPads are connected; select one by its ECID")]
+    #[error("{0} running iPhones and iPads are connected; select one by its ECID (see `restorekit list`)")]
     MultipleRunningDevices(usize),
 
     #[error("the device is locked; unlock it and retry")]
