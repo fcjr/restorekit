@@ -15,7 +15,12 @@ extern "C" {
     fn rk_helper_status() -> i32;
     fn rk_helper_register(err: *mut c_char, err_len: usize) -> i32;
     fn rk_open_login_items_settings();
-    fn rk_helper_send(command: *const c_char, err: *mut c_char, err_len: usize) -> i32;
+    fn rk_helper_send(
+        command: *const c_char,
+        version: *const c_char,
+        err: *mut c_char,
+        err_len: usize,
+    ) -> i32;
 }
 
 /// One of "enabled" | "requiresApproval" | "notRegistered" | "notFound" |
@@ -75,9 +80,53 @@ pub fn run_helper(command: &str) -> Result<(), String> {
         }
     }
 
+    // A helper whose version differs from ours exits after saying so, and
+    // launchd starts the bundled one on the next connection. That relaunch can
+    // take a moment, during which the service may look unreachable.
+    let mut restarts = 0;
+    loop {
+        match send(command) {
+            Err(e)
+                if restarts < 5
+                    && (e == VERSION_MISMATCH || (restarts > 0 && e == APPROVAL_REQUIRED)) =>
+            {
+                restarts += 1;
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            Err(e) if e.starts_with("unknown command: ") => return run_legacy(command),
+            result => return result,
+        }
+    }
+}
+
+/// Error a helper of another version answers with, just before it exits.
+const VERSION_MISMATCH: &str = "helper-version-mismatch";
+
+/// A helper from before 0.6.6 ignores the version, never exits, and only takes
+/// a bare `dfu` / `reboot`, so it stays in charge until the host restarts. Send
+/// it the bare verb: its Auto target finds the one Mac on a DFU-capable port,
+/// and refuses when there are several.
+fn run_legacy(command: &str) -> Result<(), String> {
+    let Some((verb, _port)) = command.split_once(' ') else {
+        return Err(format!("the helper doesn't know `{command}`"));
+    };
+    send(verb).map_err(|e| {
+        format!("{e}. RestoreKit's helper is still running an older version that can't pick a port; restart this Mac to finish updating it.")
+    })
+}
+
+fn send(command: &str) -> Result<(), String> {
     let c = CString::new(command).map_err(|_| "bad command".to_string())?;
+    let version = CString::new(env!("CARGO_PKG_VERSION")).expect("version has no NUL");
     let mut err = [0u8; 512];
-    let rc = unsafe { rk_helper_send(c.as_ptr(), err.as_mut_ptr() as *mut c_char, err.len()) };
+    let rc = unsafe {
+        rk_helper_send(
+            c.as_ptr(),
+            version.as_ptr(),
+            err.as_mut_ptr() as *mut c_char,
+            err.len(),
+        )
+    };
     match rc {
         0 => Ok(()),
         // Unreachable despite being "enabled" — treat as an approval hiccup so

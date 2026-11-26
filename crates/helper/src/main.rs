@@ -27,13 +27,23 @@ mod imp {
     use std::os::raw::c_char;
 
     extern "C" {
-        // Runs the XPC listener forever, calling `handle` for each verified
-        // command. Defined in csrc/xpc_daemon.m.
-        fn rk_daemon_run(handler: extern "C" fn(*const c_char, *mut c_char, usize) -> i32);
+        // Runs the XPC listener until it sits idle, calling `handle` for each
+        // verified command. Defined in csrc/xpc_daemon.m.
+        fn rk_daemon_run(
+            handler: extern "C" fn(*const c_char, *mut c_char, usize) -> i32,
+            version: *const c_char,
+        );
     }
 
+    const VERSION: &std::ffi::CStr = match std::ffi::CStr::from_bytes_with_nul(
+        concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes(),
+    ) {
+        Ok(v) => v,
+        Err(_) => panic!("version has a NUL"),
+    };
+
     pub fn run() {
-        unsafe { rk_daemon_run(handle) };
+        unsafe { rk_daemon_run(handle, VERSION.as_ptr()) };
     }
 
     /// Invoked by the XPC shim once the peer's signature is verified. Runs the

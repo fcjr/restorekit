@@ -20,6 +20,27 @@
 // caller-provided buffer) and returns non-zero on failure.
 typedef int32_t (*rk_handler_t)(const char *command, char *err, size_t err_len);
 
+// This helper's version, set by rk_daemon_run. The app sends its own with every
+// command; when they differ the app was updated while this process kept running
+// the old binary, so it tells the app and exits, and launchd starts the new one.
+static const char *gVersion = "";
+static const char *const kVersionMismatch = "helper-version-mismatch";
+
+// Exit once idle for this long. launchd keeps the Mach service and relaunches
+// the daemon on the next connection, so an app update always gets the bundled
+// helper. Kept above launchd's 10 s respawn throttle.
+static const int64_t kIdleExitSeconds = 30;
+static uint64_t gIdleGeneration = 0;
+
+// (Re)start the idle countdown. Runs on the main queue, as does every handler.
+static void armIdleExit(void) {
+    uint64_t generation = ++gIdleGeneration;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kIdleExitSeconds * NSEC_PER_SEC),
+                   dispatch_get_main_queue(), ^{
+                       if (generation == gIdleGeneration) exit(0);
+                   });
+}
+
 // The one client we trust: our app, signed by our team, on the Apple anchor.
 static NSString *const kRequirement =
     @"identifier \"com.leftshift.restorekit.app\" and anchor apple generic and "
@@ -135,6 +156,16 @@ static void handleMessage(xpc_connection_t conn, xpc_object_t event, rk_handler_
         return;
     }
 
+    const char *version = xpc_dictionary_get_string(event, "version");
+    if (version && strcmp(version, gVersion) != 0) {
+        xpc_dictionary_set_string(reply, "error", kVersionMismatch);
+        xpc_connection_send_message(conn, reply);
+        xpc_connection_send_barrier(conn, ^{
+            exit(0);
+        });
+        return;
+    }
+
     const char *command = xpc_dictionary_get_string(event, "command");
     if (!command) {
         xpc_dictionary_set_string(reply, "error", "no command");
@@ -152,8 +183,9 @@ static void handleMessage(xpc_connection_t conn, xpc_object_t event, rk_handler_
     xpc_connection_send_message(conn, reply);
 }
 
-// Run the listener forever. Called from the daemon's main().
-void rk_daemon_run(rk_handler_t handler) {
+// Run the listener until it sits idle. Called from the daemon's main().
+void rk_daemon_run(rk_handler_t handler, const char *version) {
+    gVersion = version;
     xpc_connection_t listener = xpc_connection_create_mach_service(
         kServiceName, dispatch_get_main_queue(), XPC_CONNECTION_MACH_SERVICE_LISTENER);
 
@@ -163,11 +195,13 @@ void rk_daemon_run(rk_handler_t handler) {
         xpc_connection_set_event_handler(conn, ^(xpc_object_t event) {
             if (xpc_get_type(event) == XPC_TYPE_DICTIONARY) {
                 handleMessage(conn, event, handler);
+                armIdleExit();
             }
         });
         xpc_connection_resume(conn);
     });
 
     xpc_connection_resume(listener);
+    armIdleExit();
     dispatch_main();
 }

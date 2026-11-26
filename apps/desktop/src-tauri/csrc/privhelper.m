@@ -46,11 +46,12 @@ void rk_open_login_items_settings(void) {
     }
 }
 
-// Send a command to the daemon and wait for its reply.
+// Send a command to the daemon, tagged with the app's version, and wait for its
+// reply.
 //   0  = success
 //   1  = the daemon ran but reported an error (err filled)
 //   2  = the daemon is unreachable — not approved / not running (err filled)
-int32_t rk_helper_send(const char *command, char *err, size_t err_len) {
+int32_t rk_helper_send(const char *command, const char *version, char *err, size_t err_len) {
     xpc_connection_t conn = xpc_connection_create_mach_service(
         kServiceName, NULL, XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
     xpc_connection_set_event_handler(conn, ^(xpc_object_t e) {
@@ -60,6 +61,7 @@ int32_t rk_helper_send(const char *command, char *err, size_t err_len) {
 
     xpc_object_t msg = xpc_dictionary_create(NULL, NULL, 0);
     xpc_dictionary_set_string(msg, "command", command);
+    xpc_dictionary_set_string(msg, "version", version);
 
     xpc_object_t reply = xpc_connection_send_message_with_reply_sync(conn, msg);
 
