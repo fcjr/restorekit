@@ -205,6 +205,34 @@ extern "C" {
     fn irecv_devices_get_all() -> *const irecv_device;
 }
 
+// ── libirecovery: a device in DFU or recovery mode ───────────────────────────
+
+/// Opaque libirecovery client.
+#[repr(C)]
+pub struct irecv_client_private {
+    _private: [u8; 0],
+}
+pub type irecv_client_t = *mut irecv_client_private;
+
+pub const IRECV_E_SUCCESS: c_int = 0;
+
+extern "C" {
+    pub fn irecv_open_with_ecid_and_attempts(
+        client: *mut irecv_client_t,
+        ecid: u64,
+        attempts: c_int,
+    ) -> c_int;
+    pub fn irecv_close(client: irecv_client_t) -> c_int;
+    pub fn irecv_setenv(
+        client: irecv_client_t,
+        variable: *const c_char,
+        value: *const c_char,
+    ) -> c_int;
+    pub fn irecv_saveenv(client: irecv_client_t) -> c_int;
+    /// Tells iBoot to reboot; the device leaving USB mid-request counts as success.
+    pub fn irecv_reboot(client: irecv_client_t) -> c_int;
+    pub fn irecv_strerror(error: c_int) -> *const c_char;
+}
 
 /// One entry of libirecovery's device database.
 #[derive(Debug, Clone)]

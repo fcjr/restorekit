@@ -121,6 +121,9 @@ pub enum Error {
     #[error("the device declined to trust this computer; reconnect it to be asked again")]
     TrustDenied,
 
+    #[error("couldn't boot the device out of recovery mode: {0}")]
+    RecoveryExit(String),
+
     #[error("lockdown error {code}: {message}")]
     Lockdown { code: i32, message: String },
 

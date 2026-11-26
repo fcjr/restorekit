@@ -34,7 +34,8 @@ enum Command {
     /// Put the cabled target Mac into DFU mode — via a dongle (any host) or the
     /// host's own port (Apple Silicon macOS, root). See `--dongle` / `--ecid`.
     Dfu(TargetArgs),
-    /// Reboot the cabled target Mac back into normal mode (dongle or host).
+    /// Reboot the cabled target back into normal mode (dongle or host). A Mac,
+    /// iPhone or iPad in recovery mode is booted out of it over USB instead.
     Reboot(TargetArgs),
     /// Put a running iPhone or iPad into recovery mode. Not for Macs: put a Mac
     /// in DFU mode with `dfu`.
