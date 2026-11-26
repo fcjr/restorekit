@@ -208,10 +208,13 @@
 
   // Which action a device gets: full restore config, WinUSB setup, DFU trigger,
   // recovery entry, or manual instructions.
-  function deviceMode(d: Device): "restore" | "usb" | "dfu" | "recovery" | "manual" {
+  function deviceMode(d: Device): "restore" | "usb" | "dfu" | "recovery" | "ios-manual" | "manual" {
     if (d.restorable) return d.driver_ready ? "restore" : "usb";
     // A running iPhone or iPad reboots into recovery over USB, from any host.
     if (isIos(d) && d.mode === "other" && d.ecid) return "recovery";
+    // Any other iPhone or iPad (restore mode after an interrupted restore,
+    // WTF) gets to recovery by hand. The Mac DFU trigger isn't for it.
+    if (isIos(d)) return "ios-manual";
     // Already in DFU over Debug USB, just unreadable here:
     // re-triggering can't help.
     if (d.mode === "kis") return d.driver_ready ? "manual" : "usb";
@@ -1380,6 +1383,19 @@
                 <button class="btn primary" onclick={enterDfu} disabled={!!busy}>{busy ? (selected.via_dongle ? "Triggering…" : "Authorizing…") : "Enter DFU mode"}</button>
                 <button class="btn" onclick={rebootTarget} disabled={!!busy}>Reboot</button>
               </div>
+            </div>
+          {:else if mMode === "ios-manual"}
+            <div class="block">
+              {#if selected.mode === "restore"}
+                <p class="lede">This {selected.kind} is in restore mode. If a restore is running on it from the command line or another app, leave it until that finishes. Otherwise an interrupted restore left it here: restart it into recovery mode and it shows up ready to restore.</p>
+              {:else}
+                <p class="lede">This {selected.kind} is in {modeInfo(selected).label} mode, which restorekit can't restore from. Restart it into recovery mode and it shows up ready to restore.</p>
+              {/if}
+              <ul class="steps">
+                <li>Keep it connected to this computer.</li>
+                <li>Without a Home button: press and release volume up, press and release volume down, then hold the side (or top) button until the recovery screen appears.</li>
+                <li>With a Home button: hold the Home button and the side (or top) button together until the recovery screen appears. On iPhone 7, hold volume down and the side button instead.</li>
+              </ul>
             </div>
           {:else if selected.mode === "kis"}
             <div class="block">
@@ -2563,6 +2579,17 @@
     line-height: 1.6;
     margin: 0 0 16px;
     max-width: 46ch;
+  }
+  .steps {
+    font-size: 13.5px;
+    color: var(--mut);
+    line-height: 1.6;
+    margin: 0 0 16px;
+    padding-left: 18px;
+    max-width: 52ch;
+  }
+  .steps li + li {
+    margin-top: 6px;
   }
   .err {
     color: var(--danger);
