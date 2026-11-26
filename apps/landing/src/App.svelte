@@ -96,6 +96,26 @@
       .catch(() => {});
   }
 
+  // Supported targets and hosts shown right under the hero.
+  const supportedDevices: [string, string][] = [
+    [
+      "Apple Silicon macs",
+      "Every M1 through M6 model, including MacBook Air, MacBook Pro, MacBook Neo, iMac, Mac mini, Mac Studio and Mac Pro. Full macOS erase and restore, revive and obliterate.",
+    ],
+    [
+      "T2 Intel macs",
+      "Every Intel mac with an Apple T2 chip. Restores and revives bridgeOS over DFU.",
+    ],
+    [
+      "iPhones and iPads",
+      "Every Lightning and USB-C model apple still signs iOS or iPadOS firmware for. Restores from recovery or DFU, and takes running devices into recovery over USB.",
+    ],
+    [
+      "Host platforms",
+      "macOS, linux and windows, with no Apple Configurator, iTunes or Finder. Windows sets up WinUSB automatically; linux ships a udev rule and bundles usbmuxd.",
+    ],
+  ];
+
   // dongle-pro vs the DFU-capable USB hubs people usually end up pricing out.
   const hubCols = ["dongle-pro", "Acroname USBHub 3c", "Cambrionix ThunderSync5 C16 PD"];
   const hubRows: [string, string, string, string][] = [
@@ -161,7 +181,7 @@
     () => (showDongle = true),
   );
 
-  // dongle-pro preorder-interest form → POST /api/reserve → D1.
+  // dongle-pro preorder-interest form -> POST /api/reserve -> D1.
   let reserveEmail = $state("");
   let reserveState = $state<"idle" | "busy" | "done" | "error">("idle");
   let reserveError = $state("");
@@ -243,9 +263,9 @@
       class="relative mx-auto grid max-w-6xl items-center gap-12 px-5 pt-14 pb-16 md:pt-20 md:pb-24 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-14"
     >
       <div>
-        <h1 class="t-display">Wipe and restore any mac from any computer.</h1>
-        <p class="t-lead mt-6 max-w-[44ch]">
-          Works on T2 and Apple Silicon macs from macOS, linux or windows, without any apple tools. It's free and open source.
+        <h1 class="t-display">Reformat modern Apple products from any platform.</h1>
+        <p class="t-lead mt-6 max-w-[46ch]">
+          Wipe, revive or obliterate T2 and Apple Silicon macs, iPhones and iPads from macOS, linux or windows, without Apple Configurator or iTunes. It's free and open source.
         </p>
 
         <div class="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -283,13 +303,75 @@
     </div>
   </section>
 
+  <!-- supported devices & restore modes -->
+  <section id="devices" class="bg-mask-deep">
+    <div class="mx-auto max-w-6xl px-5 py-20">
+      <h2 class="t-h2 max-w-3xl">What it works with</h2>
+      <p class="mt-5 max-w-[62ch]">
+        Everything runs on a self-contained stack built with rust,
+        <a href="https://github.com/libimobiledevice/libirecovery" class="lnk">libirecovery</a>
+        and
+        <a href="https://github.com/libimobiledevice/idevicerestore" class="lnk">idevicerestore</a>,
+        straight over USB from macOS, linux or windows.
+      </p>
+
+      <div class="mt-10 grid gap-12 lg:grid-cols-[1.2fr_1fr]">
+        <div>
+          <h3 class="t-h3">Devices</h3>
+          <dl class="mt-4 t-data">
+            {#each supportedDevices as [label, detail] (label)}
+              <div class="grid gap-x-6 gap-y-1 border-t border-copper py-3.5 last:border-b sm:grid-cols-[11rem_1fr]">
+                <dt class="text-silk">{label}</dt>
+                <dd class="text-silk2">{detail}</dd>
+              </div>
+            {/each}
+          </dl>
+        </div>
+
+        <div>
+          <h3 class="t-h3">Restore modes</h3>
+          <ul class="mt-4 space-y-4">
+            <li class="flex gap-3">
+              {@render pad()}
+              <span>
+                <strong class="font-semibold text-silk">Erase and restore.</strong>
+                Wipes the device back to factory settings and installs the latest signed macOS, iOS or iPadOS, a pinned version, or a local IPSW.
+              </span>
+            </li>
+            <li class="flex gap-3">
+              {@render pad()}
+              <span>
+                <strong class="font-semibold text-silk">Revive.</strong>
+                Reinstalls firmware without erasing user data, to recover a device stuck after a failed update.
+              </span>
+            </li>
+            <li class="flex gap-3">
+              {@render pad()}
+              <span>
+                <strong class="font-semibold text-silk">Obliterate.</strong>
+                Destroys the Secure Enclave encryption key and stops without reinstalling the OS. Takes about 30 seconds instead of 15 to 30 minutes, for fast decommissioning wipes.
+              </span>
+            </li>
+            <li class="flex gap-3">
+              {@render pad()}
+              <span>
+                <strong class="font-semibold text-silk">Verified wipe logs.</strong>
+                Checks the device's <code class="text-silk">format_effaceable_storage</code> checkpoint on every erase or obliterate, logs the verdict and checkpoints to history, and exports CSV.
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- dongle-pro -->
-  <section id="dongle" class="bg-mask-deep">
+  <section id="dongle" class="bg-mask">
     <div class="mx-auto grid max-w-6xl items-start gap-10 px-5 py-20 lg:grid-cols-[1fr_1.3fr]">
       <div>
-        <h2 class="t-h2">Automatic DFU from any computer. Yes, even windows.</h2>
+        <h2 class="t-h2">Automatic DFU for macs from any computer. Yes, even windows.</h2>
         <p class="mt-5 max-w-[56ch]">
-          Putting a mac into DFU takes a USB-PD message that normal PC ports can't send, so you've always needed a second mac. dongle-pro sends it for you. It passes USB 3 straight through to the mac, and it exposes apple's serial console, so you can see why a restore failed.
+          Putting a mac into DFU takes a USB-PD message that normal PC ports can't send, so you've always needed a second mac. dongle-pro sends it for you, passes USB 3 straight through to the mac, and exposes apple's serial console so you can see why a restore failed. (iPhones and iPads don't need one, they enter recovery over regular USB.)
         </p>
         <p class="mt-4 max-w-[56ch]">
           Buying one from me is what keeps restorekit going, so I'd love it if you did. But it's
@@ -309,7 +391,7 @@
           <dd class="text-silk">48 × 21 mm</dd>
         </dl>
 
-        <div class="mt-9 rounded-lg border border-copper bg-mask p-5">
+        <div class="mt-9 rounded-lg border border-copper bg-mask-deep p-5">
           <p class="t-data text-silk">
             Batch 1 is gone. Get one email when batch 2 is ready.
           </p>
@@ -326,7 +408,7 @@
                   placeholder="you@example.com"
                   autocomplete="email"
                   bind:value={reserveEmail}
-                  class="grow rounded-[5px] border border-copper-hi bg-mask-deep px-4 py-2.5 text-silk placeholder:text-silk3/70 focus:border-gold focus:outline-none"
+                  class="grow rounded-[5px] border border-copper-hi bg-mask px-4 py-2.5 text-silk placeholder:text-silk3/70 focus:border-gold focus:outline-none"
                 />
                 <button
                   type="submit"
@@ -368,7 +450,7 @@
   </section>
 
   <!-- dongle vs hubs -->
-  <section id="hubs" class="bg-mask">
+  <section id="hubs" class="bg-mask-deep">
     <div class="mx-auto max-w-6xl px-5 py-20">
       <h2 class="t-h2 max-w-3xl">Compared to DFU hubs</h2>
       <p class="mt-5 max-w-[62ch]">
@@ -418,7 +500,7 @@
   </section>
 
   <!-- why -->
-  <section class="bg-mask-deep">
+  <section class="bg-mask">
     <div class="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-[1fr_1.2fr]">
       <h2 class="t-h2">People should be able to repair their mac without needing to own another one!</h2>
       <div class="t-lead max-w-[58ch] space-y-5">
@@ -433,7 +515,8 @@
         </p>
         <p class="t-h3">I think this sucks.</p>
         <p>
-          So the software is free and Apache-2.0, and it'll stay that way.
+          It started with macs, and now it handles iPhones and iPads too, without Apple Configurator
+          or iTunes. The software is free and Apache-2.0, and it'll stay that way.
           <a href="#dongle" class="lnk">dongle-pro</a> is the part you can buy, and selling it pays for my time on the rest.
         </p>
       </div>
@@ -441,7 +524,7 @@
   </section>
 
   <!-- how it works -->
-  <section id="how" class="bg-mask">
+  <section id="how" class="bg-mask-deep">
     <div class="mx-auto max-w-6xl px-5 py-20">
       <h2 class="t-h2">Plug it in, follow the instructions, and bam!</h2>
 
@@ -464,23 +547,23 @@
       <ol class="mt-12 grid gap-10 md:grid-cols-3 md:gap-8">
         <li>
           <div class="t-step">1</div>
-          <h3 class="t-h3 mt-4">Plug into the DFU port</h3>
+          <h3 class="t-h3 mt-4">Put it in DFU or recovery</h3>
           <p class="mt-2">
-            Apple moves it around, so <a href="/dfu-port" class="lnk">look yours up</a>. From a mac, restorekit puts the target into DFU for you. On linux or windows, follow the on-screen steps or use a <a href="#dongle" class="lnk">dongle-pro</a>.
+            For a mac, plug into its <a href="/dfu-port" class="lnk">DFU port</a>. A mac host triggers DFU automatically; on linux or windows, follow the on-screen combo or use a <a href="#dongle" class="lnk">dongle-pro</a>. For an iPhone or iPad, plug into any port and restorekit puts a running device into recovery for you (tap Trust once, or pass a supervision identity to skip it).
           </p>
         </li>
         <li>
           <div class="t-step">2</div>
           <h3 class="t-h3 mt-4">Get the firmware</h3>
           <p class="mt-2">
-            restorekit downloads the right firmware from apple and caches it for the next mac. Or hand it your own IPSW.
+            restorekit downloads the latest signed macOS, bridgeOS, iOS or iPadOS firmware from apple and caches it locally so you only pull each IPSW once. You can also pin an OS version or pass a local IPSW.
           </p>
         </li>
         <li>
           <div class="t-step">3</div>
-          <h3 class="t-h3 mt-4">Erase and restore, or revive</h3>
+          <h3 class="t-h3 mt-4">Erase, revive or obliterate</h3>
           <p class="mt-2">
-            Erase and restore wipes it to factory settings. Revive fixes the firmware and keeps your data.
+            Erase and restore wipes it to factory settings. Revive reinstalls firmware and keeps your data. Obliterate shreds the encryption key in about 30 seconds without reinstalling the OS.
           </p>
         </li>
       </ol>
@@ -488,11 +571,11 @@
   </section>
 
   <!-- desktop app -->
-  <section id="desktop" class="bg-mask-deep">
+  <section id="desktop" class="bg-mask">
     <div class="mx-auto max-w-6xl px-5 py-20">
       <h2 class="t-h2 max-w-3xl">The desktop app</h2>
       <p class="mt-5 max-w-[62ch]">
-        It does everything the cli does. Plug in several macs and it restores them all at once, and it keeps itself updated.
+        It wraps everything the cli does in one standalone macOS, linux and windows app. Connect macs, iPhones and iPads, restore several at once in parallel against one shared firmware cache, manage dongles and update their firmware over USB, and let the app update itself.
       </p>
 
       <div class="mt-8 flex flex-wrap items-center gap-3">
@@ -516,7 +599,7 @@
             loading="lazy"
           />
           <figcaption class="mt-3 max-w-[70ch] t-small">
-            Serials, ECIDs and modes for every connected mac, with QR codes and CSV export.
+            Serials, ECIDs and modes for every connected mac, iPhone and iPad, with inline QR codes, all-seen history and CSV export.
           </figcaption>
         </figure>
         <figure>
@@ -528,7 +611,7 @@
             height="1240"
             loading="lazy"
           />
-          <figcaption class="mt-3 t-small">A log of every mac you've restored.</figcaption>
+          <figcaption class="mt-3 t-small">A persistent log of every restore and wipe, with encryption-key checkpoints.</figcaption>
         </figure>
         <figure>
           <img
@@ -546,7 +629,7 @@
   </section>
 
   <!-- cli -->
-  <section id="cli" class="bg-mask">
+  <section id="cli" class="bg-mask-deep">
     <div class="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-[1fr_1.25fr]">
       <div>
         <h2 class="t-h2">The cli</h2>
@@ -554,30 +637,35 @@
           Run <code class="text-silk">sudo restorekit restore</code> and bam!
         </p>
         <ul class="mt-6 space-y-3">
-          <li class="flex gap-3">{@render pad()}<span><code class="text-silk">--json</code> on most commands</span></li>
-          <li class="flex gap-3">{@render pad()}<span>Pick a mac with <code class="text-silk">--ecid</code></span></li>
-          <li class="flex gap-3">{@render pad()}<span>On windows, <code class="text-silk">restorekit setup-driver</code> binds WinUSB once</span></li>
-          <li class="flex gap-3">{@render pad()}<span>On linux, a udev rule lets you skip <code class="text-silk">sudo</code></span></li>
+          <li class="flex gap-3">{@render pad()}<span><code class="text-silk">--json</code> on most commands, plus <code class="text-silk">list --watch</code> for live monitoring</span></li>
+          <li class="flex gap-3">{@render pad()}<span>Pick any device with <code class="text-silk">--ecid</code>, pin firmware with <code class="text-silk">--os-version</code> or <code class="text-silk">--ipsw</code></span></li>
+          <li class="flex gap-3">{@render pad()}<span>Take a running iPhone or iPad to recovery with <code class="text-silk">recovery</code>, or skip Trust with <code class="text-silk">--supervisor</code></span></li>
+          <li class="flex gap-3">{@render pad()}<span>Stream a mac's debug UART with <code class="text-silk">serial</code>, or manage dongles with <code class="text-silk">dongle update</code> and <code class="text-silk">replug</code></span></li>
+          <li class="flex gap-3">{@render pad()}<span>On windows, <code class="text-silk">restorekit setup-driver</code> binds WinUSB once. On linux, a udev rule lets you skip <code class="text-silk">sudo</code>.</span></li>
         </ul>
       </div>
       <div class="self-center">
         {@render cmd(
           "cli",
           "sudo restorekit restore",
-          `# wipe and reinstall the latest signed macOS
+          `# wipe and reinstall the latest signed OS
 $ sudo restorekit restore
 
-# pick one of several connected Macs
+# revive without erasing user data
+$ sudo restorekit revive
+
+# shred the encryption key in ~30s without reinstalling the OS
+$ sudo restorekit obliterate --yes
+
+# restore a specific mac, iPhone or iPad by ECID
 $ sudo restorekit restore --ecid 0xc60a812345678
 
-# no prompts, for scripts
-$ sudo restorekit restore --yes
+# take a supervised iPhone or iPad to recovery without tapping Trust
+$ restorekit recovery --supervisor identity.p12
 
-# just flip the target into DFU (macOS hosts)
+# watch connected devices, or trigger mac DFU (mac host or dongle)
+$ restorekit list --watch
 $ sudo restorekit dfu
-
-# or reboot it
-$ sudo restorekit reboot
 
 # every command, most with --json
 $ restorekit -h`,
@@ -587,7 +675,7 @@ $ restorekit -h`,
   </section>
 
   <!-- install -->
-  <section id="install" class="bg-mask-deep">
+  <section id="install" class="bg-mask">
     <div class="mx-auto max-w-6xl px-5 py-20">
       <h2 class="t-h2">Install</h2>
 
@@ -598,9 +686,9 @@ $ restorekit -h`,
             {@render cmd(h.id, h.lines)}
             <p class="mt-3 t-small">
               {#if h.id === "mac"}
-                For the desktop app, <code class="text-silk2">brew install --cask fcjr/fcjr/restorekit</code>
+                For the desktop app, <code class="text-silk2">brew install --cask fcjr/fcjr/restorekit</code> or grab the <a href={appDownloads[0].url} class="lnk">.dmg</a>.
               {:else if h.id === "windows"}
-                For the desktop app, grab the <a href={appDownloads[1].url} class="lnk">installer</a>.
+                No iTunes or Apple Devices needed. For the desktop app, grab the <a href={appDownloads[1].url} class="lnk">installer</a>.
               {:else}
                 For the desktop app, run <code class="text-silk2">sudo snap install restorekit</code>, or
                 grab the <a href={appDownloads[2].url} class="lnk">.deb</a> or
@@ -619,12 +707,12 @@ $ restorekit -h`,
   </section>
 
   <!-- library -->
-  <section class="bg-mask">
+  <section class="bg-mask-deep">
     <div class="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-[1fr_1.25fr]">
       <div>
         <h2 class="t-h2">Use it as a rust crate</h2>
         <p class="mt-5 max-w-[48ch]">
-          The cli and the app are both built on the restorekit crate, so you can build your own tools on it too. Docs are on <a href="https://docs.rs/restorekit" class="lnk">docs.rs</a>.
+          The desktop app and cli are thin shells over the restorekit crate. Device discovery, DFU triggering, iOS recovery entry, firmware caching and restore, revive and obliterate are all exposed through a callback API. Docs are on <a href="https://docs.rs/restorekit" class="lnk">docs.rs</a>.
         </p>
       </div>
       <div class="self-center rounded-md border border-copper bg-mask-deep">
@@ -633,7 +721,10 @@ $ restorekit -h`,
           code={`let dev = device::wait(device::Target::One, Duration::from_secs(60))?;
 let fw = firmware::resolve(dev.identifier().unwrap(), None)?;
 let ipsw = firmware::download(&cache, &fw, &mut |event| {
-    // render progress however you like
+    // download progress, cache hits, checksum verification
+})?;
+restore::restore(&ipsw, dev.ecid.unwrap(), Some(&cache), Mode::Erase, false, &mut |event| {
+    // restore steps, wipe checkpoints, obliteration verdict
 })?;`}
         />
       </div>
@@ -641,7 +732,7 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
   </section>
 
   <!-- open source -->
-  <section id="open-source" class="bg-mask-deep">
+  <section id="open-source" class="bg-mask">
     <div class="mx-auto max-w-6xl px-5 py-20">
       <h2 class="t-h2 max-w-3xl">Open source</h2>
       <p class="mt-5 max-w-[62ch]">
@@ -662,12 +753,12 @@ let ipsw = firmware::download(&cache, &fw, &mut |event| {
 
       <div
         id="sponsor-certification"
-        class="mt-12 flex flex-col gap-6 rounded-lg border border-gold/50 bg-mask p-6 md:flex-row md:items-center md:p-8"
+        class="mt-12 flex flex-col gap-6 rounded-lg border border-gold/50 bg-mask-deep p-6 md:flex-row md:items-center md:p-8"
       >
         <div class="grow">
           <h3 class="t-h3">Sponsor a certified erasure report</h3>
           <p class="mt-3 max-w-[62ch]">
-            A DFU restore already wipes the drive, but certifications like ADISA need paid lab time. If your org needs certified erasure, sponsor the lab time and the report is public for everyone.
+            Erase and obliterate already shred the Secure Enclave encryption key and log the device's <code class="text-silk">format_effaceable_storage</code> checkpoint, but certifications like ADISA need paid lab time. If your org needs certified erasure, sponsor the lab time and the report is public for everyone.
           </p>
         </div>
         <a

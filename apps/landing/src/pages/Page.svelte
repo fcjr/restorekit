@@ -19,6 +19,7 @@
     </a>
     <div class="grow"></div>
     <div class="hidden items-center gap-6 text-[15px] text-silk2 md:flex">
+      <a href="/#devices" class="hover:text-silk">Devices</a>
       <a href="/#dongle" class="hover:text-silk">Dongle</a>
       <a href="/#how" class="hover:text-silk">How it works</a>
       <a href="/#desktop" class="hover:text-silk">App</a>
@@ -49,7 +50,7 @@
   </div>
   <p class="mx-auto max-w-6xl px-5 pb-8 t-small">
     The DFU code is a rust port of Asahi Linux's macvdmtool (also Apache-2.0), thank you to that
-    team. Mac and Apple Silicon are trademarks of Apple Inc., Acroname and Cambrionix of their
-    respective owners, mentioned here for comparison only.
+    team. Mac, iPhone, iPad and Apple Silicon are trademarks of Apple Inc., Acroname and Cambrionix
+    of their respective owners, mentioned here for comparison only.
   </p>
 </footer>
