@@ -210,6 +210,16 @@ static SERVER: Mutex<Weak<Server>> = Mutex::new(Weak::new());
 #[cfg(target_os = "linux")]
 static SWITCHERS: Mutex<usize> = Mutex::new(0);
 
+/// Who binds the Windows USB driver when a target enters restore mode.
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+pub enum DriverBinding {
+    /// RestoreKit starts its driver watcher, requesting elevation if needed.
+    RestoreKit,
+    /// The embedding application already manages the restore-mode driver.
+    External,
+}
+
 /// Holds the embedded usbmuxd server, starting it if no other guard in this
 /// process has. The server stops when the last guard drops.
 pub struct UsbmuxdGuard {
@@ -223,17 +233,47 @@ impl UsbmuxdGuard {
     /// unless the process already has it.
     pub fn start(progress: ProgressFn) -> Result<Self> {
         let mut slot = SERVER.lock().unwrap_or_else(|e| e.into_inner());
-        let server = match slot.upgrade() {
-            Some(server) => server,
-            None => {
-                let server = Arc::new(Server::start(progress)?);
-                *slot = Arc::downgrade(&server);
-                server
-            }
-        };
+        let server = Self::server(&mut slot, progress)?;
+        #[cfg(windows)]
+        server.watch_restore_mode()?;
         Ok(Self {
             server: Some(server),
         })
+    }
+
+    fn server(slot: &mut Weak<Server>, progress: ProgressFn) -> Result<Arc<Server>> {
+        if let Some(server) = slot.upgrade() {
+            return Ok(server);
+        }
+        let server = Arc::new(Server::start(progress)?);
+        *slot = Arc::downgrade(&server);
+        Ok(server)
+    }
+
+    /// Configure a Windows restore worker before spawning it. Hold the returned
+    /// guard until that worker exits. Overlapping workers share one server.
+    /// Apple's listener needs no guard or driver binding.
+    #[cfg(windows)]
+    pub fn for_worker(
+        command: &mut std::process::Command,
+        binding: DriverBinding,
+        progress: ProgressFn,
+    ) -> Result<Option<Self>> {
+        let mut slot = SERVER.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = if slot.strong_count() == 0 && crate::restore::windows_mux_check()? {
+            None
+        } else {
+            let server = Self::server(&mut slot, progress)?;
+            if matches!(binding, DriverBinding::RestoreKit) {
+                server.watch_restore_mode()?;
+            }
+            Some(Self {
+                server: Some(server),
+            })
+        };
+        command.env("RESTOREKIT_SHARED_USBMUXD", "1");
+        command.env("USBMUXD_SOCKET_ADDRESS", "127.0.0.1:27015");
+        Ok(guard)
     }
 
     /// Where libusbmuxd reaches the server, in `USBMUXD_SOCKET_ADDRESS`'s form.
@@ -316,16 +356,17 @@ struct Server {
     /// Binds WinUSB to each restore-mode Mac while the server runs. Apple's
     /// driver claims that interface otherwise, and libusb can't open it.
     #[cfg(target_os = "windows")]
-    _restore_mode: crate::driver::RestoreWatcherGuard,
+    restore_mode: std::sync::OnceLock<crate::driver::RestoreWatcherGuard>,
 }
 
 impl Server {
-    fn start(progress: ProgressFn) -> Result<Self> {
-        progress(Event::UsbmuxdStarting);
-
-        // Without the watcher a restore runs for minutes and then stalls
-        // waiting for restore mode, so stop now instead.
-        #[cfg(target_os = "windows")]
+    // Called under SERVER's lock, including when a caller joins a server
+    // whose first worker supplied its own driver binding.
+    #[cfg(windows)]
+    fn watch_restore_mode(&self) -> Result<()> {
+        if self.restore_mode.get().is_some() {
+            return Ok(());
+        }
         let restore_mode = crate::driver::spawn_restore_mode_watcher().ok_or_else(|| {
             Error::DriverInstall(
                 "couldn't start the restore-mode USB helper (was the Windows UAC prompt \
@@ -334,6 +375,12 @@ impl Server {
                     .into(),
             )
         })?;
+        let _ = self.restore_mode.set(restore_mode);
+        Ok(())
+    }
+
+    fn start(progress: ProgressFn) -> Result<Self> {
+        progress(Event::UsbmuxdStarting);
 
         // What we hand the C server (Linux: the socket path; Windows: ignored —
         // it binds a fixed loopback port).
@@ -366,7 +413,10 @@ impl Server {
         let thread = thread::Builder::new()
             .name("usbmuxd".into())
             .spawn(restorekit_sys::usbmuxd_run)
-            .map_err(|e| Error::UsbmuxdFailed(format!("failed to spawn usbmuxd thread: {e}")))?;
+            .map_err(|e| {
+                restorekit_sys::usbmuxd_cleanup();
+                Error::UsbmuxdFailed(format!("failed to spawn usbmuxd thread: {e}"))
+            })?;
 
         // Point libusbmuxd (linked into idevicerestore) at our server. On Windows
         // its default is already TCP 127.0.0.1:27015, so nothing to set.
@@ -396,7 +446,7 @@ impl Server {
             socket_path,
             thread: Some(thread),
             #[cfg(target_os = "windows")]
-            _restore_mode: restore_mode,
+            restore_mode: std::sync::OnceLock::new(),
         })
     }
 }
