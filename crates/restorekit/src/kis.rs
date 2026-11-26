@@ -149,6 +149,10 @@ pub(crate) fn identify(info: &nusb::DeviceInfo) -> Read {
         }
         None => Instant::now(),
     };
+    #[cfg(target_os = "macos")]
+    if claim::elsewhere(info.location_id()) {
+        return Read::Failed;
+    }
     let read = loop {
         let read = read(info);
         if read != Read::Failed || first_seen.elapsed() >= ARRIVAL_GRACE {
@@ -217,6 +221,151 @@ fn get_info(info: &nusb::DeviceInfo) -> Result<Vec<u8>, String> {
     let id = dic::interface_for(info.registry_entry_id())?;
     let req = header(PORTAL_RSM, INDEX_GET_INFO, 0, INFO_LEN / 4);
     dic::request(id, &req, HEADER_LEN + INFO_LEN + 8)
+}
+
+/// Which Mac in DFU over Debug USB each restore on this host is working on.
+///
+/// `deviceinterfaced` hands the same KIS device to every process that asks, and
+/// a KIS device's identity can only be read by sending it a request. One that
+/// lands between another restore's transfers fails, or breaks them. So a
+/// restore holds a lock file named for its device's IOKit `locationID`, and
+/// [`identify`] passes over a device another process holds.
+#[cfg(target_os = "macos")]
+pub(crate) mod claim {
+    use std::fs::{File, OpenOptions, TryLockError};
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    use crate::{Error, Result};
+    use restorekit_sys as sys;
+
+    /// The one location this process may read, set by [`only`]; 0 for any.
+    static ONLY: AtomicU32 = AtomicU32::new(0);
+    /// The location this process's restore holds, and its lock.
+    static HELD: Mutex<Option<(u32, File)>> = Mutex::new(None);
+
+    /// In /tmp rather than the per-user temporary directory, so a restore run
+    /// as root and one run as the user see each other's.
+    fn path(location: u32) -> String {
+        format!("/tmp/restorekit-kis-{location:08x}.lock")
+    }
+
+    /// Limit this process, and libirecovery in it, to the KIS device at
+    /// `location`; 0 lifts the limit.
+    pub(crate) fn only(location: u32) -> Result<()> {
+        ONLY.store(location, Ordering::Relaxed);
+        restrict(location)
+    }
+
+    fn restrict(location: u32) -> Result<()> {
+        match unsafe { sys::irecv_set_kis_location(location) } {
+            0 => Ok(()),
+            code => Err(Error::Usb(format!(
+                "libirecovery refused the KIS location {location:#x} ({code})"
+            ))),
+        }
+    }
+
+    /// Whether the KIS device at `location` is off limits to this process:
+    /// outside the limit [`only`] set, or held by another process's restore.
+    pub(crate) fn elsewhere(location: u32) -> bool {
+        let only = ONLY.load(Ordering::Relaxed);
+        if only != 0 && location != only {
+            return true;
+        }
+        if matches!(*HELD.lock().unwrap(), Some((held, _)) if held == location) {
+            return false;
+        }
+        let Ok(file) = File::open(path(location)) else {
+            return false;
+        };
+        matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock))
+    }
+
+    /// Held for the length of a restore; see [`hold`].
+    pub(crate) struct Claim(());
+
+    impl Drop for Claim {
+        fn drop(&mut self) {
+            *HELD.lock().unwrap() = None;
+            let _ = restrict(ONLY.load(Ordering::Relaxed));
+        }
+    }
+
+    /// Take the Mac with `ecid` for this process's restore, if it's in DFU
+    /// over Debug USB, and limit libirecovery to it until the claim drops.
+    /// `None` for a target in any other mode. Fails when another restore
+    /// holds that Mac.
+    pub(crate) fn hold(ecid: u64) -> Result<Option<Claim>> {
+        use nusb::MaybeFuture;
+        let location = nusb::list_devices()
+            .wait()
+            .map_err(Error::from)?
+            .filter(|i| {
+                i.vendor_id() == crate::device::APPLE_VID
+                    && i.product_id() == crate::device::KIS_PID
+            })
+            .find(|i| match super::identify(i) {
+                super::Read::Serial(s) => {
+                    crate::device::parse_serial(&s).is_some_and(|p| p.2 == ecid)
+                }
+                _ => false,
+            })
+            .map(|i| i.location_id());
+        let Some(location) = location else {
+            return Ok(None);
+        };
+        // Unable to make the lock file: restore without one.
+        if let Ok(file) = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .mode(0o666)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path(location))
+            .or_else(|_| File::open(path(location)))
+        {
+            // Another process checking the lock holds it for a moment.
+            let mut tries = 0;
+            loop {
+                match file.try_lock() {
+                    Ok(()) => break,
+                    Err(TryLockError::WouldBlock) if tries < 20 => {
+                        tries += 1;
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(TryLockError::WouldBlock) => {
+                        return Err(Error::Usb(format!(
+                            "another restorekit restore is using the Mac at USB location \
+                             {location:#x}; wait for it to finish"
+                        )));
+                    }
+                    Err(TryLockError::Error(_)) => break,
+                }
+            }
+            *HELD.lock().unwrap() = Some((location, file));
+        }
+        restrict(location)?;
+        Ok(Some(Claim(())))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_location_locked_by_another_holder_is_elsewhere() {
+            let location = 0xfff0_0000 | (std::process::id() & 0xffff);
+            assert!(!elsewhere(location));
+            let file = File::create(path(location)).unwrap();
+            file.try_lock().unwrap();
+            assert!(elsewhere(location));
+            drop(file);
+            assert!(!elsewhere(location));
+            std::fs::remove_file(path(location)).unwrap();
+        }
+    }
 }
 
 /// A readable dump of every KIS device on the bus: what `deviceinterfaced` sees

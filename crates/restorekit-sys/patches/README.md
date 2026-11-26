@@ -152,7 +152,9 @@ compiles the patched copy.
   and a Mac whose own device read failed was never announced, so its restore
   gave up with "Unable to discover device mode". `irecv_set_kis_location()`
   limits a process to the KIS device at one IOKit `locationID`; other KIS
-  devices are passed over unopened.
+  devices are passed over unopened. A restore sets it to its own Mac's, and
+  holds a lock on that location that device listing in other processes honors
+  (`restorekit::kis::claim`).
 
 ## libusbmuxd
 

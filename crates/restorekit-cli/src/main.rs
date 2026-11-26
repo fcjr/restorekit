@@ -273,11 +273,12 @@ struct FirmwareArgs {
     /// `restorekit recovery --help`).
     #[arg(long)]
     supervisor: Option<PathBuf>,
-    /// Open only the Debug USB (KIS) device at this IOKit locationID, in hex
-    /// (0x120000), so a restore never sends requests to a Mac another process
-    /// is restoring.
+    /// Read and open only the Debug USB (KIS) device at this IOKit locationID,
+    /// in hex (0x120000). For a supervisor running one restore per Mac: a
+    /// restore keeps off a Mac another one has started on by itself, and this
+    /// keeps it off the idle ones too.
     #[cfg(target_os = "macos")]
-    #[arg(long, value_parser = parse_hex_u32, hide = true)]
+    #[arg(long, value_parser = parse_kis_location, hide = true)]
     kis_location: Option<u32>,
 }
 
@@ -300,6 +301,14 @@ struct ReviveArgs {
 fn parse_hex_u32(s: &str) -> Result<u32, String> {
     let hex = s.trim().trim_start_matches("0x").trim_start_matches("0X");
     u32::from_str_radix(hex, 16).map_err(|e| format!("invalid hex word {s:?}: {e}"))
+}
+
+#[cfg(target_os = "macos")]
+fn parse_kis_location(s: &str) -> Result<u32, String> {
+    match parse_hex_u32(s)? {
+        0 => Err("a locationID is never 0".into()),
+        location => Ok(location),
+    }
 }
 
 fn parse_ecid(s: &str) -> Result<u64, String> {

@@ -147,6 +147,10 @@ pub struct Opts {
 /// → restore it.
 pub fn run(opts: Opts) -> Result<()> {
     restorekit::restore::preflight()?;
+    #[cfg(target_os = "macos")]
+    if let Some(location) = opts.kis_location {
+        restorekit::restore::only_kis_at(location)?;
+    }
     let supervisor = opts
         .supervisor
         .as_deref()
@@ -322,10 +326,6 @@ fn restore_device(device: &Device, opts: Opts, prepared: Option<PathBuf>) -> Res
     let mut wipe: Option<(String, String)> = None;
     let mut checkpoints: Option<(Vec<String>, Vec<String>)> = None;
     let mut timer = PhaseTimer::new();
-    #[cfg(target_os = "macos")]
-    if let Some(location) = opts.kis_location {
-        restore::only_kis_at(location)?;
-    }
     let result = restore::restore(
         &ipsw_path,
         ecid,

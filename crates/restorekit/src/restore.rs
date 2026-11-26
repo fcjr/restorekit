@@ -327,19 +327,15 @@ pub fn restore(
     )
 }
 
-/// Let this process open only the Mac in DFU over Debug USB whose KIS device
-/// sits at `location`, its IOKit `locationID`. A KIS device's ECID can only be
-/// read by opening it and sending it requests, so without this a restore does
-/// that to every such Mac, including ones other processes are restoring in the
-/// middle of their transfers. Holds for the rest of the process.
+/// Limit this process to the Mac in DFU over Debug USB whose KIS device sits
+/// at `location`, its IOKit `locationID`: device listing and the restore leave
+/// every other KIS device unopened. For a caller that runs one restore process
+/// per Mac and knows where each is. Without it a restore still keeps off a Mac
+/// another restore has started on, but reads any that are idle. Holds for the
+/// rest of the process; call it before listing devices.
 #[cfg(target_os = "macos")]
 pub fn only_kis_at(location: u32) -> Result<()> {
-    match unsafe { sys::irecv_set_kis_location(location) } {
-        0 => Ok(()),
-        code => Err(Error::Usb(format!(
-            "libirecovery refused the KIS location {location:#x} ({code})"
-        ))),
-    }
+    crate::kis::claim::only(location)
 }
 
 /// [`restore`] without the retry: a failure is returned after one pass, for a
@@ -368,6 +364,10 @@ fn run(
     attempts: u32,
 ) -> Result<Obliteration> {
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Keep other restores on this host off a Mac in DFU over Debug USB, and
+    // this one off theirs.
+    #[cfg(target_os = "macos")]
+    let _claim = crate::kis::claim::hold(ecid)?;
 
     // On Linux and Windows, start the embedded usbmuxd server so idevicerestore
     // can reach USB devices (restore mode) without an external daemon — unless a
