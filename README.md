@@ -1,6 +1,6 @@
 # restorekit
 
-**Wipe, revive, and restore T2 and Apple Silicon macs from macOS, linux, or windows. No apple tools required.**
+**Wipe, revive, and restore T2 and Apple Silicon macs (plus iPhones and iPads) from macOS, linux, or windows. No apple tools required.**
 
 [![CI](https://github.com/fcjr/restorekit/actions/workflows/ci.yml/badge.svg)](https://github.com/fcjr/restorekit/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/restorekit-cli.svg)](https://crates.io/crates/restorekit-cli)
@@ -27,10 +27,11 @@ I've worked at a few places where windows was the default machine (including for
 - **Restore multiple macs at once** in parallel in the desktop app, caching downloaded firmware so you only pull the IPSW once.
 - **Inspect and log devices** with serial numbers, ECIDs, modes, QR codes, and CSV export.
 - **Trigger DFU automatically** from any T2 or Apple Silicon mac host, or from linux and windows with an optional open-hardware [dongle](hardware/README.md).
+- **Restore iPhones and iPads** from DFU or recovery mode. If the device is running, restorekit puts it into recovery mode for you (you tap Trust on it once).
 
 ## Desktop app
 
-The desktop app wraps everything restorekit can do in a standalone macOS, linux, and windows app. It detects connected macs, walks you through entering DFU mode or setting up USB access on windows, restores multiple macs in parallel, keeps a history log of restored machines, and updates itself automatically.
+The desktop app wraps everything restorekit can do in a standalone macOS, linux, and windows app. It detects connected macs, iPhones, and iPads, walks you through entering DFU or recovery mode or setting up USB access on windows, restores multiple macs in parallel, keeps a history log of restored machines, and updates itself automatically.
 
 ### Install
 
@@ -111,7 +112,9 @@ restorekit -h
 
 Follow the instructions and bam! restorekit detects the mac, downloads the right firmware, and restores it to factory settings.
 
-Most commands accept `--json` for scripting and automation. You can also pass `--os-version` or `--ipsw` to pin a macOS version or restore offline, and `restorekit recovery` puts a running iPhone or iPad into recovery mode (with `--supervisor` for supervised devices).
+Most commands accept `--json` for scripting and automation. You can also pass `--os-version` or `--ipsw` to pin an OS version or restore offline.
+
+For an iPhone or iPad, find its ECID with `restorekit list` and run `sudo restorekit restore --ecid <ECID>`. If it's running, restorekit takes it into recovery mode first, so tap Trust on the device when it asks. `restorekit recovery` does just that step, and both take `--supervisor` for supervised devices.
 
 ## Rust library
 

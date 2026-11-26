@@ -1,6 +1,6 @@
 [package]
 name = "restorekit"
-description = "Library for DFU-restoring Apple Silicon Macs: DFU trigger, detection, firmware download, and restore"
+description = "Library for restoring Macs, iPhones, and iPads over USB: DFU trigger, detection, firmware download, and restore"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

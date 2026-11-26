@@ -1,6 +1,6 @@
 [package]
 name = "restorekit-cli"
-description = "CLI for DFU-restoring Apple Silicon Macs"
+description = "CLI for restoring Macs, iPhones, and iPads over USB"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

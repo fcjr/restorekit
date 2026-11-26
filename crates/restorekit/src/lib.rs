@@ -1,5 +1,5 @@
-//! Restore Apple Silicon Macs over USB — the engine behind the `restorekit`
-//! CLI, usable directly from Rust (e.g. to build a GUI).
+//! Restore Macs, iPhones and iPads over USB — the engine behind the
+//! `restorekit` CLI, usable directly from Rust (e.g. to build a GUI).
 //!
 //! The workflow has four stages, each a module:
 //!
