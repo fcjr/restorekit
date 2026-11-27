@@ -140,7 +140,7 @@ pub fn start_shared_usbmuxd(progress: progress::ProgressFn) -> Result<SharedUsbm
             return Ok(SharedUsbmuxd { _guard: None });
         }
         let guard = usbmuxd::UsbmuxdGuard::start(progress)?;
-        unsafe { std::env::set_var("RESTOREKIT_SHARED_USBMUXD", "1") };
+        unsafe { std::env::set_var("RESTOREKIT_SHARED_USBMUXD", std::process::id().to_string()) };
         Ok(SharedUsbmuxd {
             _guard: Some(guard),
         })

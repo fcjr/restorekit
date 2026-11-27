@@ -316,13 +316,40 @@ pub fn windows_mux_check() -> Result<bool> {
     }
 }
 
+/// Whether a parent shares its usbmuxd with this process. The marker holds the
+/// parent's pid; an embedding app may set another value, such as the old `1`
+/// (never a Windows pid), which is taken as is. On Windows that parent must
+/// still hold the port, or a restore would trust whatever took it over.
+fn shared_usbmuxd() -> Result<bool> {
+    let Some(marker) = std::env::var_os("RESTOREKIT_SHARED_USBMUXD") else {
+        return Ok(false);
+    };
+    #[cfg(target_os = "windows")]
+    if let Some(parent) = marker
+        .to_str()
+        .and_then(|m| m.parse::<u32>().ok())
+        .filter(|&p| p != 1)
+    {
+        use crate::usbmuxd::MuxPort;
+        if !matches!(crate::usbmuxd::mux_port(), MuxPort::Other { pid, .. } if pid == parent) {
+            return Err(Error::UsbmuxdFailed(format!(
+                "the shared USB mux from restorekit (pid {parent}) is gone: it no longer \
+                 listens on 127.0.0.1:27015. Restart the restore from its parent"
+            )));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = marker;
+    Ok(true)
+}
+
 /// Check that a restore can get the USB mux it needs, so a setup that can't
 /// fails before the Mac is put into DFU and the firmware downloaded. Each
 /// restore process serves its own embedded usbmuxd on Linux and Windows unless
 /// a parent shares one ([`crate::start_shared_usbmuxd`]); two of those at once
 /// fight over every Mac in restore mode (Linux) or the one mux port (Windows).
 pub fn preflight() -> Result<()> {
-    if std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
+    if shared_usbmuxd()? {
         return Ok(());
     }
     #[cfg(target_os = "windows")]
@@ -410,16 +437,17 @@ fn run(
     //
     // On Linux, a running system usbmuxd claims each device in restore mode
     // before an embedded server can open it, so use it as-is too.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let shared = shared_usbmuxd()?;
     #[cfg(target_os = "windows")]
-    let host_usbmuxd =
-        std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_none() && windows_mux_check()?;
+    let host_usbmuxd = !shared && windows_mux_check()?;
     #[cfg(target_os = "linux")]
     let host_usbmuxd = {
         preflight()?;
         crate::usbmuxd::system_running()
     };
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    let _usbmuxd = if host_usbmuxd || std::env::var_os("RESTOREKIT_SHARED_USBMUXD").is_some() {
+    let _usbmuxd = if host_usbmuxd || shared {
         None
     } else {
         Some(crate::usbmuxd::UsbmuxdGuard::start(progress)?)

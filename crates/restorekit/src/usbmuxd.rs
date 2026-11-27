@@ -260,20 +260,19 @@ impl UsbmuxdGuard {
         progress: ProgressFn,
     ) -> Result<Option<Self>> {
         let mut slot = SERVER.lock().unwrap_or_else(|e| e.into_inner());
-        let guard = if slot.strong_count() == 0 && crate::restore::windows_mux_check()? {
-            None
-        } else {
-            let server = Self::server(&mut slot, progress)?;
-            if matches!(binding, DriverBinding::RestoreKit) {
-                server.watch_restore_mode()?;
-            }
-            Some(Self {
-                server: Some(server),
-            })
-        };
-        command.env("RESTOREKIT_SHARED_USBMUXD", "1");
+        if slot.strong_count() == 0 && crate::restore::windows_mux_check()? {
+            return Ok(None);
+        }
+        let server = Self::server(&mut slot, progress)?;
+        if matches!(binding, DriverBinding::RestoreKit) {
+            server.watch_restore_mode()?;
+        }
+        // The worker checks that this process still holds the port.
+        command.env("RESTOREKIT_SHARED_USBMUXD", std::process::id().to_string());
         command.env("USBMUXD_SOCKET_ADDRESS", "127.0.0.1:27015");
-        Ok(guard)
+        Ok(Some(Self {
+            server: Some(server),
+        }))
     }
 
     /// Where libusbmuxd reaches the server, in `USBMUXD_SOCKET_ADDRESS`'s form.
