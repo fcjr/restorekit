@@ -18,8 +18,8 @@ default = ["history"]
 history = ["dep:rusqlite", "dep:rusqlite_migration"]
 
 [dependencies]
-restorekit-sys = { path = "../restorekit-sys", version = "0.7.0" }
-restorekit-dongle-proto = { path = "../restorekit-dongle-proto", version = "0.7.0" }
+restorekit-sys = { path = "../restorekit-sys", version = "0.7.1" }
+restorekit-dongle-proto = { path = "../restorekit-dongle-proto", version = "0.7.1" }
 nusb = "0.2"
 openssl = "0.10.81"
 zeroize = "1"
