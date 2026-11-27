@@ -102,6 +102,8 @@ pub fn exit(ecid: u64) -> Result<()> {
         let reason = unsafe { CStr::from_ptr(sys::irecv_strerror(code)) }.to_string_lossy();
         Error::RecoveryExit(format!("{what}: {reason}"))
     };
+    #[cfg(target_os = "macos")]
+    crate::kis::claim::install();
     let mut client = ptr::null_mut();
     let code = unsafe { sys::irecv_open_with_ecid_and_attempts(&mut client, ecid, 5) };
     if code != sys::IRECV_E_SUCCESS {

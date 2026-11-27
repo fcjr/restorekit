@@ -145,6 +145,12 @@ pub struct Opts {
 /// → restore it.
 pub fn run(opts: Opts) -> Result<()> {
     restorekit::restore::preflight()?;
+    // A device another restore is working on is left alone: putting it into
+    // DFU or recovery mode again would break that restore.
+    match opts.ecid {
+        Some(ecid) => restore::ensure_free(ecid)?,
+        None => super::dfu::ensure_target_free(opts.dongle.as_deref())?,
+    }
     let supervisor = opts
         .supervisor
         .as_deref()
@@ -275,6 +281,7 @@ fn restore_device(device: &Device, opts: Opts, prepared: Option<PathBuf>) -> Res
     // device in DFU or recovery mode with a parsed serial, so the ECID and
     // identity are set.
     let ecid = device.ecid.expect("restore target carries an ECID");
+    restore::ensure_free(ecid)?;
     let cache = cache_dir(&opts)?;
     let mode = opts.mode;
     check_mode(device, mode)?;

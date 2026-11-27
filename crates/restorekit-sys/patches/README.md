@@ -143,6 +143,18 @@ compiles the patched copy.
   WinUSB-bound KIS devices the same way. A failed transfer resets its pipe;
   only removal marks a link dead. Devices bound to Apple's AppleKIS driver are
   unchanged.
+- `0007-ask-before-opening-a-kis-device.patch` — a KIS device's ECID can only
+  be read by opening it and sending it requests, so each restore's device event
+  thread and `irecv_open_with_ecid()` did that to every Mac in DFU over Debug
+  USB, including ones other processes were restoring. On macOS, where
+  `deviceinterfaced` lets several processes reach one device, those requests
+  landed between another restore's transfers, failed (or broke them), and a
+  Mac whose own device read failed was never announced, so its restore gave up
+  with "Unable to discover device mode". `irecv_set_kis_filter()` takes a
+  callback asked with each KIS device's IOKit `locationID` before it is opened;
+  one it turns down is passed over unopened. restorekit's turns down every
+  Mac but the one this process is restoring, or, with no such Mac, the ones
+  other processes' restores hold (`restorekit::kis::claim`).
 
 ## libusbmuxd
 

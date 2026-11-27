@@ -157,6 +157,45 @@ fn lowercase_first(s: &str) -> String {
 
 static RESTORE_LOCK: Mutex<()> = Mutex::new(());
 
+/// The device this process is restoring, by ECID, and the lock that tells
+/// other processes so (`None` when the lock file couldn't be had).
+static RESTORING: Mutex<Option<(u64, Option<std::fs::File>)>> = Mutex::new(None);
+
+fn restoring_lock(ecid: u64) -> String {
+    format!("restore-{ecid:016x}")
+}
+
+/// Fail if another process on this host is restoring the device with this
+/// ECID. A restore checks for itself when it starts; this is for a caller to
+/// find out before it downloads firmware, or puts the device into DFU or
+/// recovery mode, which would break the restore under way.
+pub fn ensure_free(ecid: u64) -> Result<()> {
+    let own = matches!(*RESTORING.lock().unwrap(), Some((own, _)) if own == ecid);
+    if !own && crate::lock::held(&restoring_lock(ecid)).is_some() {
+        return Err(Error::RestoreInProgress(ecid));
+    }
+    Ok(())
+}
+
+/// Marks the device with this ECID as under restore by this process until
+/// dropped.
+struct Restoring;
+
+impl Restoring {
+    fn begin(ecid: u64) -> Result<Restoring> {
+        let file =
+            crate::lock::take(&restoring_lock(ecid)).map_err(|_| Error::RestoreInProgress(ecid))?;
+        *RESTORING.lock().unwrap() = Some((ecid, file));
+        Ok(Restoring)
+    }
+}
+
+impl Drop for Restoring {
+    fn drop(&mut self) {
+        *RESTORING.lock().unwrap() = None;
+    }
+}
+
 /// idevicerestore's restore path is stack-hungry (big local buffers, deep call
 /// chains). That fits comfortably in the 8 MB main-thread stack on macOS/Linux
 /// but overflows Windows' ~1 MB default, so we always run it on a thread with a
@@ -353,6 +392,11 @@ fn run(
     attempts: u32,
 ) -> Result<Obliteration> {
     let _guard = RESTORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _restoring = Restoring::begin(ecid)?;
+    // Keep other restores on this host off a Mac in DFU over Debug USB, and
+    // this one off theirs.
+    #[cfg(target_os = "macos")]
+    let _claim = crate::kis::claim::hold(ecid)?;
 
     // On Linux and Windows, start the embedded usbmuxd server so idevicerestore
     // can reach USB devices (restore mode) without an external daemon — unless a

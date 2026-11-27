@@ -172,6 +172,13 @@ fn read(info: &nusb::DeviceInfo) -> Read {
     {
         return apple_kis::read(info);
     }
+    #[cfg(target_os = "macos")]
+    match claim::held(info.location_id()) {
+        // Held, but its holder hasn't written the identity yet.
+        Some(serial) if serial.is_empty() => return Read::Failed,
+        Some(serial) => return Read::Serial(serial),
+        None => {}
+    }
     match get_info(info) {
         Ok(reply) => classify(&reply),
         Err(_) => Read::Failed,
@@ -217,6 +224,141 @@ fn get_info(info: &nusb::DeviceInfo) -> Result<Vec<u8>, String> {
     let id = dic::interface_for(info.registry_entry_id())?;
     let req = header(PORTAL_RSM, INDEX_GET_INFO, 0, INFO_LEN / 4);
     dic::request(id, &req, HEADER_LEN + INFO_LEN + 8)
+}
+
+/// Which Mac in DFU over Debug USB each restore on this host is working on.
+///
+/// `deviceinterfaced` hands the same KIS device to every process that asks, and
+/// a KIS device's identity can only be read by sending it a request. One that
+/// lands between another restore's transfers fails, or breaks them. So a
+/// restore holds a lock on a file named for its Mac's IOKit `locationID` and
+/// leaves the Mac's identity in it. Another process reads the identity from
+/// the file instead of from the Mac ([`identify`]), and libirecovery in it is
+/// kept from opening the Mac ([`install`]).
+#[cfg(target_os = "macos")]
+pub(crate) mod claim {
+    use std::fs::File;
+    use std::io::{Read as _, Write as _};
+    use std::os::raw::c_int;
+    use std::sync::{Mutex, Once};
+
+    use restorekit_sys as sys;
+
+    use crate::{lock, Error, Result};
+
+    /// The location of the Mac this process's restore holds, and its lock
+    /// (`None` when the lock file couldn't be had).
+    static HELD: Mutex<Option<(u32, Option<File>)>> = Mutex::new(None);
+
+    fn own() -> Option<u32> {
+        HELD.lock().unwrap().as_ref().map(|(location, _)| *location)
+    }
+
+    fn name(location: u32) -> String {
+        format!("kis-{location:08x}")
+    }
+
+    /// The identity of the Mac at `location` when another process's restore
+    /// holds it, as that restore read it (empty until it has written it).
+    /// `None` when no other process holds that location.
+    pub(crate) fn held(location: u32) -> Option<String> {
+        if own() == Some(location) {
+            return None;
+        }
+        let mut file = lock::held(&name(location))?;
+        let mut serial = String::new();
+        let _ = file.read_to_string(&mut serial);
+        Some(serial)
+    }
+
+    /// A restore of a Mac in DFU over Debug USB has no use for any other KIS
+    /// device. Anything else keeps off the ones other restores hold.
+    extern "C" fn excluded(location: u32) -> c_int {
+        c_int::from(match own() {
+            Some(own) => location != own,
+            None => held(location).is_some(),
+        })
+    }
+
+    /// Have libirecovery pass over, unopened, each KIS device this process is
+    /// to keep off. Call before anything that has it open devices by ECID or
+    /// watch for them: either opens every KIS device to read its ECID.
+    pub(crate) fn install() {
+        static INSTALLED: Once = Once::new();
+        INSTALLED.call_once(|| unsafe {
+            sys::irecv_set_kis_filter(Some(excluded));
+        });
+    }
+
+    /// Held for the length of a restore; see [`hold`].
+    pub(crate) struct Claim(());
+
+    impl Drop for Claim {
+        fn drop(&mut self) {
+            *HELD.lock().unwrap() = None;
+        }
+    }
+
+    /// Take the Mac with `ecid` for this process's restore, if it's in DFU
+    /// over Debug USB, until the claim drops: other processes keep off it, and
+    /// libirecovery here opens no other KIS device. `None` for a target in any
+    /// other mode. Fails when another restore holds that Mac.
+    pub(crate) fn hold(ecid: u64) -> Result<Option<Claim>> {
+        use nusb::MaybeFuture;
+        install();
+        let target = nusb::list_devices()
+            .wait()
+            .map_err(Error::from)?
+            .filter(|i| {
+                i.vendor_id() == crate::device::APPLE_VID
+                    && i.product_id() == crate::device::KIS_PID
+            })
+            .find_map(|i| match super::identify(&i) {
+                super::Read::Serial(serial)
+                    if crate::device::parse_serial(&serial).is_some_and(|p| p.2 == ecid) =>
+                {
+                    Some((i.location_id(), serial))
+                }
+                _ => None,
+            });
+        let Some((location, serial)) = target else {
+            return Ok(None);
+        };
+        let file = lock::take(&name(location)).map_err(|_| Error::RestoreInProgress(ecid))?;
+        if let Some(mut file) = file.as_ref() {
+            file.set_len(0)
+                .and_then(|()| file.write_all(serial.as_bytes()))
+                .map_err(|e| Error::Usb(format!("lock for {ecid:#x}: {e}")))?;
+        }
+        *HELD.lock().unwrap() = Some((location, file));
+        Ok(Some(Claim(())))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn another_holder_leaves_the_identity_it_read() {
+            let location = 0xfff0_0000 | (std::process::id() & 0xffff);
+            assert_eq!(held(location), None);
+            let mut file = lock::take(&name(location)).unwrap().unwrap();
+            assert_eq!(held(location).as_deref(), Some(""));
+            assert_eq!(excluded(location), 1);
+            *HELD.lock().unwrap() = Some((location + 1, None));
+            assert_eq!((excluded(location), excluded(location + 1)), (1, 0));
+            *HELD.lock().unwrap() = None;
+            file.write_all(b"CPID:8103 ECID:000C60A812345678").unwrap();
+            assert_eq!(
+                held(location).as_deref(),
+                Some("CPID:8103 ECID:000C60A812345678")
+            );
+            drop(file);
+            assert_eq!(held(location), None);
+            assert_eq!(excluded(location), 0);
+            std::fs::remove_file(format!("/tmp/restorekit-{}.lock", name(location))).unwrap();
+        }
+    }
 }
 
 /// A readable dump of every KIS device on the bus: what `deviceinterfaced` sees

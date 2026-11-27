@@ -72,6 +72,7 @@ pub mod firmware;
 pub mod history;
 #[doc(hidden)]
 pub mod kis;
+mod lock;
 pub mod progress;
 pub mod recovery;
 pub mod restore;
