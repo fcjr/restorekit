@@ -21,6 +21,7 @@ use openssl::nid::Nid;
 use openssl::pkcs12::Pkcs12;
 use openssl::pkcs7::{Pkcs7, Pkcs7Flags};
 use openssl::pkey::{PKey, Private};
+use openssl::provider::Provider;
 use openssl::rsa::Rsa;
 use openssl::stack::Stack;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
@@ -203,14 +204,14 @@ impl Supervisor {
         }
     }
 
-    /// Read the identity from a PKCS #12 archive protected by this password.
-    ///
-    /// The bundled OpenSSL has no legacy algorithms, so it can't read an
-    /// archive encrypted with RC2, as macOS keychain exports are: convert one
-    /// to PEM for [`from_pem`](Self::from_pem).
+    /// Read the identity from a password-protected PKCS #12 archive,
+    /// including macOS Keychain exports.
     pub fn from_pkcs12(der: &[u8], password: &str) -> Result<Self> {
         let invalid = |reason: &str| Error::SupervisionIdentity(reason.into());
         let archive = Pkcs12::from_der(der).map_err(|_| invalid("not a PKCS #12 archive"))?;
+        // Keychain exports can use RC2. Try the legacy provider alongside the
+        // default one so modern archives also load if legacy is unavailable.
+        let _legacy = Provider::try_load(None, "legacy", true).ok();
         let parsed = archive.parse2(password).map_err(|error| {
             let wrong = error
                 .errors()
@@ -909,6 +910,19 @@ mod tests {
         assert!(matches!(
             Supervisor::from_pkcs12(b"not an archive", "correct horse"),
             Err(Error::SupervisionIdentity(reason)) if reason == "not a PKCS #12 archive"
+        ));
+    }
+
+    #[test]
+    fn an_identity_reads_from_a_keychain_pkcs12_export() {
+        // Exported by macOS `security export -t identities -f pkcs12` with
+        // RC2-40 for the certificate and 3DES for the private key.
+        let archive = include_bytes!("../tests/fixtures/keychain-identity.p12");
+        let read = Supervisor::load(archive, "correct horse").unwrap();
+        assert_eq!(read.name().as_deref(), Some("RestoreKit Test Supervisor"));
+        assert!(matches!(
+            Supervisor::load(archive, "wrong"),
+            Err(Error::SupervisionIdentity(reason)) if reason == "wrong password"
         ));
     }
 
