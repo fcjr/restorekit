@@ -85,7 +85,11 @@ static int create_loopback_socket(void)
 
     /* Exclusive, so no other process can bind the port while we hold it. */
     int one = 1;
-    setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof(one));
+    if (setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof(one)) != 0) {
+        usbmuxd_log(LL_FATAL, "setsockopt(SO_EXCLUSIVEADDRUSE) failed: %d", WSAGetLastError());
+        closesocket(fd);
+        return -1;
+    }
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
