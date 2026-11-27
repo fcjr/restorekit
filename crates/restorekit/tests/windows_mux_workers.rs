@@ -43,6 +43,7 @@ fn spawn_worker() -> (Child, UsbmuxdGuard) {
         "--nocapture",
     ])
     .env("RESTOREKIT_TEST_MUX_WORKER", "1")
+    .env("RESTOREKIT_TEST_MUX_PARENT", std::process::id().to_string())
     .stdin(Stdio::piped())
     .stdout(Stdio::piped());
     let guard = UsbmuxdGuard::for_worker(&mut cmd, DriverBinding::External, &mut |_| {})
@@ -56,8 +57,8 @@ fn spawn_worker() -> (Child, UsbmuxdGuard) {
 
 fn worker() {
     assert_eq!(
-        std::env::var("RESTOREKIT_SHARED_USBMUXD").as_deref(),
-        Ok("1")
+        std::env::var("RESTOREKIT_SHARED_USBMUXD"),
+        std::env::var("RESTOREKIT_TEST_MUX_PARENT")
     );
     let query = || {
         restorekit::restore::preflight().unwrap();

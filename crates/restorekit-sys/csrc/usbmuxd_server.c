@@ -79,8 +79,9 @@ static int create_loopback_socket(void)
         return -1;
     }
 
+    /* Exclusive, so no other process can bind the port while we hold it. */
     int one = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one));
+    setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof(one));
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
