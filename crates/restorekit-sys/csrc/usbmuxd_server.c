@@ -79,6 +79,10 @@ static int create_loopback_socket(void)
         return -1;
     }
 
+    /* Sockets are inheritable by default; a child's copy would keep the port
+     * listening after the server stops. */
+    SetHandleInformation((HANDLE)fd, HANDLE_FLAG_INHERIT, 0);
+
     /* Exclusive, so no other process can bind the port while we hold it. */
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof(one));
