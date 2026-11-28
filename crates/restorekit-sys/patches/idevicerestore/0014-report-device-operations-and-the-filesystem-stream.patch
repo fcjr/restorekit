@@ -70,7 +70,14 @@
  	}
  }
  
-@@ -1185,14 +1189,16 @@ int restore_send_filesystem(struct idevicerestore_client_t* client, plist_t mess
+@@ -1179,20 +1183,22 @@ int restore_send_filesystem(struct idevicerestore_client_t* client, plist_t mess
+ 	logger(LL_INFO, "Filesystem validated\n");
+ 
+-	if (asr_port == ASR_DEFAULT_PORT) {
++	if (client->progress_cb || asr_port == ASR_DEFAULT_PORT) {
+ 		asr_set_progress_callback(asr, restore_asr_progress_cb, client);
+ 	}
+ 
  	// once the target filesystem has been validated, ASR then requests the
  	// entire filesystem to be sent.
  	logger(LL_INFO, "Sending filesystem now...\n");
