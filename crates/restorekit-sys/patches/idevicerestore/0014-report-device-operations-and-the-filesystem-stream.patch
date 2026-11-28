@@ -59,24 +59,38 @@
  	lastop = (int)operation;
  
  	return 0;
-@@ -1117,7 +1120,7 @@ static void restore_asr_progress_cb(double progress, void* userdata)
+@@ -1117,7 +1120,8 @@ static void restore_asr_progress_cb(double progress, void* userdata)
  {
  	struct idevicerestore_client_t* client = (struct idevicerestore_client_t*)userdata;
- 	if (client) {
+-	if (client) {
 -		idevicerestore_progress(client, RESTORE_STEP_UPLOAD_FS, progress);
++	/* restore_send_filesystem reports completion after the payload send succeeds. */
++	if (client && progress < 1.0) {
 +		idevicerestore_progress(client, RESTORE_STEP_SEND_FS, progress);
  	}
  }
  
-@@ -1185,7 +1188,10 @@ int restore_send_filesystem(struct idevicerestore_client_t* client, plist_t mess
+@@ -1179,20 +1183,22 @@ int restore_send_filesystem(struct idevicerestore_client_t* client, plist_t mess
+ 	logger(LL_INFO, "Filesystem validated\n");
+ 
+-	if (asr_port == ASR_DEFAULT_PORT) {
++	if (client->progress_cb || asr_port == ASR_DEFAULT_PORT) {
+ 		asr_set_progress_callback(asr, restore_asr_progress_cb, client);
+ 	}
+ 
  	// once the target filesystem has been validated, ASR then requests the
  	// entire filesystem to be sent.
  	logger(LL_INFO, "Sending filesystem now...\n");
--	if (asr_send_payload(asr, file) < 0) {
 +	idevicerestore_progress(client, RESTORE_STEP_SEND_FS, 0.0);
-+	int sent = asr_send_payload(asr, file);
-+	idevicerestore_progress(client, RESTORE_STEP_SEND_FS, 1.0);
-+	if (sent < 0) {
+ 	if (asr_send_payload(asr, file) < 0) {
  		ipsw_file_close(file);
  		ipsw_close(ipsw_dummy);
  		logger(LL_ERROR, "Unable to send payload to ASR\n");
+ 		asr_free(asr);
+ 		return -1;
+ 	}
++	idevicerestore_progress(client, RESTORE_STEP_SEND_FS, 1.0);
+ 	ipsw_file_close(file);
+ 	ipsw_close(ipsw_dummy);
+ 
+ 	logger(LL_INFO, "Done sending filesystem\n");
